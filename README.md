@@ -5,7 +5,7 @@ This is the official implementation of Organoid Tracker, a comprehensive AI-powe
 **Paper**
 > [**Organoid Tracker: A SAM2-Powered Platform for Zero-shot Cyst Analysis in Human Kidney Organoid Videos**](#)  
 > Xiaoyu Huang, Lauren M Maxson, Trang Nguyen, Cheng Jack Song, and Yuankai Huo  
-> *arXiv ()*
+> *arXiv (2509.11063)*
 
 Contact: [xiaoyu.huang@vanderbilt.edu](mailto:xiaoyu.huang@vanderbilt.edu). Feel free to reach out with any questions or discussion!
 
