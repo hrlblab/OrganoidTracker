@@ -67,6 +67,11 @@ def patch_connected_components():
 
 # Add path to models directory for imports
 models_path = Path(__file__).parent.parent.parent / "models"
+medical_sam2_path = models_path / "medical_sam2"
+
+# Add medical_sam2 path first so 'sam2_train' imports work (used internally by medical_sam2)
+if str(medical_sam2_path) not in sys.path:
+    sys.path.insert(0, str(medical_sam2_path))
 if str(models_path) not in sys.path:
     sys.path.insert(0, str(models_path))
 

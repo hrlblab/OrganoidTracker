@@ -1,0 +1,23 @@
+name: organoid-tracker
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - pillow
+  - pyyaml
+  - pandas
+  - matplotlib
+  - scipy
+  - tqdm
+  - pip
+  - pip:
+    - opencv-python
+    - hydra-core
+    - omegaconf
+    - scikit-image
+    - iopath
+    - seaborn
+    - reportlab
+    - decord

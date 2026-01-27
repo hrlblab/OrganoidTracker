@@ -52,25 +52,54 @@ Representative analysis output for a PKD mutant organoid video showing: **(a)** 
 
 ### Prerequisites
 - Python 3.9 or higher
-- CUDA-compatible GPU
-- 8GB RAM for video processing
+- CUDA-compatible GPU (recommended) or CPU
+- 8GB+ RAM for video processing
 
-### Quick Setup
+### Option 1: Conda Environment (Recommended)
 
 ```bash
 # Clone the repository
 git clone https://github.com/hrlblab/OrganoidTracker.git
 cd OrganoidTracker
 
-# Create and activate conda environment
-conda create -n organoid-tracker python=3.9
+# Create conda environment from file
+conda env create -f environment.yml
 conda activate organoid-tracker
 
 # Install PyTorch with CUDA support (adjust CUDA version as needed)
+# For CUDA 11.8:
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+# For CUDA 12.1:
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# For CPU only:
+pip install torch torchvision
+```
+
+### Option 2: Pip Only
+
+```bash
+# Clone the repository
+git clone https://github.com/hrlblab/OrganoidTracker.git
+cd OrganoidTracker
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# or: venv\Scripts\activate  # Windows
+
+# Install PyTorch first (adjust CUDA version as needed)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 
 # Install remaining dependencies
 pip install -r requirements.txt
+```
+
+### Verify Installation
+
+```bash
+python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
 ```
 
 ### Model Checkpoints

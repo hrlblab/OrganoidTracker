@@ -37,10 +37,10 @@ try:
     from src.core.model_registry import get_model_registry
 except ImportError as e:
     print(f"❌ Error importing modules: {e}")
-    print("Make sure you're running from the Medical-SAM2 directory")
+    print("Make sure you're running from the OrganoidTracker directory")
     print("and that all dependencies are installed:")
-    print("  conda activate medsam2")
-    print("  python video_tracker_gui.py")
+    print("  pip install torch torchvision hydra-core omegaconf")
+    print("  pip install opencv-python pillow numpy scipy tqdm")
     sys.exit(1)
 
 
@@ -79,8 +79,7 @@ def check_dependencies():
     if missing_deps:
         print(f"\n❌ Missing dependencies: {', '.join(missing_deps)}")
         print("Please install missing dependencies:")
-        print("  conda activate medsam2")
-        print("  conda install pytorch opencv pillow numpy")
+        print("  pip install torch torchvision opencv-python pillow numpy")
         return False
 
     return True
