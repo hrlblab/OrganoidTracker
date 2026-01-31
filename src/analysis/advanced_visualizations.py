@@ -25,10 +25,10 @@ try:
     from ...config import MATPLOTLIB_DPI, VISUALIZATION_FORMAT, FONT_SCALE_FACTOR, DISABLE_VISUALIZATION_TEXT
 except ImportError:
     # Fallback values if config import fails
-    MATPLOTLIB_DPI = 300
-    VISUALIZATION_FORMAT = 'svg'
-    FONT_SCALE_FACTOR = 5.0
-    DISABLE_VISUALIZATION_TEXT = True
+    MATPLOTLIB_DPI = 150
+    VISUALIZATION_FORMAT = 'png'
+    FONT_SCALE_FACTOR = 1.0
+    DISABLE_VISUALIZATION_TEXT = False
 
 # Optional imports with graceful fallback
 try:

@@ -18,6 +18,9 @@ import sys
 import os
 from pathlib import Path
 
+# Fix OpenMP duplicate library issue on Windows (PyTorch + NumPy/SciPy conflict)
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 

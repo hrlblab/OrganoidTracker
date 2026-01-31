@@ -20,9 +20,9 @@ DEBUG_MODE_ENABLED = False        # Enable debug frame generation by default
 
 # Advanced Analysis Configuration
 ENABLE_COMPREHENSIVE_REPORTS = True    # Generate enhanced reports with visualizations
-MATPLOTLIB_DPI = 300                   # DPI for high-quality plot output
-VISUALIZATION_FORMAT = 'svg'            # Output format for visualizations ('png' or 'svg')
-FIGURE_SIZE = (12, 8)                 # Default figure size in inches
+MATPLOTLIB_DPI = 150                   # DPI for plot output (150=normal, 300=publication)
+VISUALIZATION_FORMAT = 'png'           # Output format for visualizations ('png' or 'svg')
+FIGURE_SIZE = (10, 6)                  # Default figure size in inches
 
 # System Configuration
 SUPPRESS_MATPLOTLIB_WARNINGS = True   # Suppress matplotlib 3D projection warnings
@@ -51,7 +51,7 @@ PDF_PAGE_SIZE = 'A4'                 # PDF page size: 'A4', 'letter', etc.
 # Visualization Font Scaling
 FONT_SCALE_FACTOR = 1.0               # Scale factor for all visualization fonts
 DISABLE_VISUALIZATION_TEXT = False    # Enable axis labels and legends
-DISABLE_VISUALIZATION_TITLES = True   # Disable titles only
+DISABLE_VISUALIZATION_TITLES = False  # Enable titles for normal use (True=publication mode)
 
 # Performance Configuration
 MAX_VIDEO_FRAMES = None               # Maximum frames to load (None = no limit)
