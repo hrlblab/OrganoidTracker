@@ -39,7 +39,7 @@ class VideoTrackerApp:
     Main GUI window for video object tracking
 
     Features:
-    - Model selection (Medical-SAM2, SAM2, future models)
+    - Model selection (SAM2 families, future models)
     - Video loading and preview
     - Click-based object prompting
     - Progress tracking

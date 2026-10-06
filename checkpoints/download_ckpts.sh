@@ -56,9 +56,4 @@ $CMD $sam2p1_hiera_b_plus_url || { echo "Failed to download checkpoint from $sam
 echo "Downloading sam2.1_hiera_large.pt checkpoint..."
 $CMD $sam2p1_hiera_l_url || { echo "Failed to download checkpoint from $sam2p1_hiera_l_url"; exit 1; }
 
-# Medical-SAM2 checkpoint (optimized for medical/biological imaging)
-echo "Downloading Medical-SAM2 checkpoint..."
-medsam2_url="https://github.com/MedicineToken/Medical-SAM2/releases/download/v1.0.0/MedSAM2_pretrain.pth"
-$CMD $medsam2_url || { echo "Failed to download Medical-SAM2 checkpoint from $medsam2_url"; exit 1; }
-
 echo "All checkpoints are downloaded successfully."

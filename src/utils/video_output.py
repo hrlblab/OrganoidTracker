@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Video Output Utilities for Medical-SAM2
+Video Output Utilities for SAM2
 Handles creation of different video output types with robust codec support
 """
 
@@ -87,7 +87,7 @@ class VideoOutputGenerator:
 
         Args:
             frames: List of original video frames (RGB format)
-            video_segments: Tracking results from MedicalSAM2Tracker
+            video_segments: Tracking results from SAM2Tracker
             obj_id: Object ID to visualize
             output_path: Path for output video file
             fps: Output frame rate

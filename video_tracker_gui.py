@@ -4,7 +4,7 @@ Multi-Model Video Object Tracker GUI
 Main launcher for the graphical user interface
 
 Features:
-- Support for multiple models (Medical-SAM2, SAM2, future models)
+- Support for multiple models (SAM2 families, future models)
 - Click-based object prompting
 - Real-time progress tracking
 - Multiple video output formats

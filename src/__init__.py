@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Unified Video Tracker Application
-Support for multiple models: Medical-SAM2, SAM2, and more
+Support for the SAM2 model families
 """
 
 __version__ = "2.0.0"
