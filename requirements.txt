@@ -29,6 +29,3 @@ reportlab>=3.6.0
 
 # Utilities
 tqdm>=4.60.0
-
-# Video decoding
-decord>=0.6.0

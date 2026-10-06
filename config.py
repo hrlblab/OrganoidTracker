@@ -53,6 +53,11 @@ FONT_SCALE_FACTOR = 1.0               # Scale factor for all visualization fonts
 DISABLE_VISUALIZATION_TEXT = False    # Enable axis labels and legends
 DISABLE_VISUALIZATION_TITLES = False  # Enable titles for normal use (True=publication mode)
 
+# Frame Handling Configuration
+COLLAPSE_DUPLICATE_FRAMES = True      # Collapse consecutive near-identical frames (video-generation artifact) into one time point
+DUPLICATE_FRAME_MAD_THRESHOLD = 1.0   # Mean absolute grayscale difference (0-255) below which consecutive frames count as duplicates
+SAM2_CHECKPOINT_FAMILY = "2.1"        # "2.1" (default) or "2" (original SAM 2 checkpoints used for the paper's figures)
+
 # Performance Configuration
 MAX_VIDEO_FRAMES = None               # Maximum frames to load (None = no limit)
 MEMORY_OPTIMIZATION = True           # Enable memory optimization for large videos
@@ -69,19 +74,6 @@ SAM2_USE_IMPROVED_CONFIG = True      # Use improved SAM2 configuration file
 SAM2_MIN_MASK_AREA = 50              # Minimum mask area (pixels) - Allow small cyst detection
 SAM2_MIN_CONFIDENCE = 0.5            # Minimum confidence score (0-1) - FURTHER INCREASED for even stricter filtering
 SAM2_MEMORY_FRAMES = 1000             # Number of previous frames to depend on for memory (unlimited - depends on all previous frames)
-
-# Adaptive Tracking Configuration
-ENABLE_ADAPTIVE_TRACKING = True           # Enable adaptive bounding box tracking
-ADAPTIVE_BBOX_UPDATE_THRESHOLD = 0.6      # Overlap ratio threshold for bbox updates (0-1)
-ADAPTIVE_EXPANSION_FACTOR = 1.3           # Factor for expanding search region when object lost
-ADAPTIVE_MIN_MASK_AREA = 50               # Minimum mask area for adaptive decisions (pixels)
-ADAPTIVE_MAX_EXPANSION_FACTOR = 2.0       # Maximum expansion allowed
-ADAPTIVE_CONFIDENCE_THRESHOLD = 0.7       # High confidence threshold for adaptive decisions
-ADAPTIVE_LOW_CONFIDENCE_THRESHOLD = 0.4   # Low confidence threshold triggering expansion
-ADAPTIVE_PADDING_FACTOR = 0.2             # Padding around fitted bbox (ratio of bbox size)
-ADAPTIVE_VELOCITY_SMOOTHING = 0.7         # Velocity smoothing factor for predictive updates
-ADAPTIVE_ENABLE_LOGGING = True            # Enable detailed adaptive tracking logs
-ADAPTIVE_ENABLE_VELOCITY_PREDICTION = True # Enable velocity-based bbox prediction
 
 # Logging Configuration
 LOG_LEVEL = "INFO"                   # "DEBUG", "INFO", "WARNING", "ERROR"

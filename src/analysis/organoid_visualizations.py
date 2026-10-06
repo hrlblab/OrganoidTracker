@@ -858,8 +858,8 @@ class OrganoidVisualizationSuite:
                 # Get original frame
                 original_frame = original_frames[frame_idx].copy()
 
-                # Apply tracking masks - EXACTLY match video generation temporal logic
-                mask_idx = total_frames - 1 - frame_idx  # Same as video generation
+                # Frames and tracking results share chronological indices
+                mask_idx = frame_idx
 
                 # ✅ USE EXACT VIDEO GENERATION CODE for overlay creation
                 overlay_frame = video_generator._generate_multi_object_frame(
@@ -876,15 +876,6 @@ class OrganoidVisualizationSuite:
                 # Store frames
                 original_row_frames.append(original_frame)
                 overlay_row_frames.append(overlay_frame)
-
-            # ✅ FIX: Apply final output reversal to match video generation exactly
-            # Video generation does: mask_idx reversal + final output reversal
-            # We need both steps to match perfectly
-            print(f"🔄 Applying final output reversal to match video generation")
-            overlay_row_frames.reverse()  # Same as video generation final step
-
-            # ✅ NOTE: Original frames stay in natural order (Frame 0 = earliest)
-            # Only overlay frames need reversal to match video generation temporal logic
 
             # Create the visualization with proper aspect ratio and spacing
             # Calculate optimal figure size to prevent stretching

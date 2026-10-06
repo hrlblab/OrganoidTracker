@@ -189,15 +189,6 @@ class VideoTrackerApp:
             variable=self.debug_var
         )
 
-        # Adaptive tracking toggle
-        self.adaptive_label = ttk.Label(self.config_frame, text="Tracking Mode:")
-        self.adaptive_var = tk.BooleanVar(value=True)  # Default to enabled
-        self.adaptive_check = ttk.Checkbutton(
-            self.config_frame,
-            text="Enable Adaptive Tracking (reduces drift)",
-            variable=self.adaptive_var
-        )
-        
         # Reverse tracking toggle
         self.reverse_label = ttk.Label(self.config_frame, text="Temporal Direction:")
         self.reverse_var = tk.BooleanVar(value=True)  # Default to reverse (biological use case)
@@ -480,10 +471,6 @@ class VideoTrackerApp:
         self.quality_label.grid(row=1, column=2, sticky='w', padx=10, pady=2)
         self.quality_combo.grid(row=1, column=3, padx=5, pady=2)
 
-        # Row 2: Adaptive tracking controls
-        self.adaptive_label.grid(row=2, column=0, sticky='w', padx=2, pady=2)
-        self.adaptive_check.grid(row=2, column=1, columnspan=2, padx=5, pady=2, sticky='w')
-
         # Row 3: Reverse tracking controls
         self.reverse_label.grid(row=3, column=0, sticky='w', padx=2, pady=2)
         self.reverse_check.grid(row=3, column=1, columnspan=2, padx=5, pady=2, sticky='w')
@@ -632,16 +619,15 @@ class VideoTrackerApp:
     def on_model_size_changed(self, event=None):
         """Update checkpoint display when model size changes"""
         model_config = self.model_config_var.get()
-
-        # Map model config to checkpoint filename
-        checkpoint_map = {
-            'sam2_hiera_s': 'sam2.1_hiera_small.pt',
-            'sam2_hiera_b': 'sam2.1_hiera_base_plus.pt',
-            'sam2_hiera_l': 'sam2.1_hiera_large.pt',
-            'sam2_hiera_t': 'sam2.1_hiera_tiny.pt'
-        }
-
-        checkpoint_file = checkpoint_map.get(model_config, 'sam2.1_hiera_small.pt')
+        try:
+            from ..core.sam2_tracker import checkpoint_filename
+            try:
+                from config import SAM2_CHECKPOINT_FAMILY as family
+            except ImportError:
+                family = "2.1"
+            checkpoint_file = checkpoint_filename(model_config, family)
+        except Exception:
+            checkpoint_file = "sam2.1_hiera_small.pt"
         self.checkpoint_info.config(text=checkpoint_file)
 
     def on_model_selected(self, event=None):
@@ -677,22 +663,18 @@ class VideoTrackerApp:
             self.set_status("Loading model... Please wait.")
             self.load_model_btn.config(state='disabled')
             self.log_event(f"🔄 Loading {selected} with {device.upper()} device...")
+            enable_reverse = self.reverse_var.get()  # read Tk variables on the GUI thread
 
             # Use threading to prevent GUI freeze
             def load_model_thread():
                 try:
                     registry = get_model_registry()
                     
-                    # Get tracking settings from GUI
-                    enable_adaptive = self.adaptive_var.get()
-                    enable_reverse = self.reverse_var.get()
-                    
                     model = registry.create_model_instance(
                         model_name,
                         device=device,
                         model_config=model_config,
                         checkpoint_path=checkpoint_path,
-                        enable_adaptive_tracking=enable_adaptive,
                         enable_reverse_tracking=enable_reverse
                     )
 
@@ -720,10 +702,8 @@ class VideoTrackerApp:
         self.load_video_btn.config(state='normal')
         
         # Check tracking settings and show feedback
-        adaptive_status = "adaptive" if self.adaptive_var.get() else "static"
         direction_status = "reverse" if self.reverse_var.get() else "forward"
-        tracking_status = f"with {adaptive_status} {direction_status} tracking"
-        self.set_status(f"Model loaded successfully {tracking_status}! Ready to load video.")
+        self.set_status(f"Model loaded successfully with {direction_status} tracking! Ready to load video.")
 
         # Get model name for more specific logging
         selected = self.model_var.get()
@@ -731,11 +711,8 @@ class VideoTrackerApp:
         metadata = registry.get_model_metadata(selected)
         model_name = metadata.display_name if metadata else selected
         
-        # Enhanced logging with complete tracking status
-        adaptive_icon = "🎯" if self.adaptive_var.get() else "📦"
         direction_icon = "⏪" if self.reverse_var.get() else "⏩"
-        tracking_mode = f"{adaptive_icon} {adaptive_status.title()} {direction_icon} {direction_status.title()}"
-        self.log_event(f"✅ {model_name} loaded successfully in {load_time:.2f}s ({tracking_mode} tracking)")
+        self.log_event(f"✅ {model_name} loaded successfully in {load_time:.2f}s ({direction_icon} {direction_status} tracking)")
 
     def on_model_loaded_error(self, error_msg, load_time):
         """Handle model loading error"""
@@ -816,7 +793,13 @@ class VideoTrackerApp:
 
         # Update video info display
         info_text = f"✅ Video loaded: {Path(file_path).name}\n"
-        info_text += f"Frames: {video_info.get('num_frames', 'Unknown')}\n"
+        num_frames = video_info.get('num_frames', 'Unknown')
+        decoded = video_info.get('decoded_frames', num_frames)
+        removed = video_info.get('duplicate_frames_removed', 0)
+        if removed:
+            info_text += f"Frames: {num_frames} unique time points ({decoded} decoded, {removed} duplicates removed)\n"
+        else:
+            info_text += f"Frames: {num_frames}\n"
         info_text += f"FPS: {video_info.get('fps', 'Unknown'):.1f}\n"
 
         # Extract dimensions correctly (dimensions is a tuple: height, width)
@@ -832,9 +815,11 @@ class VideoTrackerApp:
 
             self.video_info_label.config(text=info_text)
 
-        # Display first frame
+        # Display the annotation frame (the last chronological frame in reverse mode)
         if hasattr(self.current_model, 'video_frames') and self.current_model.video_frames:
-            self.video_canvas.display_frame(self.current_model.video_frames[0])
+            self.video_canvas.display_frame(self.current_model.get_first_frame())
+            if video_info.get('direction') == 'reverse':
+                self.log_event("🖼️ Showing the last frame of the video for annotation (reverse tracking)")
 
         # Enable object controls (simplified UI)
             self.clear_prompts_btn.config(state='normal')
@@ -1350,23 +1335,16 @@ class VideoTrackerApp:
             num_frames = len(self.video_segments)
             active_objects = list(self.current_model.get_active_objects())
 
-            self.log_event(f"✅ Tracking completed in {tracking_time:.2f}s")
+            status = getattr(self.video_segments, 'status', 'completed')
+            if status == 'partial':
+                error = getattr(self.video_segments, 'error', 'unknown error')
+                self.log_event(f"⚠️ Tracking stopped early after {tracking_time:.2f}s: {error}")
+                self.log_event(f"⚠️ Results cover {num_frames} of {getattr(self.video_segments, 'frames_total', '?')} frames; treat exports as partial")
+                self.set_status("Tracking stopped early; results are partial. Check the log.")
+            else:
+                self.log_event(f"✅ Tracking completed in {tracking_time:.2f}s")
+                self.set_status("Tracking completed! Ready to generate videos.")
             self.log_event(f"📊 Processed {num_frames} frames for {len(active_objects)} objects")
-            
-            # Log adaptive tracking statistics if available
-            if hasattr(self.current_model, 'get_adaptive_tracking_stats'):
-                try:
-                    adaptive_stats = self.current_model.get_adaptive_tracking_stats()
-                    if adaptive_stats:
-                        total_updates = sum(stats.get('total_updates', 0) for stats in adaptive_stats.values())
-                        if total_updates > 0:
-                            self.log_event(f"🎯 Adaptive tracking: {total_updates} bbox updates across {len(adaptive_stats)} objects")
-                        else:
-                            self.log_event(f"📦 Static tracking: No adaptive updates needed")
-                except Exception as e:
-                    pass  # Don't fail tracking on stats error
-
-            self.set_status("Tracking completed! Ready to generate videos.")
         else:
             self.log_event(f"⚠️ Tracking completed but no results generated")
 

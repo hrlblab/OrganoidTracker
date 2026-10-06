@@ -163,7 +163,7 @@ class VideoOutputGenerator:
             alpha: Transparency for overlay
             progress_callback: Optional callback(current, total, message) for progress updates
             quality_scale: Scale factor for quality/performance trade-off
-            tracker: Tracker instance to determine reverse state (required for reverse tracking)
+            tracker: Unused; kept for call compatibility
 
         Returns:
             str: Path to created video file
@@ -239,18 +239,9 @@ class VideoOutputGenerator:
         video_writer = self._create_video_writer(output_path, optimized_fps, target_width, target_height)
 
         try:
-            # CONFIGURABLE PROCESSING: Check if video was reversed during tracking
-            # Determine reverse state from tracker (if available) or use heuristic
-            is_reversed_video = getattr(tracker, 'is_reversed_video', None)
-            if is_reversed_video is None:
-                # Heuristic: check if this looks like reversed processing
-                # (later frames have tracking data but earlier ones don't)
-                frame_indices = list(video_segments.keys()) if video_segments else []
-                is_reversed_video = len(frame_indices) > 1 and max(frame_indices) > min(frame_indices) and frame_indices != sorted(frame_indices)
-            
-            print(f"🎬 Processing {len(frames)} frames ({'reverse-tracked' if is_reversed_video else 'forward-tracked'} video)")
+            # Frames and tracking results share chronological indices.
+            print(f"🎬 Processing {len(frames)} frames")
             print(f"🔍 DEBUG: video_segments keys = {list(video_segments.keys()) if video_segments else 'None'}")
-            print(f"🔍 DEBUG: is_reversed_video = {is_reversed_video}")
             
             # CRITICAL DEBUG: Check if video_segments has any actual mask data
             total_objects = 0
@@ -269,16 +260,9 @@ class VideoOutputGenerator:
                 if progress_callback:
                     progress_callback(frame_idx, total_frames, f"Processing frame {frame_idx + 1}/{total_frames}")
 
-                # CONFIGURABLE MASK INDEXING: Use reversed index only if video was reverse-tracked
-                if is_reversed_video:
-                    # REVERSE TRACKING: Use reversed mask index to match reversed video frames
-                    mask_idx = total_frames - 1 - frame_idx
-                    frame_objects = list(video_segments[mask_idx].keys()) if mask_idx in video_segments else []
-                else:
-                    # FORWARD TRACKING: Use direct frame index (standard processing)
-                    mask_idx = frame_idx
-                    frame_objects = list(video_segments[mask_idx].keys()) if mask_idx in video_segments else []
-                                # Conditional debug output based on debug_mode parameter
+                mask_idx = frame_idx
+                frame_objects = list(video_segments[mask_idx].keys()) if mask_idx in video_segments else []
+                # Conditional debug output based on debug_mode parameter
                 if hasattr(self, 'debug_mode') and self.debug_mode:
                     print(f"🔍 DEBUG: Frame {frame_idx} using mask {mask_idx}, has objects: {frame_objects}")
 
@@ -327,21 +311,6 @@ class VideoOutputGenerator:
                 if (frame_idx + 1) % 10 == 0:  # Every 10 frames
                     import gc
                     gc.collect()
-
-            # CONFIGURABLE POSTPROCESSING: Only reverse frames if they were reverse-tracked
-            if is_reversed_video:
-                # REVERSE TRACKING: Reverse processed frames to restore original temporal order
-                # Since SAM2 processed reversed input frames, we need to reverse the output 
-                # to get back to original frame order
-                processed_frames.reverse()
-                
-                if hasattr(self, 'debug_mode') and self.debug_mode:
-                    print(f"🔍 OUTPUT REVERSAL: Reversing processed frames to restore original temporal order")
-                    print(f"🔍 DEBUG: After reversal, first frame shows original frame 0, last shows original frame {len(processed_frames)-1}")
-            else:
-                # FORWARD TRACKING: Frames are already in correct temporal order
-                if hasattr(self, 'debug_mode') and self.debug_mode:
-                    print(f"🔍 NO REVERSAL NEEDED: Frames already in correct temporal order for forward tracking")
 
             # Write frames in correct temporal progression
             for i, output_frame in enumerate(processed_frames):
@@ -395,7 +364,7 @@ class VideoOutputGenerator:
             alpha: Transparency for overlay
             progress_callback: Optional callback for progress updates
             quality_scale: Scale factor for quality/performance trade-off
-            tracker: Tracker instance to determine reverse state
+            tracker: Unused; kept for call compatibility
 
         Returns:
             dict: Paths to created videos {'overlay': path, 'mask': path, 'side_by_side': path}
@@ -434,9 +403,6 @@ class VideoOutputGenerator:
         if progress_callback:
             progress_callback(0, total_frames * 4, "🚀 Processing masks (optimization phase)")
 
-        # Determine reverse state from tracker
-        is_reversed_video = getattr(tracker, 'is_reversed_video', True)  # Default to True for backward compatibility
-        
         # CRITICAL DEBUG: Check video_segments data
         total_objects = 0
         frames_with_masks = 0
@@ -445,10 +411,8 @@ class VideoOutputGenerator:
                 frames_with_masks += 1
                 total_objects += len(frame_objects)
         print(f"🔍 OPTIMIZED CRITICAL: {frames_with_masks}/{len(video_segments)} frames have masks, {total_objects} total objects")
-        print(f"🔍 OPTIMIZED DEBUG: is_reversed_video = {is_reversed_video}")
-        
         processed_frames = self._process_all_frames_optimized(
-            frames, video_segments, object_colors, alpha, quality_scale, progress_callback, is_reversed_video
+            frames, video_segments, object_colors, alpha, quality_scale, progress_callback
         )
 
         # STEP 2: Generate all video types from processed frames
@@ -466,7 +430,7 @@ class VideoOutputGenerator:
             try:
                 print(f"🔍 CREATING {video_type} video from processed frames...")
                 video_path = self._create_video_from_processed_frames(
-                    processed_frames, video_type, str(output_path), fps, progress_callback, base_progress, is_reversed_video
+                    processed_frames, video_type, str(output_path), fps, progress_callback, base_progress
                 )
                 created_videos[video_type] = video_path
                 print(f"✅ {video_type} video created (optimized)")
@@ -484,13 +448,10 @@ class VideoOutputGenerator:
 
         return created_videos
 
-    def _process_all_frames_optimized(self, frames, video_segments, object_colors, alpha, quality_scale, progress_callback, is_reversed_video=True):
+    def _process_all_frames_optimized(self, frames, video_segments, object_colors, alpha, quality_scale, progress_callback):
         """
         🚀 Process all frames once with all video type variants
         Returns: dict with all processed frame variants
-        
-        Args:
-            is_reversed_video: Whether the tracking was done in reverse order
         """
         total_frames = len(frames)
         processed_frames = {
@@ -509,13 +470,7 @@ class VideoOutputGenerator:
             if progress_callback:
                 progress_callback(frame_idx, total_frames * 4, f"Processing frame {frame_idx + 1}/{total_frames}")
 
-            # CONFIGURABLE MASK INDEXING: Use reversed index only if video was reverse-tracked
-            if is_reversed_video:
-                # REVERSE TRACKING: Use reversed mask index to match reversed video frames
-                mask_idx = (total_frames - 1) - frame_idx
-            else:
-                # FORWARD TRACKING: Use direct frame index (standard processing)
-                mask_idx = frame_idx
+            mask_idx = frame_idx  # frames and results share chronological indices
 
             original_frame = frames[frame_idx]
 
@@ -565,12 +520,9 @@ class VideoOutputGenerator:
 
         return processed_frames
 
-    def _create_video_from_processed_frames(self, processed_frames, video_type, output_path, fps, progress_callback, base_progress, is_reversed_video=True):
+    def _create_video_from_processed_frames(self, processed_frames, video_type, output_path, fps, progress_callback, base_progress):
         """
         Create video from pre-processed frames (NO mask processing!)
-        
-        Args:
-            is_reversed_video: Whether the tracking was done in reverse order
         """
         frames = processed_frames[video_type]
 
@@ -593,15 +545,7 @@ class VideoOutputGenerator:
         actual_height = getattr(self, '_target_height', height)
         print(f"🔧 Video writer created with actual dimensions: {actual_width}x{actual_height}")
 
-        # CONFIGURABLE REVERSAL: Only reverse frames if they were reverse-tracked
-        if is_reversed_video:
-            # REVERSE TRACKING: Reverse frames to restore original temporal order (compensate for SAM2 preprocessing)
-            frames_to_write = list(reversed(frames))
-            print(f"🔄 Reversing {len(frames)} frames to restore original temporal order")
-        else:
-            # FORWARD TRACKING: Frames are already in correct order
-            frames_to_write = frames
-            print(f"▶️ Using {len(frames)} frames in original processing order")
+        frames_to_write = frames  # already in chronological order
 
         # Write frames (with proper scaling!)
         for i, frame in enumerate(frames_to_write):
@@ -909,17 +853,12 @@ class VideoOutputGenerator:
         else:
             mask = mask_data
 
+        mask = np.asarray(mask)
         if mask.ndim > 2:
             mask = mask.squeeze()
 
-        # Convert logits to probabilities using sigmoid
-        if isinstance(mask, np.ndarray):
-            mask_tensor = torch.from_numpy(mask)
-        else:
-            mask_tensor = mask
-
-        mask_prob = torch.sigmoid(mask_tensor).numpy()
-        mask_binary = (mask_prob > 0.5).astype(np.uint8)
+        # Binary masks are already 0/1; float logits are positive where probability > 0.5
+        mask_binary = (mask > 0).astype(np.uint8)
 
         # Resize to match frame size if needed
         if mask_binary.shape != frame_shape:
@@ -945,20 +884,12 @@ class VideoOutputGenerator:
         elif hasattr(mask, 'numpy'):
             mask = mask.numpy()
 
+        mask = np.asarray(mask)
         if mask.ndim > 2:
             mask = mask.squeeze()
 
-        # CRITICAL FIX: Convert logits to probabilities using sigmoid
-        if isinstance(mask, np.ndarray):
-            mask_tensor = torch.from_numpy(mask)
-        else:
-            mask_tensor = mask
-
-        # Apply sigmoid to convert logits to probabilities (0-1 range)
-        mask_prob = torch.sigmoid(mask_tensor).numpy()
-
-        # Convert to binary with proper threshold
-        mask_binary = (mask_prob > 0.5).astype(np.uint8)
+        # Binary masks are already 0/1; float logits are positive where probability > 0.5
+        mask_binary = (mask > 0).astype(np.uint8)
 
         # Resize to match frame size if needed
         if mask_binary.shape != frame.shape[:2]:
