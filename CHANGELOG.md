@@ -9,8 +9,48 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
 
 ## [Unreleased]
 
+### Scientific behavior
+- Reverse tracking now does what the paper describes: the prompt is placed on the last
+  chronological frame and SAM2 propagates backwards in time. The released code applied the
+  prompt to the first frame and tracked forward, then mirrored the output indices. Results,
+  videos and analyses are now keyed chronologically. All reverse-mode measurements change; on
+  a sample well with identical boxes the median per-frame area difference between the two
+  behaviors was 30 percent.
+- Masks are binarized uniformly at probability 0.5. The analysis previously thresholded raw
+  logits at 0.5 (probability 0.62) while the videos used probability 0.5.
+- Consecutive near-identical frames, which video export can repeat, are collapsed into one time
+  point before tracking (`COLLAPSE_DUPLICATE_FRAMES`, `DUPLICATE_FRAME_MAD_THRESHOLD`). An
+  11-frame video with 4 repeated frames yields 7 time points; the log and the prompt record
+  list the decoded and unique counts.
+- Days are numbered from 1, as in the paper's figures. The "Time Lapse" entry is the span from
+  the first to the last frame.
+
 ### Added
 - This changelog. The upstream state before maintenance began is tagged `legacy-baseline`.
+- Both SAM 2 and SAM 2.1 checkpoint families, selected with `SAM2_CHECKPOINT_FAMILY` in
+  `config.py` (default `2.1`; `2` is the family used for the paper's figures).
+- `run_tracking` returns a `TrackingResult` whose status distinguishes completed from partial
+  runs; the GUI reports a run that stopped early instead of logging success.
+- A prompt and provenance record (`data/output_videos/prompts/<video>_<timestamp>.json`) with
+  organoid points, cyst boxes, video hash, frame map, direction, model family, checkpoint hash
+  and software versions, written when tracking starts.
+- SAM2's object presence score is recorded per object and frame.
+- A pytest suite with synthetic fixtures (`python -m pytest tests`); model tests use the SAM 2.1
+  tiny checkpoint and skip when it is absent.
+
+### Changed
+- Masks are stored as packed bits on the CPU (2 MB per 4096x4096 mask) instead of 64 MB float32
+  logits per object per frame on the GPU. Peak GPU memory on a sample well with six objects fell
+  from 5.3 GB to 1.3 GB.
+- The device is resolved once, so the model builder receives the device actually used on
+  machines without CUDA.
+- The process-wide `torch.zeros`/`torch.tensor` monkeypatch is gone; the vendored predictor
+  moves inputs to the right device itself.
+- `decord` is no longer required; the predictor is fed the frames the application decodes.
+
+### Removed
+- Adaptive bounding-box tracking. Its mid-run prompts were never consulted by the running
+  propagation, so it changed nothing except on a repeated run.
 
 ### Fixed
 - The Results Viewer module had lost its indentation and could not be imported, so the
