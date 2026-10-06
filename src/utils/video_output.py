@@ -373,6 +373,7 @@ class VideoOutputGenerator:
         import time
 
         output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
         start_time = time.time()
 
         print(f"🚀 OPTIMIZATION: Single-pass mask processing for {len(frames)} frames")

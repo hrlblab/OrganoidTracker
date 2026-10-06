@@ -71,3 +71,11 @@ def test_single_video_path_uses_chronological_indices(tmp_path):
     path = gen.create_multi_object_video(frames(), legacy_logit_segments(), tmp_path / "overlay.mp4", fps=2.0, video_type="overlay", alpha=0.6)
     assert path is not None
     assert_identity_mapping(path)
+
+
+def test_optimized_videos_create_a_missing_output_directory(tmp_path):
+    gen = VideoOutputGenerator()
+    target = tmp_path / "nested" / "does-not-exist-yet"
+    created = gen.create_optimized_multi_object_videos(frames(), packed_segments(), target, fps=2.0, quality_scale=1.0)
+    assert all(created.values()) and target.is_dir()
+    assert len(read_video(created["overlay"])) == N
