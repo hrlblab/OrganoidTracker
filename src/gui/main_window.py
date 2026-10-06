@@ -369,7 +369,7 @@ class VideoTrackerApp:
         self.analysis_params_frame = ttk.LabelFrame(self.analysis_frame, text="Analysis Parameters", padding=5)
 
         # Analysis parameter inputs (simplified - organoid count detected automatically)
-        self.time_lapse_label = ttk.Label(self.analysis_params_frame, text="Time Lapse (days):")
+        self.time_lapse_label = ttk.Label(self.analysis_params_frame, text="Time Lapse (days, first to last frame):")
         self.time_lapse_entry = ttk.Entry(
             self.analysis_params_frame,
             width=10,
