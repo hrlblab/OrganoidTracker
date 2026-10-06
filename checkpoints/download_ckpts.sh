@@ -6,7 +6,24 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-# Use either wget or curl to download the checkpoints
+# Download SAM 2 model checkpoints into this directory.
+#
+# Usage:  bash download_ckpts.sh [2.1|2|all]
+#   2.1   SAM 2.1 checkpoints (default; the family the application selects by default)
+#   2     original SAM 2 checkpoints (the family used for the paper's figures)
+#   all   both families
+#
+# Existing non-empty files are skipped; delete a file to download it again.
+
+set -u
+FAMILY="${1:-2.1}"
+cd "$(dirname "$0")" || exit 1
+
+case "$FAMILY" in
+    2|2.1|all) ;;
+    *) echo "Usage: bash download_ckpts.sh [2.1|2|all]"; exit 2 ;;
+esac
+
 if command -v wget &> /dev/null; then
     CMD="wget"
 elif command -v curl &> /dev/null; then
@@ -16,44 +33,37 @@ else
     exit 1
 fi
 
-# Define the URLs for SAM 2 checkpoints
-# SAM2_BASE_URL="https://dl.fbaipublicfiles.com/segment_anything_2/072824"
-# sam2_hiera_t_url="${SAM2_BASE_URL}/sam2_hiera_tiny.pt"
-# sam2_hiera_s_url="${SAM2_BASE_URL}/sam2_hiera_small.pt"
-# sam2_hiera_b_plus_url="${SAM2_BASE_URL}/sam2_hiera_base_plus.pt"
-# sam2_hiera_l_url="${SAM2_BASE_URL}/sam2_hiera_large.pt"
-
-# Download each of the four checkpoints using wget
-# echo "Downloading sam2_hiera_tiny.pt checkpoint..."
-# $CMD $sam2_hiera_t_url || { echo "Failed to download checkpoint from $sam2_hiera_t_url"; exit 1; }
-
-# echo "Downloading sam2_hiera_small.pt checkpoint..."
-# $CMD $sam2_hiera_s_url || { echo "Failed to download checkpoint from $sam2_hiera_s_url"; exit 1; }
-
-# echo "Downloading sam2_hiera_base_plus.pt checkpoint..."
-# $CMD $sam2_hiera_b_plus_url || { echo "Failed to download checkpoint from $sam2_hiera_b_plus_url"; exit 1; }
-
-# echo "Downloading sam2_hiera_large.pt checkpoint..."
-# $CMD $sam2_hiera_l_url || { echo "Failed to download checkpoint from $sam2_hiera_l_url"; exit 1; }
-
-# Define the URLs for SAM 2.1 checkpoints
+SAM2_BASE_URL="https://dl.fbaipublicfiles.com/segment_anything_2/072824"
 SAM2p1_BASE_URL="https://dl.fbaipublicfiles.com/segment_anything_2/092824"
-sam2p1_hiera_t_url="${SAM2p1_BASE_URL}/sam2.1_hiera_tiny.pt"
-sam2p1_hiera_s_url="${SAM2p1_BASE_URL}/sam2.1_hiera_small.pt"
-sam2p1_hiera_b_plus_url="${SAM2p1_BASE_URL}/sam2.1_hiera_base_plus.pt"
-sam2p1_hiera_l_url="${SAM2p1_BASE_URL}/sam2.1_hiera_large.pt"
 
-# SAM 2.1 checkpoints
-echo "Downloading sam2.1_hiera_tiny.pt checkpoint..."
-$CMD $sam2p1_hiera_t_url || { echo "Failed to download checkpoint from $sam2p1_hiera_t_url"; exit 1; }
+status=0
+download() {
+    local url="$1"
+    local file
+    file="$(basename "$url")"
+    if [ -s "$file" ]; then
+        echo "$file already exists, skipping."
+        return
+    fi
+    echo "Downloading $file ..."
+    $CMD "$url" || { echo "Failed to download $url"; status=1; }
+}
 
-echo "Downloading sam2.1_hiera_small.pt checkpoint..."
-$CMD $sam2p1_hiera_s_url || { echo "Failed to download checkpoint from $sam2p1_hiera_s_url"; exit 1; }
+if [ "$FAMILY" = "2" ] || [ "$FAMILY" = "all" ]; then
+    for name in sam2_hiera_tiny sam2_hiera_small sam2_hiera_base_plus sam2_hiera_large; do
+        download "${SAM2_BASE_URL}/${name}.pt"
+    done
+fi
 
-echo "Downloading sam2.1_hiera_base_plus.pt checkpoint..."
-$CMD $sam2p1_hiera_b_plus_url || { echo "Failed to download checkpoint from $sam2p1_hiera_b_plus_url"; exit 1; }
+if [ "$FAMILY" = "2.1" ] || [ "$FAMILY" = "all" ]; then
+    for name in sam2.1_hiera_tiny sam2.1_hiera_small sam2.1_hiera_base_plus sam2.1_hiera_large; do
+        download "${SAM2p1_BASE_URL}/${name}.pt"
+    done
+fi
 
-echo "Downloading sam2.1_hiera_large.pt checkpoint..."
-$CMD $sam2p1_hiera_l_url || { echo "Failed to download checkpoint from $sam2p1_hiera_l_url"; exit 1; }
-
-echo "All checkpoints are downloaded successfully."
+if [ "$status" -eq 0 ]; then
+    echo "All requested checkpoints are present."
+else
+    echo "Some checkpoints failed to download."
+fi
+exit "$status"
