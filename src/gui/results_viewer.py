@@ -344,11 +344,17 @@ class ResultsViewer:
         """Handle frame slider change"""
         try:
             new_frame_idx = int(float(value))
-            if 0 <= new_frame_idx < len(self.frames):
-                self.current_frame_idx = new_frame_idx
-                self.update_display()
         except ValueError:
-            pass
+            return
+
+        # update_display() moves the slider programmatically, which invokes this
+        # callback again; ignore the echo so the two methods do not recurse.
+        if new_frame_idx == self.current_frame_idx:
+            return
+
+        if 0 <= new_frame_idx < len(self.frames):
+            self.current_frame_idx = new_frame_idx
+            self.update_display()
 
     def on_view_mode_change(self):
         """Handle view mode change"""
