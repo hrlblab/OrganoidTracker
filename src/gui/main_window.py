@@ -586,25 +586,6 @@ class VideoTrackerApp:
         # Bind window resize for auto-zoom canvas
         self.root.bind('<Configure>', self.on_window_resize)
 
-    def on_window_resize(self, event):
-        """Handle window resize to auto-zoom canvas"""
-        # Only resize for the root window, not child widgets
-        if event.widget == self.root:
-            # Get available space for display frame
-            self.root.update_idletasks()  # Ensure geometry is updated
-
-            # Calculate new canvas size based on available space
-            display_frame_width = self.display_frame.winfo_width()
-            display_frame_height = self.display_frame.winfo_height()
-
-            if display_frame_width > 100 and display_frame_height > 100:  # Valid size
-                # Reserve space for controls and padding
-                canvas_width = max(400, display_frame_width - 40)  # Min 400px
-                canvas_height = max(300, display_frame_height - 200)  # Min 300px, reserve 200px for controls
-
-                # Update canvas size
-                self.video_canvas.config(width=canvas_width, height=canvas_height)
-
     def setup_bindings(self):
         """Setup event bindings"""
         self.model_combo.bind('<<ComboboxSelected>>', self.on_model_selected)
