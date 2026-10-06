@@ -1287,6 +1287,7 @@ class VideoTrackerApp:
         total_prompts = sum(len(prompts) for prompts in self.current_model.prompts.values())
         active_objects = list(self.current_model.get_active_objects())
         self.log_event(f"🎯 Starting tracking for {len(active_objects)} objects ({total_prompts} prompts)")
+        self._write_prompt_record()
 
         # Create progress dialog
         self.tracking_dialog = ProgressDialog(self.root, "Running Object Tracking")
@@ -1314,6 +1315,57 @@ class VideoTrackerApp:
         # Start tracking in background thread
         threading.Thread(target=tracking_thread, daemon=True).start()
         self.tracking_dialog.show()
+
+    def _write_prompt_record(self):
+        """Save prompts, organoid associations and provenance so a run can be reproduced."""
+        try:
+            import json
+            import time
+            model = self.current_model
+
+            def tk_value(var):
+                try:
+                    return var.get()
+                except Exception:
+                    return None
+
+            record = {
+                'schema': 'organoidtracker.prompts/1',
+                'created': time.strftime('%Y-%m-%dT%H:%M:%S'),
+                'video': {
+                    'path': str(self.current_video_path),
+                    'sha256': getattr(model, 'video_sha256', None),
+                    'decoded_frames': getattr(model, 'decoded_frame_count', None),
+                    'unique_frames': len(model.video_frames) if model.video_frames else 0,
+                    'frame_map': list(getattr(model, 'frame_map', [])),
+                },
+                'tracking': {
+                    'direction': 'reverse' if getattr(model, 'enable_reverse_tracking', True) else 'forward',
+                    'annotation_frame_index': getattr(model, 'annotation_frame_index', 0),
+                },
+                'model': model.provenance() if hasattr(model, 'provenance') else {'name': getattr(model, 'model_name', '?')},
+                'organoids': [
+                    {
+                        'organoid_id': organoid_id,
+                        'point': list(info['point']),
+                        'cysts': [{'cyst_id': c['cyst_id'], 'bbox': list(c['bbox'])} for c in info['cysts']],
+                    }
+                    for organoid_id, info in self.organoid_data.items()
+                ],
+                'prompts': {str(obj_id): prompts for obj_id, prompts in model.prompts.items()},
+                'analysis_inputs': {
+                    'time_lapse_days': tk_value(self.time_lapse_var),
+                    'conversion_factor_um_per_pixel': tk_value(self.conversion_factor_var),
+                },
+            }
+            out_dir = Path('data/output_videos/prompts')
+            out_dir.mkdir(parents=True, exist_ok=True)
+            stem = Path(str(self.current_video_path)).stem
+            path = out_dir / f"{stem}_{time.strftime('%Y%m%d-%H%M%S')}.json"
+            path.write_text(json.dumps(record, indent=2, default=str))
+            self.log_event(f"💾 Prompt record saved: {path}")
+        except Exception as e:
+            self.log_event(f"⚠️ Could not save prompt record: {e}")
 
     def on_tracking_complete_success(self, tracking_time):
         """Handle successful tracking completion"""
