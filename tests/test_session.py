@@ -79,6 +79,8 @@ def test_absolute_video_path_is_kept(tmp_path):
         ({"tracking": {"device": "tpu"}}, "tracking.device"),
         ({"tracking": {"gpu": "cuda"}}, "unknown key"),
         ({"calibration": {"um_per_pixel": 0}}, "calibration.um_per_pixel"),
+        ({"calibration": {"um_per_px": 1.6}}, r"calibration: unknown key\(s\) \['um_per_px'\]"),
+        ({"calibration": {}}, r"calibration: missing key\(s\) \['um_per_pixel'\]"),
         ({"calibration": {"um_per_pixel": "1.6"}}, "calibration.um_per_pixel"),
         ({"timing": {"time_lapse_days": -1}}, "timing.time_lapse_days"),
         ({"timing": {}}, "exactly one of"),

@@ -242,7 +242,9 @@ def session_from_document(data: Any, *, base_dir: Path | None = None, source: Pa
     try:
         video = _video(_section(data, "video", where), base_dir, where)
         tracking = _tracking(data.get("tracking", {}), base_dir, where)
-        calibration = Calibration(_section(data, "calibration", where).get("um_per_pixel", None))
+        calibration_block = _section(data, "calibration", where)
+        _check_keys(calibration_block, ("um_per_pixel",), f"{where}: calibration", required=("um_per_pixel",))
+        calibration = Calibration(calibration_block["um_per_pixel"])
         timing = _timing(_section(data, "timing", where), where)
         organoids = data.get("organoids")
         if not isinstance(organoids, list):
@@ -260,10 +262,13 @@ def _section(data: Mapping[str, Any], key: str, where: str) -> Mapping[str, Any]
     return section
 
 
-def _check_keys(section: Mapping[str, Any], allowed: Sequence[str], where: str) -> None:
+def _check_keys(section: Mapping[str, Any], allowed: Sequence[str], where: str, required: Sequence[str] = ()) -> None:
     unknown = sorted(set(section) - set(allowed))
     if unknown:
         raise SessionError(f"{where}: unknown key(s) {unknown}; valid keys are {list(allowed)}")
+    missing = [key for key in required if key not in section]
+    if missing:
+        raise SessionError(f"{where}: missing key(s) {missing}")
 
 
 def _video(section: Mapping[str, Any], base_dir: Path | None, where: str) -> VideoReference:
