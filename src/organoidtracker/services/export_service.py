@@ -12,7 +12,8 @@ import json
 import logging
 import os
 import shutil
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,9 @@ from ..analysis.organoid_report_generator import Analysis, OrganoidAnalysisRepor
 from ..core.tracking_result import TrackingResult
 from ..io.video_output import VideoOutputGenerator
 from .run_manifest import RUN_MANIFEST_NAME
+from .saved_results import MASKS_GLOB, RESULTS_NAME, SavedResult, write_saved_result
 from .session import Session
+from .video_source import VideoSource
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +40,7 @@ RUN_ARTIFACT_FILES = (
     RUN_MANIFEST_NAME,
     SESSION_NAME,
     PROMPT_RECORD_NAME,
+    RESULTS_NAME,
     "raw_cyst_data.csv",
     "cyst_summary.csv",
     "organoid_summary.csv",
@@ -45,6 +49,10 @@ RUN_ARTIFACT_FILES = (
     "experiment_data_debug.json",
 )
 RUN_ARTIFACT_DIRS = ("visualizations", VIDEO_DIR_NAME)
+# What survives when a run is exported again in place (with the mask file results.json names)
+SAVED_RESULT_FILES = (SESSION_NAME, PROMPT_RECORD_NAME, RESULTS_NAME)
+# The saved-run files (manifest first: it must never describe files of another run)
+SAVED_RUN_FILES = (RUN_MANIFEST_NAME, SESSION_NAME, PROMPT_RECORD_NAME, RESULTS_NAME)
 # What a report must contain; a missing item fails the run instead of being logged and forgotten
 REQUIRED_CSV = (
     ("raw_data", "raw_cyst_data.csv"),
@@ -83,15 +91,36 @@ class ExportService:
     def previous_run_artifacts(self) -> list[Path]:
         """Files and directories of an earlier run in the output directory, finished or not."""
         found = [self.output_dir / name for name in RUN_ARTIFACT_FILES if (self.output_dir / name).is_file()]
+        if self.output_dir.is_dir():
+            found += sorted(path for path in self.output_dir.glob(MASKS_GLOB) if path.is_file())
         found += [self.output_dir / name for name in RUN_ARTIFACT_DIRS if (self.output_dir / name).is_dir()]
         return found
 
-    def prepare(self, overwrite: bool = False) -> Path:
+    def previous_saved_run(self) -> list[Path]:
+        """The saved-run files the directory holds: manifest, session, prompt record, result and mask files."""
+        found = [self.output_dir / name for name in SAVED_RUN_FILES if (self.output_dir / name).is_file()]
+        if self.output_dir.is_dir():
+            found += sorted(path for path in self.output_dir.glob(MASKS_GLOB) if path.is_file())
+        return found
+
+    def clear_saved_run(self) -> list[str]:
+        """Remove the saved-run files only, the manifest first; exported videos, tables and figures stay.
+
+        The window's Save Results replaces a saved run this way: it never deletes what the user exported.
+        """
+        removed = []
+        for path in self.previous_saved_run():
+            path.unlink()
+            removed.append(path.name)
+        return removed
+
+    def prepare(self, overwrite: bool = False, keep_results: bool = False) -> Path:
         """Create the output directory; a directory holding an earlier run is refused unless ``overwrite``.
 
         With ``overwrite`` every artifact of the earlier run is removed before anything is written, the
         manifest first: the directory never holds a completed manifest next to files of another run,
-        and a run that fails midway leaves no manifest at all.
+        and a run that fails midway leaves no manifest at all. With ``keep_results`` (a run exported
+        again in place) the saved result, the session and the prompt record survive; the exports go.
         """
         existing = self.previous_run_artifacts()
         if existing and not overwrite:
@@ -104,14 +133,25 @@ class ExportService:
         except OSError as error:
             raise ExportError(f"cannot create the output directory {self.output_dir}: {error}") from error
         if existing:
-            removed = self.clear_previous_run()
+            removed = self.clear_previous_run(keep_results=keep_results)
             logger.info(f"Replaced the previous run in {self.output_dir}: removed {len(removed)} artifact(s)")
         return self.output_dir
 
-    def clear_previous_run(self) -> list[str]:
-        """Remove the earlier run's artifacts: the manifest, the files it lists, the known output names."""
+    def clear_previous_run(self, keep_results: bool = False) -> list[str]:
+        """Remove the earlier run's artifacts: the manifest, the files it lists, the known output names.
+
+        With ``keep_results`` the saved result (``results.json`` and its mask file), the session and
+        the prompt record stay, so that a run can be exported again in place.
+        """
         removed: list[str] = []
         root = self.output_dir.resolve()
+
+        def kept(relative: str) -> bool:
+            path = Path(relative)
+            return keep_results and (
+                relative in SAVED_RESULT_FILES or (path.parent == Path() and path.match(MASKS_GLOB))
+            )
+
         manifest = self.output_dir / RUN_MANIFEST_NAME
         inventory: list[str] = []
         if manifest.is_file():
@@ -122,6 +162,8 @@ class ExportService:
             manifest.unlink()
             removed.append(RUN_MANIFEST_NAME)
         for relative in inventory:
+            if kept(relative):
+                continue
             path = self.output_dir / relative
             try:
                 inside = path.resolve().is_relative_to(root)
@@ -132,9 +174,14 @@ class ExportService:
                 removed.append(relative)
         for name in RUN_ARTIFACT_FILES:
             path = self.output_dir / name
-            if path.is_file():
+            if path.is_file() and not kept(name):
                 path.unlink()
                 removed.append(name)
+        if not keep_results:
+            for path in sorted(self.output_dir.glob(MASKS_GLOB)):
+                if path.is_file():
+                    path.unlink()
+                    removed.append(path.name)
         for name in RUN_ARTIFACT_DIRS:
             path = self.output_dir / name
             if path.is_dir():
@@ -163,12 +210,55 @@ class ExportService:
     def write_manifest(self, manifest: dict[str, Any]) -> Path:
         return self._write_json(self.output_dir / RUN_MANIFEST_NAME, manifest)
 
+    def copy_prompt_record(self, record_path: Path) -> Path:
+        """The prompt record of the run being exported again, copied next to the new exports."""
+        target = self.output_dir / PROMPT_RECORD_NAME
+        try:
+            shutil.copyfile(record_path, target)
+        except OSError as error:
+            raise ExportError(f"cannot copy the prompt record to {target}: {error}") from error
+        return target
+
+    # ------------------------------------------------------------------ saved result
+    def write_results(
+        self,
+        *,
+        run_id: str,
+        session: Session,
+        video: VideoSource,
+        provenance: Mapping[str, Any],
+        result: TrackingResult,
+    ) -> SavedResult:
+        """``results.json`` and the mask file: the run's complete experiment, reloadable without a model."""
+        return write_saved_result(
+            self.output_dir, run_id=run_id, session=session, video=video, provenance=provenance, result=result
+        )
+
+    def copy_saved_result(self, saved: SavedResult) -> SavedResult:
+        """A byte-identical copy of a saved result (its two files) into the output directory."""
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        masks_target = self.output_dir / saved.masks_path.name
+        results_target = self.output_dir / saved.path.name
+        temporary = results_target.with_name(results_target.name + ".tmp")
+        try:
+            shutil.copyfile(saved.masks_path, masks_target)
+            shutil.copyfile(saved.path, temporary)
+            os.replace(temporary, results_target)  # results.json appears complete or not at all
+        except OSError as error:
+            temporary.unlink(missing_ok=True)
+            raise ExportError(f"cannot copy the saved result to {self.output_dir}: {error}") from error
+        return replace(saved, path=results_target, masks_path=masks_target)
+
     def _write_json(self, path: Path, data: dict[str, Any]) -> Path:
         """Write atomically: the file either holds the complete document or does not exist."""
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
-        temporary.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
-        os.replace(temporary, path)
+        try:
+            temporary.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+            os.replace(temporary, path)
+        except OSError:
+            temporary.unlink(missing_ok=True)
+            raise
         return path
 
     # ------------------------------------------------------------------ videos
