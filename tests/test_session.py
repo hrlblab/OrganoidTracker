@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -61,8 +62,9 @@ def test_document_round_trip(tmp_path):
 
 
 def test_absolute_video_path_is_kept(tmp_path):
-    session = session_from_document(document(video={"path": "/data/x.mp4", "sha256": "A" * 64}), base_dir=tmp_path)
-    assert str(session.video.path) == "/data/x.mp4" and session.video.sha256 == "a" * 64
+    absolute = Path(tmp_path.anchor, "data", "x.mp4")  # absolute on this platform (a drive root on Windows)
+    session = session_from_document(document(video={"path": str(absolute), "sha256": "A" * 64}), base_dir=tmp_path)
+    assert session.video.path == absolute and session.video.sha256 == "a" * 64
 
 
 @pytest.mark.parametrize(
@@ -203,7 +205,7 @@ def test_prompt_record_is_accepted_as_a_session(tmp_path):
         "model": {
             "model_config": "sam2_hiera_b",
             "checkpoint_family": "2.1",
-            "checkpoint_path": "/ckpt/x.pt",
+            "checkpoint_path": str(Path(tmp_path.anchor, "ckpt", "x.pt")),
             "device": "cuda",
         },
         "organoids": [{"organoid_id": 1, "point": [0, 0], "cysts": [{"cyst_id": 1, "bbox": [2350, 908, 2534, 1078]}]}],
@@ -213,7 +215,9 @@ def test_prompt_record_is_accepted_as_a_session(tmp_path):
     session = load_session(write(tmp_path, record, "record.json"))
     assert session.video.path == tmp_path / "well.mp4" and session.video.sha256 == "b" * 64
     assert session.tracking.model_config == "sam2_hiera_b" and session.tracking.checkpoint_family == "2.1"
-    assert str(session.tracking.checkpoint_path) == "/ckpt/x.pt" and session.tracking.device == "cuda"
+    assert (
+        session.tracking.checkpoint_path == Path(tmp_path.anchor, "ckpt", "x.pt") and session.tracking.device == "cuda"
+    )
     assert session.calibration.um_per_pixel == 1.6934 and session.timing.time_lapse_days == 6.0
     assert session.annotations.cyst_ids() == [1]
 

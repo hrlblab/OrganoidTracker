@@ -319,7 +319,10 @@ def test_prompt_record_round_trips_into_a_session(small_disc, small_video):
     assert session.video.path == Path(str(small_video)) and session.video.sha256 == tracker.video_sha256
     assert session.timing == Timing(time_lapse_days=6.0) and session.calibration == Calibration(1.6934)
     assert session.tracking == TrackingSpec(
-        model_config="sam2_hiera_t", checkpoint_family="2.1", device="cpu", checkpoint_path=Path("/nonexistent/fake.pt")
+        model_config="sam2_hiera_t",
+        checkpoint_family="2.1",
+        device="cpu",
+        checkpoint_path=Path(os.path.abspath(tracker.checkpoint_path)),  # absolute on this platform
     )
     assert session.annotations.cyst_ids() == [1]
     assert session.video == VideoReference(Path(str(small_video)), tracker.video_sha256)
