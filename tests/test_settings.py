@@ -166,3 +166,31 @@ def test_launcher_refuses_to_start_with_an_invalid_settings_file(tmp_path, monke
     monkeypatch.setattr(main_window, "VideoTrackerApp", refuse_to_open_a_window)
     assert launcher.main() == 2
     assert shown and "expected true or false" in shown[0]
+
+
+def test_legacy_user_config_values_are_type_checked(tmp_path):
+    legacy = tmp_path / "user_config.py"
+    legacy.write_text('SAM2_IMPROVED_TRACKING = "false"\n')
+    env = {**os.environ, "ORGANOIDTRACKER_USER_CONFIG": str(legacy)}
+    env.pop("ORGANOIDTRACKER_SETTINGS", None)
+    proc = subprocess.run(
+        [sys.executable, "-c", "import organoidtracker.config"], env=env, capture_output=True, text=True
+    )
+    assert proc.returncode != 0
+    assert "SAM2_IMPROVED_TRACKING: expected true or false" in proc.stderr
+
+
+def test_legacy_user_config_values_are_applied_when_valid(tmp_path):
+    legacy = tmp_path / "user_config.py"
+    legacy.write_text("SAM2_MIN_MASK_AREA = 80\nDEFAULT_CONVERSION_FACTOR = 2\nMY_OWN_FLAG = True\n")
+    env = {**os.environ, "ORGANOIDTRACKER_USER_CONFIG": str(legacy)}
+    env.pop("ORGANOIDTRACKER_SETTINGS", None)
+    code = (
+        "from organoidtracker import config; "
+        "print(config.SAM2_MIN_MASK_AREA, repr(config.DEFAULT_CONVERSION_FACTOR), config.MY_OWN_FLAG, "
+        "config.SETTINGS.sam2_min_mask_area, config.LOADED_USER_CONFIG is not None)"
+    )
+    proc = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "80 2.0 True 80 True"
+    assert "deprecated" in proc.stderr and "MY_OWN_FLAG is not a known setting" in proc.stderr

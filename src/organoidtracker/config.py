@@ -15,7 +15,7 @@ import importlib.util
 import logging
 
 from .paths import user_config_path
-from .settings import SETTINGS_FILENAME, Settings, SettingsError, load_settings, settings_path
+from .settings import SETTINGS_FILENAME, Settings, SettingsError, coerce_setting, load_settings, settings_path
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +42,13 @@ if _user_config_file is not None:
     for attr in dir(user_config):
         if not attr.startswith("_") and attr.isupper():
             value = getattr(user_config, attr)
-            globals()[attr] = value
             if hasattr(SETTINGS, attr.lower()):
+                # a recognized setting gets the same type check as a TOML value
+                value = coerce_setting(attr.lower(), value, f"{_user_config_file}: {attr}")
                 setattr(SETTINGS, attr.lower(), value)
+            else:
+                logger.warning(f"{_user_config_file}: {attr} is not a known setting; nothing reads it")
+            globals()[attr] = value
     LOADED_USER_CONFIG = _user_config_file
     logger.warning(
         f"{_user_config_file} is deprecated and will stop being read in a later release; "

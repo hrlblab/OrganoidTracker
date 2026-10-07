@@ -141,6 +141,14 @@ def load_settings(path: Path | None = None) -> Settings:
     return settings
 
 
+def coerce_setting(name: str, value: Any, where: str) -> Any:
+    """Check ``value`` for the setting ``name`` (a ``Settings`` field) and return it in the field's type."""
+    hints = typing.get_type_hints(Settings)
+    if name not in hints:
+        raise SettingsError(f"{where}: unknown setting {name!r}")
+    return _convert(value, hints[name], where)
+
+
 def _convert(value: Any, annotation: Any, where: str) -> Any:
     """Check ``value`` against ``annotation`` and return it in the annotated type."""
     origin = typing.get_origin(annotation)
