@@ -1,0 +1,63 @@
+# Organoid Tracker settings. Copy this file to organoidtracker.toml in the directory you launch
+# from (or point ORGANOIDTRACKER_SETTINGS at it) and uncomment the keys you want to change.
+# Every key is optional; the values shown are the defaults. Keys and types are checked.
+# "(unused)" marks settings carried over from the original config.py that nothing reads yet.
+
+
+# --- GUI ---
+# auto_open_output_directory = false  # open the output folder in the file manager after a run
+
+# --- Analysis defaults shown in the GUI ---
+# default_total_organoids = 13  # (unused)
+# default_time_lapse_days = 6.0
+# default_conversion_factor = 1.6934  # micrometers per pixel
+
+# --- Video processing ---
+# default_video_quality = "mid"  # "original", "mid" or "low" (unused)
+# debug_mode_enabled = false  # (unused)
+
+# --- Visualizations ---
+# enable_comprehensive_reports = true  # (unused)
+# matplotlib_dpi = 150  # 150 for screen, 300 for publication
+# visualization_format = "png"  # "png" or "svg"
+# figure_size = [10, 6]  # inches (unused)
+# suppress_matplotlib_warnings = true  # (unused)
+# fallback_for_optional_deps = true  # (unused)
+# font_scale_factor = 1.0
+# disable_visualization_text = false  # hide axis labels and legends
+# disable_visualization_titles = false  # hide titles (publication mode)
+# plot_colors = { primary = [70, 130, 180], secondary = [220, 20, 60], accent = [255, 165, 0], success = [34, 139, 34], warning = [255, 140, 0], error = [178, 34, 34] }  # (unused)
+
+# --- Reports and files ---
+# generate_debug_frames = false  # (unused)
+# auto_save_analysis_data = true  # (unused)
+# include_session_metadata = true  # (unused)
+# csv_encoding = "utf-8"  # (unused)
+# json_ensure_ascii = false  # (unused)
+# pdf_page_size = "A4"  # (unused)
+
+# --- Frames and checkpoints ---
+# collapse_duplicate_frames = true  # merge consecutive near-identical frames into one time point
+# duplicate_frame_mad_threshold = 1.0  # mean absolute grayscale difference (0-255) below which frames repeat
+# sam2_checkpoint_family = "2.1"  # "2.1" (default) or "2" (the original SAM 2 checkpoints)
+
+# --- Performance and expert options ---
+# max_video_frames = <no default: omit the key, or set a value>  # (unused)
+# memory_optimization = true  # (unused)
+# garbage_collection_frequency = 10  # (unused)
+# torch_device_override = <no default: omit the key, or set a value>  # (unused)
+# sam2_model_cache = true  # (unused)
+# enable_model_validation = true  # (unused)
+
+# --- Tracking quality filter ---
+# sam2_improved_tracking = true  # keep the largest component and apply the quality filter
+# sam2_use_improved_config = true  # base-plus model: use the application's "improved tracking" config
+# sam2_min_mask_area = 50  # pixels
+# sam2_min_confidence = 0.5
+# sam2_memory_frames = 1000  # previous frames kept in SAM2's memory (1000 = all)
+
+# --- Logging ---
+# log_level = "INFO"  # console and log file
+# gui_log_level = "WARNING"  # records at this level and above also appear in the GUI log panel
+# enable_performance_logging = false  # (unused)
+# log_analysis_details = true  # (unused)

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from src.core.sam2_tracker import SAM2Tracker
+from organoidtracker.core.sam2_tracker import SAM2Tracker
 
 
 class FakePredictor:
@@ -22,7 +22,7 @@ class FakePredictor:
 
 
 def make_offline_tracker(monkeypatch, fail_at):
-    import config
+    from organoidtracker import config
 
     monkeypatch.setattr(config, "SAM2_IMPROVED_TRACKING", False)
     tracker = SAM2Tracker(model_config="sam2_hiera_t", checkpoint_path="/nonexistent.pt", device="cpu")

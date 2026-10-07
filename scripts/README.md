@@ -11,12 +11,11 @@ A standalone script that generates publication-quality visualizations directly f
 The script automatically looks for CSV data in the `data/output_videos/` directory and generates corresponding visualizations.
 
 ```bash
-cd scripts
-python csv_visualizer.py
+uv run python scripts/csv_visualizer.py   # from the repository root (it reads data/output_videos/)
 ```
 
 ### Note
 
 Most users will not need to use this script directly, as the main application provides all necessary functionality through the GUI interface. This script is provided for advanced analysis workflows and custom visualization requirements.
 
-For standard usage, please use the main application: `python video_tracker_gui.py`
+For standard usage, please use the main application: `uv run organoidtracker-tk`

@@ -61,11 +61,17 @@ CLAUDE.md
 claude.md
 .claude_project
 
-# User-specific config (keep example)
+# User-specific settings (the example files are tracked)
 user_config.py
+/organoidtracker.toml
 
 # Test outputs and debug files
 debug_frames/
 test_outputs/
 analysis_results/
 csv_output/
+# Environments and tool caches (uv, ruff, pytest, mypy)
+.venv/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/

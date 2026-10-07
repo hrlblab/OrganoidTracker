@@ -3,29 +3,19 @@
 from __future__ import annotations
 
 import pathlib
-import sys
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-for _path in (str(ROOT), str(ROOT / "tests")):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
+from helpers import DiscVideo
+from organoidtracker.paths import checkpoints_dir
 
-from helpers import DiscVideo  # noqa: E402
-
-TINY_CHECKPOINT = ROOT / "checkpoints" / "sam2.1_hiera_tiny.pt"
-
-
-def pytest_configure(config):
-    config.addinivalue_line("markers", "model: needs the SAM 2.1 tiny checkpoint and runs the real model")
-    config.addinivalue_line("markers", "gui: needs a display for Tk")
+TINY_CHECKPOINT = checkpoints_dir() / "sam2.1_hiera_tiny.pt"
 
 
 @pytest.fixture(scope="session")
 def tiny_checkpoint() -> pathlib.Path:
     if not TINY_CHECKPOINT.exists():
-        pytest.skip("checkpoints/sam2.1_hiera_tiny.pt is missing; run `bash checkpoints/download_ckpts.sh`")
+        pytest.skip(f"{TINY_CHECKPOINT} is missing; run `bash checkpoints/download_ckpts.sh`")
     return TINY_CHECKPOINT
 
 
