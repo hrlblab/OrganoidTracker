@@ -19,6 +19,19 @@ class AnnotationError(ValueError):
     """Annotations that cannot be tracked or analyzed as given."""
 
 
+ORGANOID_KEYS = ("organoid_id", "point", "cysts")
+CYST_KEYS = ("cyst_id", "bbox")
+
+
+def _check_keys(mapping: Mapping[str, Any], allowed: tuple[str, ...], where: str) -> None:
+    unknown = sorted(set(mapping) - set(allowed))
+    if unknown:
+        raise AnnotationError(f"{where}: unknown key(s) {unknown}; valid keys are {list(allowed)}")
+    missing = [key for key in allowed if key not in mapping]
+    if missing:
+        raise AnnotationError(f"{where}: missing key(s) {missing}")
+
+
 def _number(value: Any, where: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise AnnotationError(f"{where}: expected a number, got {value!r}")
@@ -151,22 +164,34 @@ class AnnotationSet:
 
     @classmethod
     def from_documents(cls, items: Iterable[Any], where: str = "organoids") -> AnnotationSet:
-        """From JSON entries ``[{"organoid_id", "point", "cysts": [{"cyst_id", "bbox"}]}]`` with checked types."""
+        """From JSON entries ``[{"organoid_id", "point", "cysts": [{"cyst_id", "bbox"}]}]``.
+
+        Keys and container types are checked at every level: an unknown or missing key is named
+        (a misspelled ``cysts`` is an error, not an organoid without cysts), and ``cysts`` must be
+        a list (``[]`` for an organoid without cysts).
+        """
         organoids = []
         for index, item in enumerate(items):
             here = f"{where}[{index}]"
             if not isinstance(item, Mapping):
-                raise AnnotationError(f"{here}: expected an object with organoid_id, point and cysts")
+                raise AnnotationError(f"{here}: expected an object with the keys {list(ORGANOID_KEYS)}")
+            _check_keys(item, ORGANOID_KEYS, here)
+            raw_cysts = item["cysts"]
+            if not isinstance(raw_cysts, (list, tuple)):
+                raise AnnotationError(
+                    f"{here}.cysts: expected a list of cysts ([] for an organoid without cysts), "
+                    f"got {type(raw_cysts).__name__}"
+                )
             cysts = []
-            for cyst_index, cyst in enumerate(item.get("cysts", [])):
-                if not isinstance(cyst, Mapping) or "cyst_id" not in cyst or "bbox" not in cyst:
-                    raise AnnotationError(f"{here}.cysts[{cyst_index}]: expected an object with cyst_id and bbox")
+            for cyst_index, cyst in enumerate(raw_cysts):
+                there = f"{here}.cysts[{cyst_index}]"
+                if not isinstance(cyst, Mapping):
+                    raise AnnotationError(f"{there}: expected an object with the keys {list(CYST_KEYS)}")
+                _check_keys(cyst, CYST_KEYS, there)
                 bbox = cyst["bbox"]
                 if not isinstance(bbox, (list, tuple)):
-                    raise AnnotationError(f"{here}.cysts[{cyst_index}].bbox: expected a list [x1, y1, x2, y2]")
+                    raise AnnotationError(f"{there}.bbox: expected a list [x1, y1, x2, y2]")
                 cysts.append(CystAnnotation(cyst_id=cyst["cyst_id"], bbox=tuple(bbox)))
-            if "organoid_id" not in item or "point" not in item:
-                raise AnnotationError(f"{here}: expected an object with organoid_id, point and cysts")
             point = item["point"]
             if not isinstance(point, (list, tuple)):
                 raise AnnotationError(f"{here}.point: expected a list [x, y]")

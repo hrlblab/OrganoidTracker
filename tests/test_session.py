@@ -103,7 +103,34 @@ def test_absolute_video_path_is_kept(tmp_path):
             "4 values",
         ),
         ({"organoids": [{"organoid_id": 1, "point": [1], "cysts": []}]}, "2 values"),
-        ({"organoids": [{"organoid_id": 1, "point": [1, 2]}, {"organoid_id": 1, "point": [3, 4]}]}, "used twice"),
+        (
+            {
+                "organoids": [
+                    {"organoid_id": 1, "point": [1, 2], "cysts": []},
+                    {"organoid_id": 1, "point": [3, 4], "cysts": []},
+                ]
+            },
+            "used twice",
+        ),
+        ({"organoids": [{"organoid_id": 1, "point": [1, 2]}]}, r"organoids\[0\]: missing key\(s\) \['cysts'\]"),
+        (
+            {"organoids": [{"organoid_id": 1, "point": [1, 2], "cyst": [{"cyst_id": 1, "bbox": [0, 0, 5, 5]}]}]},
+            r"organoids\[0\]: unknown key\(s\) \['cyst'\]",
+        ),
+        (
+            {"organoids": [{"organoid_id": 1, "point": [1, 2], "cysts": None}]},
+            r"cysts: expected a list .* got NoneType",
+        ),
+        ({"organoids": [{"organoid_id": 1, "point": [1, 2], "cysts": 3}]}, r"cysts: expected a list .* got int"),
+        ({"organoids": [{"organoid_id": 1, "point": [1, 2], "cysts": ["x"]}]}, r"cysts\[0\]: expected an object"),
+        (
+            {"organoids": [{"organoid_id": 1, "point": [1, 2], "cysts": [{"cyst_id": 1, "box": [0, 0, 5, 5]}]}]},
+            r"cysts\[0\]: unknown key\(s\) \['box'\]",
+        ),
+        (
+            {"organoids": [{"organoid_id": 1, "point": [1, 2], "cysts": [{"cyst_id": 1}]}]},
+            r"missing key\(s\) \['bbox'\]",
+        ),
         (
             {
                 "organoids": [
@@ -197,3 +224,11 @@ def test_model_names_match_the_backend():
 
     assert set(MODEL_CONFIGS) == set(sam2_tracker.SIZE_NAMES)
     assert set(CHECKPOINT_FAMILIES) == set(sam2_tracker.CHECKPOINT_FAMILIES)
+
+
+def test_misspelled_cysts_key_is_rejected_not_counted_as_empty(tmp_path):
+    data = document()
+    data["organoids"][1]["cyst"] = [{"cyst_id": 2, "bbox": [1, 1, 10, 10]}]
+    del data["organoids"][1]["cysts"]
+    with pytest.raises(SessionError, match=r"organoids\[1\]: unknown key\(s\) \['cyst'\]"):
+        load_session(write(tmp_path, data))
