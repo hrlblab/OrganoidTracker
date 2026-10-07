@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"          # install exactly what uv.lock says; never re-resolve in CI
+  UV_PYTHON_PREFERENCE: only-managed
+
+jobs:
+  lint:
+    name: Lint and format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra cpu --only-group dev --no-install-project
+      - run: uv run --no-sync ruff check src/organoidtracker tests scripts video_tracker_gui.py
+      - run: uv run --no-sync ruff format --check src/organoidtracker tests scripts video_tracker_gui.py
+
+  test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      # CPU-only torch wheels; CI never has a GPU and never sees lab data.
+      - run: uv sync --extra cpu --extra tk
+      - run: uv run --no-sync pytest -m "not model and not gui and not data"
+      - name: GUI smoke test (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
+          xvfb-run -a uv run --no-sync pytest -m gui
+      - name: GUI smoke test (Windows)
+        if: runner.os == 'Windows'
+        run: uv run --no-sync pytest -m gui
+
+  model:
+    name: Real-model tests (SAM 2.1 tiny, CPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra cpu
+      - name: Cache the SAM 2.1 tiny checkpoint
+        id: ckpt
+        uses: actions/cache@v6
+        with:
+          path: checkpoints/sam2.1_hiera_tiny.pt
+          key: sam2.1_hiera_tiny-7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69
+      - name: Download the checkpoint
+        if: steps.ckpt.outputs.cache-hit != 'true'
+        run: |
+          curl -sSL -o checkpoints/sam2.1_hiera_tiny.pt \
+            https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt
+          echo "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69  checkpoints/sam2.1_hiera_tiny.pt" | sha256sum -c -
+      - run: uv run --no-sync pytest -m model
