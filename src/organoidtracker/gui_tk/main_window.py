@@ -10,8 +10,10 @@ import sys
 import threading
 import time
 import tkinter as tk
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from tkinter import filedialog, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from ..config import (
     AUTO_OPEN_OUTPUT_DIRECTORY,
@@ -25,12 +27,23 @@ from ..core.sam2_tracker import checkpoint_filename
 from ..services.analysis_service import AnalysisService
 from ..services.annotations import AnnotationError, AnnotationSet, CystAnnotation
 from ..services.export_service import ExportError, ExportService
-from ..services.session import Calibration, SessionError, Timing, TrackingSpec
+from ..services.prompt_record import build_prompt_record
+from ..services.saved_results import SavedResult, load_saved_result
+from ..services.session import Calibration, SessionError, Timing, TrackingSpec, session_from_document
 from ..services.tracking_service import TrackingError, TrackingService
+from ..services.video_frames import load_video_frames
 from .progress_dialog import ProgressDialog
 from .video_canvas import VideoCanvas
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class OpenedResult:
+    """A saved run reopened without a model: its result and, when its video was found, the frames."""
+
+    saved: SavedResult
+    frames: list | None
 
 
 class LogPanelHandler(logging.Handler):
@@ -80,6 +93,8 @@ class VideoTrackerApp:
         self.current_video_path: str | None = None
         self.video_segments: dict | None = None
         self.tracking_in_progress = False
+        self.opened: OpenedResult | None = None  # a saved run reopened without a model (Open Results...)
+        self.tracking_run_id: str | None = None  # identifies the results shown when they are saved
 
         # Progress dialog references
         self.tracking_dialog = None
@@ -249,6 +264,11 @@ class VideoTrackerApp:
             style="VideoLoad.TButton",
         )
 
+        # A saved run (results.json and its mask file) opens without a model, for viewing and exporting
+        self.open_results_btn = ttk.Button(
+            self.video_frame, text="📂 Open Results...", command=self.open_results, width=18
+        )
+
         self.video_info_label = ttk.Label(
             self.video_frame, text="No video loaded", style="Status.TLabel", wraplength=250
         )
@@ -360,6 +380,9 @@ class VideoTrackerApp:
         self.generate_btn = ttk.Button(
             self.output_frame, text="🎬 Generate Videos", command=self.generate_videos, state="disabled"
         )
+        self.save_results_btn = ttk.Button(
+            self.output_frame, text="💾 Save Results...", command=self.save_results, state="disabled"
+        )
 
         # Step 5: Analysis frame (separate section)
         self.analysis_frame = ttk.LabelFrame(self.root, text="Step 5: Organoid Cyst Analysis", padding=10)
@@ -463,7 +486,8 @@ class VideoTrackerApp:
 
         # Video frame layout
         self.load_video_btn.grid(row=0, column=0, pady=5, sticky="ew")
-        self.video_info_label.grid(row=1, column=0, pady=10, sticky="new")
+        self.open_results_btn.grid(row=1, column=0, pady=5, sticky="ew")
+        self.video_info_label.grid(row=2, column=0, pady=10, sticky="new")
 
         # Make video frame expand properly
         self.video_frame.columnconfigure(0, weight=1)
@@ -507,6 +531,7 @@ class VideoTrackerApp:
 
         # Step 4: Output frame layout (simple video generation)
         self.generate_btn.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+        self.save_results_btn.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
         self.output_frame.columnconfigure(0, weight=1)
 
         # Step 5: Analysis frame layout
@@ -697,6 +722,8 @@ class VideoTrackerApp:
         had_results = self.video_segments is not None or self.current_video_path is not None or bool(self.organoid_data)
         self.current_video_path = None
         self.video_segments = None
+        self.opened = None
+        self.tracking_run_id = None
         self.tracking_in_progress = False
         self.video_canvas.clear_markers()
         self.video_canvas.show_placeholder()
@@ -707,7 +734,14 @@ class VideoTrackerApp:
         self.next_cyst_id = 1
         self.current_organoid_id = None
         self.organoid_mode = True
-        for button in (self.track_btn, self.clear_prompts_btn, self.revert_btn, self.generate_btn, self.analysis_btn):
+        for button in (
+            self.track_btn,
+            self.clear_prompts_btn,
+            self.revert_btn,
+            self.generate_btn,
+            self.analysis_btn,
+            self.save_results_btn,
+        ):
             button.config(state="disabled")
         self.video_info_label.config(text="No video loaded")
         self.update_active_objects_display()
@@ -719,11 +753,13 @@ class VideoTrackerApp:
             )
 
     def _ready_for_export(self, what: str) -> bool:
-        """A loaded video and tracking results from this backend are needed before anything is exported."""
+        """Results and the video they belong to are needed: a reopened run's, or this backend's."""
         if self.video_segments is None or not self.video_segments:
             self.set_status("No tracking results available. Please run tracking first")
             self.log_event(f"❌ No tracking results available for {what}")
             return False
+        if self.opened is not None:
+            return True
         if self.tracking is None or self.tracking.video is None:
             self.set_status("Load a video and run tracking first")
             self.log_event(
@@ -802,6 +838,7 @@ class VideoTrackerApp:
     def on_video_loaded_success(self, file_path, video_info, load_time):
         """Handle successful video loading"""
         self.load_video_btn.config(state="normal")
+        self._close_opened_result()  # a video loaded through the backend replaces a reopened run
         self.current_video_path = file_path
 
         # Clear all objects from previous video (if model is loaded)
@@ -903,6 +940,9 @@ class VideoTrackerApp:
 
     def on_canvas_click(self, x, y):
         """Handle click events for organoid placement"""
+        if self.opened is not None:
+            self.set_status("Reopened results are not editable: load the video through a model to annotate again")
+            return
         if not self.tracking or not self.current_video_path:
             return
 
@@ -942,6 +982,9 @@ class VideoTrackerApp:
 
     def on_canvas_bbox(self, x1, y1, x2, y2):
         """Handle bounding box creation for cyst addition"""
+        if self.opened is not None:
+            self.set_status("Reopened results are not editable: load the video through a model to annotate again")
+            return
         if not self.tracking or not self.current_video_path:
             return
 
@@ -1297,7 +1340,9 @@ class VideoTrackerApp:
         start_time = time.time()
 
         self.tracking_in_progress = True
+        self.tracking_run_id = uuid.uuid4().hex[:12]  # identifies these results when they are saved
         self.track_btn.config(state="disabled")
+        self.save_results_btn.config(state="disabled")
         self.set_status("Running tracking... Please wait.")
 
         # Count total prompts
@@ -1369,7 +1414,7 @@ class VideoTrackerApp:
         # Enable results buttons
         self.generate_btn.config(state="normal")
         self.analysis_btn.config(state="normal")
-        # self.view_results_btn.config(state='normal') # This line is removed
+        self.save_results_btn.config(state="normal")
 
         # Update results info
         if self.video_segments:
@@ -1420,6 +1465,11 @@ class VideoTrackerApp:
         # and discarded the results, so the readiness is checked again before any control changes.
         if not self._ready_for_export("video generation"):
             return
+        frames = self._export_frames()
+        if frames is None:
+            self.set_status("The video of the reopened run was not found; videos cannot be generated")
+            self.log_event("❌ Video generation needs the reopened run's video file (not found at its recorded path)")
+            return
 
         start_time = time.time()
 
@@ -1430,7 +1480,7 @@ class VideoTrackerApp:
         result = self.video_segments
 
         # Count objects for logging
-        active_objects = self.tracking.active_object_ids()
+        active_objects = self._result_object_ids(result)
         num_frames = len(result)
         video_types = ["overlay", "mask", "side_by_side"]
 
@@ -1447,7 +1497,6 @@ class VideoTrackerApp:
         self.log_event(f"   • Output Directory: {output_dir}")
 
         # Video frames analysis
-        frames = self.tracking.frames
         self.log_event(f"   • Source Frames: {len(frames)} frames")
         self.log_event(f"   • Frame Dimensions: {frames[0].shape if frames else 'N/A'}")
 
@@ -1605,20 +1654,228 @@ class VideoTrackerApp:
 
     def view_results(self):
         """View tracking results"""
-        if not self.video_segments or not self.tracking:
+        frames = self._export_frames()
+        if not self.video_segments or frames is None:
             return
 
         # Show a simple results viewer
         from .results_viewer import ResultsViewer
 
         try:
-            viewer = ResultsViewer(self.root, self.tracking.frames, self.video_segments, obj_id=1)
+            viewer = ResultsViewer(self.root, frames, self.video_segments, obj_id=1)
             viewer.show()
 
         except Exception as e:
             error_msg = f"Failed to open results viewer: {str(e)}"
             self.set_status(error_msg)
             self.log_event(f"❌ {error_msg}")
+
+    # ------------------------------------------------------------------ saved results: open and save
+    def _export_frames(self) -> list | None:
+        """The frames the shown results belong to: the reopened run's (None if its video was not found) or the backend's."""
+        if self.opened is not None:
+            return self.opened.frames
+        return self.tracking.frames if self.tracking is not None else None
+
+    @staticmethod
+    def _result_object_ids(result) -> list[int]:
+        if hasattr(result, "object_ids"):
+            return list(result.object_ids())
+        return sorted({int(obj) for frame_masks in result.values() for obj in frame_masks})
+
+    def open_results(self):
+        """Reopen a saved run (results.json and its mask file) without a model, for viewing and exporting."""
+        directory = filedialog.askdirectory(
+            title="Select a run directory holding results.json", initialdir="./data/output_videos"
+        )
+        if not directory:
+            return
+        if self.tracking_in_progress:  # the chooser is modal: tracking may have started meanwhile
+            self.set_status("Tracking is running; open saved results when it has finished")
+            return
+        run_dir = Path(directory)
+        start_time = time.time()
+        self.open_results_btn.config(state="disabled")
+        self.set_status("Opening the saved results... Please wait.")
+        self.log_event(f"📂 Opening results from {run_dir}")
+
+        def open_thread():
+            try:
+                saved = load_saved_result(run_dir)
+                frames = None
+                video_error = None
+                try:
+                    frames = load_video_frames(saved.session.video.path, saved.video)
+                except SessionError as error:
+                    video_error = str(error)
+                self.post(self.on_results_opened, saved, frames, video_error, time.time() - start_time)
+            except Exception as error:
+                self.post(self.on_results_open_error, str(error), time.time() - start_time)
+
+        threading.Thread(target=open_thread, daemon=True).start()
+
+    def on_results_opened(self, saved, frames, video_error, elapsed):
+        """Install a reopened run (GUI thread): it replaces whatever the window showed."""
+        self.open_results_btn.config(state="normal")
+        if self.tracking_in_progress:
+            self.set_status("Tracking is running; open the saved results again when it has finished")
+            self.log_event("❌ Opening results refused: tracking is in progress")
+            return
+        self._discard_downstream_state("a saved run was opened")
+        self.opened = OpenedResult(saved, frames)
+        self.video_segments = saved.result
+        self.tracking_run_id = saved.run_id
+        self.current_video_path = str(saved.session.video.path)
+        self.organoid_data = saved.session.annotations.organoid_data()
+        self.next_organoid_id = max(self.organoid_data, default=0) + 1
+        self.next_cyst_id = max(saved.session.annotations.cyst_ids(), default=0) + 1
+        self.active_object_ids = set(saved.result.object_ids())
+        timing = saved.session.timing.resolve(saved.video.n_frames)
+        self.time_lapse_var.set(timing.time_lapse_days)
+        self.conversion_factor_var.set(saved.session.calibration.um_per_pixel)
+
+        video = saved.video
+        info = f"📂 Reopened run {saved.run_id} ({saved.created})\n"
+        info += f"Video: {Path(video.path).name}\nFrames: {video.n_frames} unique"
+        if video.duplicate_frames_removed:
+            info += f" ({video.decoded_frames} decoded, {video.duplicate_frames_removed} duplicates removed)"
+        info += f"\nSize: {video.width}x{video.height}\nTracking: {saved.result.summary()}"
+        self.video_info_label.config(text=info)
+        if frames is not None:
+            self.video_canvas.display_frame(frames[video.annotation_frame])
+            for organoid_id, organoid in self.organoid_data.items():
+                self.video_canvas.add_organoid_marker(*organoid["point"], organoid_id)
+                for cyst in organoid["cysts"]:
+                    self.video_canvas.add_bbox_marker(*cyst["bbox"], obj_id=cyst["cyst_id"])
+        else:
+            self.video_canvas.show_placeholder()
+            self.log_event(f"⚠️ The run's video was not found, so videos cannot be generated: {video_error}")
+        self.generate_btn.config(state="normal" if frames is not None else "disabled")
+        self.analysis_btn.config(state="normal")
+        self.save_results_btn.config(state="disabled")  # already saved where it was opened from
+        self.update_active_objects_display()
+        self.update_organoid_count_display()
+        self.workflow_status_label.config(text="Reopened results: the annotations are shown, not editable")
+        if saved.result.is_partial:
+            self.log_event(f"⚠️ The reopened run is partial: {saved.result.summary()}")
+        if timing.frame_timestamps is not None:
+            self.log_event("🕒 The run used explicit frame times; the analysis report will use them")
+        self.log_event(f"✅ Opened results of run {saved.run_id} in {elapsed:.2f}s: {saved.result.summary()}")
+        self.set_status("Saved results opened. Generate videos or the analysis report from them.")
+
+    def on_results_open_error(self, error_msg, elapsed):
+        self.open_results_btn.config(state="normal")
+        self.set_status(f"Cannot open the saved results: {error_msg}")
+        self.log_event(f"❌ Opening results failed after {elapsed:.2f}s: {error_msg}")
+
+    def _close_opened_result(self) -> None:
+        """Set a reopened run aside (a video loaded through the backend replaces it)."""
+        if self.opened is None:
+            return
+        self.opened = None
+        self.video_segments = None
+        self.tracking_run_id = None
+        self.organoid_data.clear()
+        self.active_object_ids.clear()
+        self.action_history.clear()
+        self.next_organoid_id = 1
+        self.next_cyst_id = 1
+        self.current_organoid_id = None
+        self.organoid_mode = True
+        self.video_canvas.clear_markers()
+        for button in (self.generate_btn, self.analysis_btn, self.save_results_btn):
+            button.config(state="disabled")
+        self.log_event("🔁 The reopened results were set aside")
+
+    def save_results(self):
+        """Save the shown results with their session and prompt record into a directory of the user's choice."""
+        if not self._ready_for_export("saving the results"):
+            return
+        if self.opened is not None:
+            self.set_status("These results are already saved (they were opened from a run directory)")
+            return
+        directory = filedialog.askdirectory(
+            title="Select a directory for the saved results", initialdir="./data/output_videos"
+        )
+        if not directory:
+            return
+        # The chooser is modal and runs the event loop: re-check after it returns (see generate_videos)
+        if self.opened is not None or not self._ready_for_export("saving the results"):
+            return
+        target = Path(directory)
+        exporter = ExportService(target)
+        existing = exporter.previous_saved_run()
+        replace = False
+        if existing:
+            names = ", ".join(path.name for path in existing)
+            if not messagebox.askyesno(
+                "Replace the saved run?",
+                f"{target} already holds a saved run ({names}).\n\nReplace those files with the current results? "
+                "Exported videos, tables and figures in the directory are left alone.",
+            ):
+                self.set_status("Saving cancelled: the directory already holds a saved run")
+                return
+            replace = True
+            if self.opened is not None or not self._ready_for_export("saving the results"):  # modal again
+                return
+
+        # Read the Tk variables and the annotations on the GUI thread before starting the worker
+        try:
+            time_lapse_days = float(self.time_lapse_var.get())
+            conversion_factor = float(self.conversion_factor_var.get())
+        except (tk.TclError, ValueError) as error:
+            self.set_status(f"Cannot save: check the time lapse and the conversion factor ({error})")
+            return
+        organoid_data = {
+            oid: {"point": info["point"], "cysts": list(info["cysts"])} for oid, info in self.organoid_data.items()
+        }
+        result = self.video_segments
+        service = self.tracking
+        run_id = self.tracking_run_id or service.run_id
+        video_path = self.current_video_path
+        start_time = time.time()
+        self.save_results_btn.config(state="disabled")
+        self.set_status("Saving the results... Please wait.")
+
+        def save_thread():
+            try:
+                record = build_prompt_record(
+                    service.tracker, video_path, organoid_data, time_lapse_days, conversion_factor
+                )
+                session = session_from_document(record)
+                if replace:
+                    exporter.clear_saved_run()
+                exporter.output_dir.mkdir(parents=True, exist_ok=True)
+                exporter.write_session(session, service.video.sha256)
+                exporter.write_prompt_record(record)
+                saved = exporter.write_results(
+                    run_id=run_id,
+                    session=session,
+                    video=service.video,
+                    provenance=service.provenance(),
+                    result=result,
+                )
+                self.post(self.on_results_saved, saved, time.time() - start_time)
+            except Exception as error:
+                self.post(self.on_results_save_error, str(error), time.time() - start_time)
+
+        threading.Thread(target=save_thread, daemon=True).start()
+
+    def on_results_saved(self, saved, elapsed):
+        self.save_results_btn.config(state="normal")
+        self.log_event(
+            f"💾 Results saved in {elapsed:.2f}s to {saved.directory} "
+            f"({saved.path.name}, {saved.masks_path.name}, session.json, prompts.json)"
+        )
+        self.log_event(
+            f'   Export them again without a model: organoidtracker export --run "{saved.directory}" --out DIR'
+        )
+        self.set_status(f"Results saved to {saved.directory}")
+
+    def on_results_save_error(self, error_msg, elapsed):
+        self.save_results_btn.config(state="normal")
+        self.set_status(f"Saving the results failed: {error_msg}")
+        self.log_event(f"❌ Saving the results failed after {elapsed:.2f}s: {error_msg}")
 
     def set_status(self, message):
         """Update status bar"""
@@ -1693,7 +1950,9 @@ class VideoTrackerApp:
                 self.log_event(f"   • Sample Tracked Objects: {sample_objects}")
 
             # Model verification
-            if self.tracking:
+            if self.opened is not None:
+                self.log_event(f"   • Results: reopened from {self.opened.saved.directory}")
+            elif self.tracking:
                 self.log_event(f"   • Current Model: {type(self.tracking.tracker).__name__}")
                 self.log_event(f"   • Original Frames Available: {len(self.tracking.frames)}")
             else:
@@ -1731,8 +1990,12 @@ class VideoTrackerApp:
         organoid_data = {
             oid: {"point": info["point"], "cysts": list(info["cysts"])} for oid, info in self.organoid_data.items()
         }
-        frames = self.tracking.frames
+        frames = self._export_frames()
         result = self.video_segments  # the worker measures this snapshot
+        timing = Timing(time_lapse_days=time_lapse_days)
+        if self.opened is not None and self.opened.saved.session.timing.frame_times_days is not None:
+            timing = self.opened.saved.session.timing  # the run's explicit frame times, not a uniform span
+            self.log_event("🕒 Using the explicit frame times recorded with the reopened run")
 
         def analysis_thread():
             try:
@@ -1742,7 +2005,7 @@ class VideoTrackerApp:
                     result,
                     annotations,
                     Calibration(conversion_factor),
-                    Timing(time_lapse_days=time_lapse_days),
+                    timing,
                     debug_mode=debug,
                 )
                 analysis_summary = ExportService(output_dir).write_report(

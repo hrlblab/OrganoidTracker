@@ -426,8 +426,185 @@ def test_reload_completing_inside_the_folder_chooser_is_refused(app, monkeypatch
         .step("report refused after the chooser", interleaved(app.generate_analysis_report), None, 5)
         .step("video loaded once more", load_video, video_loaded, 30)
         .step("tracked once more", annotate_and_track, tracked, 60)
+        .step("save refused after the chooser", interleaved(app.save_results), None, 5)
+        .step("video loaded a fourth time", load_video, video_loaded, 30)
+        .step("tracked a fourth time", annotate_and_track, tracked, 60)
         .run()
     )
     # the window is still fully usable after both refusals
     assert str(app.generate_btn["state"]) == "normal" and str(app.analysis_btn["state"]) == "normal"
     assert app.video_segments.object_ids() == [1]
+
+
+def test_window_saves_results_that_export_identically_without_the_tracker(
+    app, monkeypatch, small_disc, small_video, tmp_path
+):
+    """Track in the window, save the results, export them again headlessly: the same masks, tables and videos."""
+    from organoidtracker.gui_tk import main_window
+    from organoidtracker.services.pipeline import export_saved_result
+    from organoidtracker.services.saved_results import load_saved_result
+
+    cx, cy = small_disc.centers[N - 1]
+    box1 = tuple(int(v) for v in small_disc.box(N - 1))
+    videos_dir, report_dir = workflow(
+        app,
+        monkeypatch,
+        small_video,
+        tmp_path / "gui",
+        boxes=[((cx - 30, cy - 30), [box1])],
+        extra_empty_point=(5, 5),
+        time_lapse=14.0,
+        conversion=1.6934,
+    )
+    save_dir = tmp_path / "saved"
+    answers = {"replace": False}
+
+    def save():
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(save_dir))
+        monkeypatch.setattr(main_window.messagebox, "askyesno", lambda *a, **k: answers["replace"])
+        app.save_results()
+
+    def saved():
+        return str(app.save_results_btn["state"]) == "normal" and "Results saved" in log_of(app)
+
+    def save_again_cancelled():
+        save()  # the directory now holds a saved run and the question is answered "no"
+        assert "Saving cancelled" in app.status_label["text"]
+
+    def save_again_replacing():
+        answers["replace"] = True
+        save()
+
+    (
+        TkDriver(app.root)
+        .step("results saved", save, saved, 60)
+        .step("second save cancelled", save_again_cancelled, None, 5)
+        .step("second save replaces", save_again_replacing, lambda: log_of(app).count("Results saved") == 2, 60)
+        .run()
+    )
+    assert sorted(p.name for p in save_dir.iterdir() if not p.name.startswith("masks-")) == [
+        "prompts.json",
+        "results.json",
+        "session.json",
+    ]
+    assert len(list(save_dir.glob("masks-*.npz"))) == 1
+    reloaded = load_saved_result(save_dir)
+    assert mask_digests(reloaded.result) == mask_digests(app.video_segments)
+    assert reloaded.session.annotations.organoid_data() == {
+        1: {"point": (cx - 30, cy - 30), "cysts": [{"cyst_id": 1, "bbox": box1}]},
+        2: {"point": (5, 5), "cysts": []},
+    }
+    assert reloaded.session.timing.time_lapse_days == 14.0 and reloaded.session.calibration.um_per_pixel == 1.6934
+    assert reloaded.run_id == app.tracking_run_id and reloaded.provenance["backend"] == "fake"
+
+    again = export_saved_result(reloaded, tmp_path / "export", videos=True)
+    assert again.exit_code == 0
+    for name in ("raw_cyst_data.csv", "cyst_summary.csv", "organoid_summary.csv"):
+        assert (again.output_dir / name).read_bytes() == (report_dir / name).read_bytes(), name
+    for name in ("multi_object_overlay.mp4", "multi_object_mask.mp4", "multi_object_side_by_side.mp4"):
+        assert (again.output_dir / "videos" / name).stat().st_size == (videos_dir / name).stat().st_size, name
+    assert "💾 Results saved" in log_of(app) and "❌" not in log_of(app)
+
+
+def test_window_opens_a_saved_run_without_a_model_and_exports_it(app, monkeypatch, small_disc, small_video, tmp_path):
+    """A run saved by the command line opens in a window without any model; its videos and report come out identical,
+    with the run's explicit irregular time axis; loading a video through a model then sets the reopened run aside."""
+    from organoidtracker.gui_tk import main_window
+    from organoidtracker.services.session import session_from_document
+
+    cx, cy = small_disc.centers[N - 1]
+    box1 = tuple(int(v) for v in small_disc.box(N - 1))
+    times = [0, 1, 3, 6, 10, 15, 21, 28]
+    session = session_from_document(
+        {
+            "schema": "organoidtracker.session/1",
+            "video": {"path": str(small_video), "sha256": hashlib.sha256(small_video.read_bytes()).hexdigest()},
+            "tracking": {"model_config": "sam2_hiera_s", "device": "cpu"},
+            "calibration": {"um_per_pixel": 1.6934},
+            "timing": {"frame_times_days": times},
+            "organoids": [
+                {"organoid_id": 1, "point": [cx - 30, cy - 30], "cysts": [{"cyst_id": 1, "bbox": list(box1)}]},
+                {"organoid_id": 2, "point": [5, 5], "cysts": []},
+            ],
+        }
+    )
+    run = run_session(
+        session,
+        tmp_path / "run",
+        videos=True,
+        tracking_service_factory=lambda spec: TrackingService(
+            FakeTracker(small_disc, enable_reverse_tracking=spec.reverse, partial_after=5, grow=3)
+        ),
+    )
+    assert run.status == "partial" and app.current_model is None  # no model in this window
+
+    videos_dir, report_dir = tmp_path / "videos", tmp_path / "report"
+    videos_dir.mkdir()
+    report_dir.mkdir()
+
+    def open_results():
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(run.output_dir))
+        app.open_results()
+
+    def opened():
+        return app.opened is not None and str(app.open_results_btn["state"]) == "normal"
+
+    def check_state():
+        assert app.video_segments is run.saved_result.result or mask_digests(app.video_segments) == mask_digests(
+            run.result
+        )
+        assert app.organoid_data == session.annotations.organoid_data()
+        assert app.time_lapse_var.get() == 28.0 and app.conversion_factor_var.get() == 1.6934
+        assert str(app.track_btn["state"]) == "disabled" and str(app.save_results_btn["state"]) == "disabled"
+        assert str(app.generate_btn["state"]) == "normal" and str(app.analysis_btn["state"]) == "normal"
+        assert "reopened run is partial" in log_of(app) and "explicit frame times" in log_of(app)
+        app.on_canvas_click(5, 5)  # inert: the annotations shown are the run's
+        app.on_canvas_bbox(1, 1, 10, 10)
+        assert app.organoid_data == session.annotations.organoid_data()
+        assert "not editable" in app.status_label["text"]
+
+    def generate_videos():
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(videos_dir))
+        app.generate_videos()
+
+    def generate_report():
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(report_dir))
+        app.generate_analysis_report()
+
+    def report_done():
+        return str(app.analysis_btn["state"]) == "normal" and (
+            "analysis report generated successfully" in log_of(app) or "ANALYSIS FAILED" in log_of(app)
+        )
+
+    def load_model():
+        app.device_var.set("cpu")
+        app.model_config_var.set("sam2_hiera_s")
+        app.load_selected_model()
+
+    def load_video():
+        monkeypatch.setattr(main_window.filedialog, "askopenfilename", lambda *a, **k: str(small_video))
+        app.load_video()
+
+    (
+        TkDriver(app.root)
+        .step("results opened", open_results, opened, 30)
+        .step("reopened state", check_state, None, 5)
+        .step("videos written", generate_videos, lambda: "Video generation completed" in log_of(app), 60)
+        .step("report done", generate_report, report_done, 120)
+        .step("model loaded", load_model, lambda: app.current_model is not None, 30)
+        .step("set aside", lambda: None, lambda: app.opened is not None, 5)  # a first model keeps the reopened run
+        .step("video loaded", load_video, lambda: app.current_video_path == str(small_video), 30)
+        .run()
+    )
+    for name in ("raw_cyst_data.csv", "cyst_summary.csv", "organoid_summary.csv"):
+        assert (report_dir / name).read_bytes() == (run.output_dir / name).read_bytes(), name
+    rows = read_csv(report_dir / "raw_cyst_data.csv")
+    assert sorted({float(r["Time_Days"]) for r in rows}) == [6.0, 10.0, 15.0, 21.0, 28.0]  # the explicit axis
+    summary = json.loads((report_dir / "analysis_summary.json").read_text())
+    assert summary["tracking"]["status"] == "partial" and summary["experiment_info"]["total_organoids"] == 2
+    for name in ("multi_object_overlay.mp4", "multi_object_mask.mp4", "multi_object_side_by_side.mp4"):
+        assert (videos_dir / name).stat().st_size == (run.output_dir / "videos" / name).stat().st_size, name
+    # the video loaded through the model replaced the reopened run
+    assert app.opened is None and app.video_segments is None and not app.organoid_data
+    assert "set aside" in log_of(app) and str(app.generate_btn["state"]) == "disabled"
+    assert str(app.track_btn["state"]) == "normal"
