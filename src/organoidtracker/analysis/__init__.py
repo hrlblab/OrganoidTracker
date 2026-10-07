@@ -5,6 +5,8 @@ Provides state-of-the-art metrics calculation, sophisticated visualizations,
 and comprehensive report generation for kidney organoid research.
 """
 
+from . import plotting_backend  # noqa: F401  # must precede every pyplot import (Agg backend)
+
 # Legacy analysis system (for backwards compatibility)
 from .advanced_visualizations import AdvancedOrganoidVisualizer
 from .metrics import (
