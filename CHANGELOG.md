@@ -59,7 +59,9 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   backend contract, analysis engine and video writer, shared by the command line and the desktop
   interfaces. The report generator exposes its analysis and export halves separately.
 - Explicit per-frame timestamps (`frame_times_days` in a session file) as an alternative to the
-  uniform time axis derived from the time-lapse span.
+  uniform time axis derived from the time-lapse span. `analysis_summary.json` then records the whole
+  axis (`experiment_info.frame_timestamps`) and re-plotting from CSV keeps it for every frame,
+  including frames without measurements.
 - `pyproject.toml` and a uv lock file (`uv.lock`, Linux and Windows). The application installs as
   the `organoidtracker` package with the `organoidtracker-tk` console script; `python
   video_tracker_gui.py` still works inside the environment. Accelerator extras `cpu` and `cuda`

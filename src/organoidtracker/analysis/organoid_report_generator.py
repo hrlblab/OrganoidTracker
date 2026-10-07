@@ -514,6 +514,18 @@ class OrganoidAnalysisReportGenerator:
             mean_trajectory_length = 0
             coverage_percent = 0
 
+        experiment_info: dict[str, Any] = {
+            "total_organoids": len(experiment.organoids),
+            "total_cysts": len(all_cysts),
+            "total_frames": experiment.total_frames,
+            "time_lapse_days": experiment.time_lapse_days,
+            "conversion_factor_um_per_pixel": experiment.conversion_factor_um_per_pixel,
+        }
+        if experiment.has_explicit_time_axis:
+            # The CSV carries times only where a cyst was measured; a reload needs the whole axis.
+            # The uniform axis is reconstructed from the span, so it is not repeated here.
+            experiment_info["frame_timestamps"] = list(experiment.frame_timestamps)
+
         summary = {
             "success": True,
             "complete": run is None or run["status"] == "completed",
@@ -521,13 +533,7 @@ class OrganoidAnalysisReportGenerator:
             "timestamp": datetime.now().isoformat(),
             "results_version": RESULTS_VERSION,
             "software": {"organoidtracker": __version__, "source_revision": source_revision()},
-            "experiment_info": {
-                "total_organoids": len(experiment.organoids),
-                "total_cysts": len(all_cysts),
-                "total_frames": experiment.total_frames,
-                "time_lapse_days": experiment.time_lapse_days,
-                "conversion_factor_um_per_pixel": experiment.conversion_factor_um_per_pixel,
-            },
+            "experiment_info": experiment_info,
             "quality_metrics": {
                 "mean_trajectory_length_frames": round(mean_trajectory_length, 1),
                 "tracking_coverage_percent": round(coverage_percent, 1),

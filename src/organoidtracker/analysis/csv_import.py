@@ -57,11 +57,21 @@ def experiment_from_csv(
     else:
         time_lapse_days = max(times_by_frame.values()) - min(times_by_frame.values())
 
-    # Uniform axis as the report built it, then the exported timestamps where a frame was observed
-    # (they coincide for reports written by this code; the CSV wins if they do not).
+    # The time axis: the explicit one the summary records (frames without a CSV row have no other
+    # source for their time), else the uniform axis as the report built it; then the exported
+    # timestamps where a frame was observed (they coincide for reports written by this code; the
+    # CSV wins if they do not).
     experiment = ExperimentData(
         total_frames=total_frames, time_lapse_days=time_lapse_days, conversion_factor_um_per_pixel=conversion
     )
+    explicit_axis = info.get("frame_timestamps")
+    if explicit_axis is not None:
+        if isinstance(explicit_axis, list) and len(explicit_axis) == total_frames:
+            experiment.frame_timestamps = [float(t) for t in explicit_axis]
+        else:
+            logger.warning(
+                f"{summary_json_path}: frame_timestamps does not match {total_frames} frames; using the uniform axis"
+            )
     for frame_idx, time_days in times_by_frame.items():
         if 0 <= frame_idx < total_frames:
             experiment.frame_timestamps[frame_idx] = time_days

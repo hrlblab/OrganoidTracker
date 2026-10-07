@@ -194,11 +194,20 @@ class ExperimentData:
                 )
             self.frame_timestamps = [float(t) for t in self.frame_timestamps]
         elif self.total_frames > 0:
-            # Evenly distribute the time span (first to last frame) across frames. Days are
-            # numbered from 1 as in the paper's figures: with 7 daily frames and a 6-day span,
-            # the frames are days 1 to 7.
-            time_per_frame = self.time_lapse_days / max(1, self.total_frames - 1)
-            self.frame_timestamps = [1.0 + i * time_per_frame for i in range(self.total_frames)]
+            self.frame_timestamps = self.uniform_timestamps()
+
+    def uniform_timestamps(self) -> list[float]:
+        """The paper's time axis: the span (first to last frame) spread evenly, days numbered from 1.
+
+        With 7 daily frames and a 6-day span the frames are days 1 to 7.
+        """
+        time_per_frame = self.time_lapse_days / max(1, self.total_frames - 1)
+        return [1.0 + i * time_per_frame for i in range(self.total_frames)]
+
+    @property
+    def has_explicit_time_axis(self) -> bool:
+        """True when the timestamps are not the uniform axis derived from the span (explicit frame times)."""
+        return self.total_frames > 0 and self.frame_timestamps != self.uniform_timestamps()
 
     def add_organoid(self, organoid_data: OrganoidData):
         """Add an organoid to the experiment"""
