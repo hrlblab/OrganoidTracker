@@ -40,8 +40,16 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         python: ["3.12", "3.13"]
+    env:
+      # Windows runs on the python.org interpreter (a working Tk, and what users install); the
+      # uv-managed 3.13 build for Windows ships a Tk that cannot find init.tcl.
+      UV_PYTHON_PREFERENCE: ${{ matrix.os == 'windows-latest' && 'only-system' || 'only-managed' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: runner.os == 'Windows'
+        with:
+          python-version: ${{ matrix.python }}
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           python-version: ${{ matrix.python }}

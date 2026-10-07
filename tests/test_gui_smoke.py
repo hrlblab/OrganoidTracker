@@ -9,11 +9,14 @@ pytestmark = pytest.mark.gui
 
 @pytest.fixture
 def display():
+    """A probe Tk interpreter; skips when Tk cannot start (no display, or an unusable Tcl install)."""
     try:
-        root = tkinter.Tk()
+        probe = tkinter.Tk()
+        probe.withdraw()
     except tkinter.TclError as error:
-        pytest.skip(f"no display for Tk: {error}")
-    root.destroy()
+        pytest.skip(f"Tk cannot start here: {error}")
+    yield probe  # kept alive while the application creates its own root
+    probe.destroy()
 
 
 def test_main_window_opens_and_closes(display):
