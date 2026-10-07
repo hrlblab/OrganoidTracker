@@ -48,6 +48,20 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   analysis summary).
 
 ### Added
+- The `organoidtracker` command line: `organoidtracker run --session S --out O` tracks, analyzes and
+  exports a *session file* (video, organoid points, cyst boxes, calibration, timing) without a window,
+  and `organoidtracker validate` checks a session file and its video. The prompt record written when
+  tracking starts is accepted as a session file, so a GUI run can be repeated headlessly. Every run
+  writes `run_manifest.json` (software, environment, settings, video facts, backend provenance,
+  tracking status and frame coverage, a digest of every mask, the hash of every file) next to the
+  usual exports; a run that stopped early is reported as partial in every file and exits with status 3.
+- `organoidtracker.services`: GUI-free tracking, analysis and export services around the existing
+  backend contract, analysis engine and video writer, shared by the command line and the desktop
+  interfaces. The report generator exposes its analysis and export halves separately.
+- Explicit per-frame timestamps (`frame_times_days` in a session file) as an alternative to the
+  uniform time axis derived from the time-lapse span. `analysis_summary.json` then records the whole
+  axis (`experiment_info.frame_timestamps`) and re-plotting from CSV keeps it for every frame,
+  including frames without measurements.
 - `pyproject.toml` and a uv lock file (`uv.lock`, Linux and Windows). The application installs as
   the `organoidtracker` package with the `organoidtracker-tk` console script; `python
   video_tracker_gui.py` still works inside the environment. Accelerator extras `cpu` and `cuda`
@@ -86,6 +100,9 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   tiny checkpoint and skip when it is absent.
 
 ### Changed
+- The Tk application writes its prompt record through the shared services module. The record now
+  stores the video and checkpoint paths as absolute paths (and, for headless runs, the explicit frame
+  times), so it replays from any directory.
 - Source layout: `src/organoidtracker/{core,analysis,io,gui_tk}`; the vendored upstream SAM 2 is the
   top-level `sam2` package under `src/sam2` (byte-identical to facebookresearch/sam2 at 2b90b9f) with
   its configs as package data and its license files alongside. All `sys.path` edits are gone.

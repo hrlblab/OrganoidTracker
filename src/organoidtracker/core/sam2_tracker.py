@@ -396,7 +396,7 @@ class SAM2Tracker(BaseVideoTracker):
             logger.error(f"Error adding click prompt: {str(e)}")
             return False
 
-    def add_bbox_prompt(self, x1: int, y1: int, x2: int, y2: int, obj_id: int = 1, frame_idx: int = 0) -> bool:
+    def add_bbox_prompt(self, x1: float, y1: float, x2: float, y2: float, obj_id: int = 1, frame_idx: int = 0) -> bool:
         """Add a bounding box prompt (frame_idx is a display index; 0 is the annotation frame)."""
         if self.predictor is None or self.inference_state is None:
             logger.warning("No model or video loaded yet")

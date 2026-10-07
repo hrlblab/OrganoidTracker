@@ -52,3 +52,48 @@ def test_organoids_without_cysts_survive_the_round_trip(tmp_path, caplog):
         reduced = experiment_from_csv(tmp_path / "raw_cyst_data.csv", tmp_path / "analysis_summary.json")
     assert reduced.get_total_organoid_count() == 1
     assert "organoid_summary.csv not found" in caplog.text and "2 organoids, 1 were rebuilt" in caplog.text
+
+
+EXPLICIT_AXIS = [0.0, 1.0, 3.0, 6.0, 10.0, 15.0, 21.0, 28.0]
+
+
+@pytest.mark.parametrize("fake_kwargs", [{"partial_after": 3}, {"frames_without_masks": {0}}])
+def test_explicit_irregular_axis_survives_the_csv_reload_for_frames_without_rows(tmp_path, fake_kwargs):
+    """Frames without a CSV row (untracked, or tracked without a cyst) must keep their explicit times:
+    a uniform rebuild would put them at [1, 5, 9, 13, 17, 21, 25, 29]."""
+    from helpers import DiscVideo, FakeTracker
+    from organoidtracker.analysis.organoid_visualizations import observed_series
+    from organoidtracker.services.pipeline import run_session
+    from organoidtracker.services.session import session_from_document
+    from organoidtracker.services.tracking_service import TrackingService
+
+    disc = DiscVideo(n_frames=8, size=128, radius=10, start=20, step=12)
+    video = disc.write(tmp_path / "disc.mp4")
+    cx, cy = disc.centers[7]
+    session = session_from_document(
+        {
+            "schema": "organoidtracker.session/1",
+            "video": {"path": str(video)},
+            "tracking": {"model_config": "sam2_hiera_t", "device": "cpu"},
+            "calibration": {"um_per_pixel": 1.0},
+            "timing": {"frame_times_days": EXPLICIT_AXIS},
+            "organoids": [
+                {"organoid_id": 1, "point": [cx - 30, cy - 30], "cysts": [{"cyst_id": 1, "bbox": list(disc.box(7))}]}
+            ],
+        }
+    )
+    outcome = run_session(
+        session,
+        tmp_path / "run",
+        videos=False,
+        tracking_service_factory=lambda spec: TrackingService(
+            FakeTracker(disc, enable_reverse_tracking=spec.reverse, **fake_kwargs)
+        ),
+    )
+    assert outcome.analysis.experiment.frame_timestamps == EXPLICIT_AXIS
+    reloaded = experiment_from_csv(outcome.output_dir / "raw_cyst_data.csv")
+    assert reloaded.frame_timestamps == EXPLICIT_AXIS
+    assert reloaded.observed_frames == outcome.analysis.experiment.frames_observed()
+    times, _ = observed_series(reloaded, reloaded.get_cyst_to_organoid_ratio_at_frame)
+    assert times == EXPLICIT_AXIS  # the re-plotted x axis is the explicit one for every frame
+    assert reloaded.time_lapse_days == pytest.approx(28.0)

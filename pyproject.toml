@@ -66,6 +66,7 @@ dev = [
 ]
 
 [project.scripts]
+organoidtracker = "organoidtracker.cli:main"
 organoidtracker-tk = "organoidtracker.gui_tk.launcher:main"
 
 [project.urls]
@@ -133,10 +134,12 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.12"
-# Type-checked modules: the core package and the small infrastructure modules. The legacy
-# analysis, io and Tk modules are not checked yet.
+# Type-checked modules: the core and services packages, the command line and the small
+# infrastructure modules. The legacy analysis, io and Tk modules are not checked yet.
 files = [
   "src/organoidtracker/core",
+  "src/organoidtracker/services",
+  "src/organoidtracker/cli.py",
   "src/organoidtracker/config.py",
   "src/organoidtracker/logging_config.py",
   "src/organoidtracker/paths.py",

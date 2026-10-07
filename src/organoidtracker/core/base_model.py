@@ -96,12 +96,12 @@ class BaseVideoTracker(ABC):
         pass
 
     @abstractmethod
-    def add_bbox_prompt(self, x1: int, y1: int, x2: int, y2: int, obj_id: int = 1, frame_idx: int = 0) -> bool:
+    def add_bbox_prompt(self, x1: float, y1: float, x2: float, y2: float, obj_id: int = 1, frame_idx: int = 0) -> bool:
         """
         Add a bounding box prompt for object tracking
 
         Args:
-            x1, y1, x2, y2: Bounding box coordinates
+            x1, y1, x2, y2: Bounding box coordinates in source pixels (fractional values allowed)
             obj_id: Object ID to track
             frame_idx: Frame index to add prompt
 
