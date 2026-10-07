@@ -191,14 +191,19 @@ class ExportService:
         quality: str = "original",
         progress: ProgressCallback | None = None,
         debug: bool = False,
+        directory: Path | None = None,
     ) -> dict[str, str | None]:
-        """Overlay, mask and side-by-side videos (chronological frames, as the GUI exports them)."""
+        """Overlay, mask and side-by-side videos (chronological frames, as the GUI exports them).
+
+        They go to ``videos/`` under the output directory unless ``directory`` names another place
+        (the window writes them straight into the directory the user picked).
+        """
         parameters = self.video_export_parameters(quality)
         setattr(self.video_generator, "debug_mode", debug)  # noqa: B010  # dynamic flag, as the GUI sets it
         created = self.video_generator.create_optimized_multi_object_videos(
             frames=list(frames),
             video_segments=result,
-            output_dir=str(self.output_dir / VIDEO_DIR_NAME),
+            output_dir=str(directory if directory is not None else self.output_dir / VIDEO_DIR_NAME),
             fps=parameters["fps"],
             alpha=parameters["alpha"],
             progress_callback=progress,
