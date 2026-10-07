@@ -154,7 +154,9 @@ def _convert(value: Any, annotation: Any, where: str) -> Any:
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
     if origin in (types.UnionType, typing.Union):
-        members = [a for a in args if a is not type(None)]  # TOML cannot express None; omit the key instead
+        if value is None and type(None) in args:
+            return None  # a Python configuration may say None where the annotation allows it (TOML cannot)
+        members = [a for a in args if a is not type(None)]
         errors = []
         for member in members:
             try:

@@ -8,7 +8,7 @@ import sys
 import pytest
 
 from organoidtracker import config
-from organoidtracker.settings import Settings, SettingsError, load_settings, settings_path
+from organoidtracker.settings import Settings, SettingsError, coerce_setting, load_settings, settings_path
 
 # The constants of config.py as shipped before the settings module existed (WP1, commit ac45423),
 # plus GUI_LOG_LEVEL, which the logging change added. Frozen on purpose: a change here is a
@@ -194,3 +194,24 @@ def test_legacy_user_config_values_are_applied_when_valid(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip() == "80 2.0 True 80 True"
     assert "deprecated" in proc.stderr and "MY_OWN_FLAG is not a known setting" in proc.stderr
+
+
+def test_none_is_accepted_only_where_the_annotation_allows_it():
+    assert coerce_setting("max_video_frames", None, "x") is None
+    assert coerce_setting("torch_device_override", None, "x") is None
+    assert coerce_setting("max_video_frames", 20, "x") == 20
+    with pytest.raises(SettingsError, match="expected an integer"):
+        coerce_setting("sam2_min_mask_area", None, "x")
+    with pytest.raises(SettingsError, match="expected a string"):
+        coerce_setting("log_level", None, "x")
+
+
+def test_legacy_user_config_may_set_optional_settings_to_none(tmp_path):
+    legacy = tmp_path / "user_config.py"
+    legacy.write_text("MAX_VIDEO_FRAMES = None\nTORCH_DEVICE_OVERRIDE = None\nSAM2_MEMORY_FRAMES = 4\n")
+    env = {**os.environ, "ORGANOIDTRACKER_USER_CONFIG": str(legacy)}
+    env.pop("ORGANOIDTRACKER_SETTINGS", None)
+    code = "from organoidtracker import config; print(config.MAX_VIDEO_FRAMES, config.TORCH_DEVICE_OVERRIDE, config.SAM2_MEMORY_FRAMES)"
+    proc = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "None None 4"
