@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -24,8 +25,13 @@ def build_prompt_record(
     organoid_data: dict[int, dict[str, Any]],
     time_lapse_days: float | None,
     conversion_factor: float | None,
+    frame_times_days: Sequence[float] | None = None,
 ) -> dict[str, Any]:
-    """The record for a loaded backend (``model``) with prompts and the GUI-shaped ``organoid_data``."""
+    """The record for a loaded backend (``model``) with prompts and the GUI-shaped ``organoid_data``.
+
+    ``frame_times_days`` carries explicit per-frame times when the run used them; replaying the
+    record then reproduces the same time axis, not a uniform one over the same span.
+    """
     frames = getattr(model, "video_frames", None)
     describe = getattr(model, "provenance", None)
     return {
@@ -56,6 +62,7 @@ def build_prompt_record(
         "analysis_inputs": {
             "time_lapse_days": time_lapse_days,
             "conversion_factor_um_per_pixel": conversion_factor,
+            "frame_times_days": [float(t) for t in frame_times_days] if frame_times_days is not None else None,
         },
     }
 

@@ -11,6 +11,7 @@ import pytest
 
 from helpers import DiscVideo, FakeTracker, expected_growth_per_day
 from organoidtracker.analysis.csv_import import experiment_from_csv
+from organoidtracker.services.analysis_service import AnalysisService
 from organoidtracker.services.annotations import AnnotationError
 from organoidtracker.services.export_service import ExportError
 from organoidtracker.services.pipeline import EXIT_PARTIAL, run_session
@@ -22,6 +23,7 @@ from organoidtracker.services.session import (
     Timing,
     TrackingSpec,
     VideoReference,
+    load_session,
     session_from_document,
 )
 from organoidtracker.services.tracking_service import TrackingError, TrackingService
@@ -321,3 +323,26 @@ def test_prompt_record_round_trips_into_a_session(small_disc, small_video):
     )
     assert session.annotations.cyst_ids() == [1]
     assert session.video == VideoReference(Path(str(small_video)), tracker.video_sha256)
+
+
+def test_prompt_record_replays_explicit_timestamps_exactly(small_disc, small_video, tmp_path):
+    times = [0, 1, 3, 6, 10, 15, 21, 28]
+    session = make_session(small_disc, small_video, timing={"frame_times_days": times})
+    outcome = run(session, tmp_path / "run", small_disc, grow=3)
+    record = json.loads((outcome.output_dir / "prompts.json").read_text())
+    assert record["analysis_inputs"]["frame_times_days"] == [float(t) for t in times]
+    assert record["analysis_inputs"]["time_lapse_days"] == 28.0
+
+    replay = load_session(outcome.output_dir / "prompts.json")
+    assert replay.timing == session.timing and replay.calibration == session.calibration
+    again = AnalysisService().analyze(outcome.result, replay.annotations, replay.calibration, replay.timing)
+    original = outcome.analysis.experiment
+    assert again.experiment.frame_timestamps == original.frame_timestamps == [float(t) for t in times]
+    assert again.experiment.growth_rate_per_day(again.experiment.get_all_cysts()[0]) == pytest.approx(
+        original.growth_rate_per_day(original.get_all_cysts()[0])
+    )
+
+    uniform = run(make_session(small_disc, small_video), tmp_path / "uniform", small_disc)
+    record = json.loads((uniform.output_dir / "prompts.json").read_text())
+    assert record["analysis_inputs"]["frame_times_days"] is None
+    assert load_session(uniform.output_dir / "prompts.json").timing == Timing(time_lapse_days=7.0)

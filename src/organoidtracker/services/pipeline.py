@@ -122,6 +122,7 @@ def run_session(
             session.annotations.organoid_data(),
             resolved_timing.time_lapse_days,
             session.calibration.um_per_pixel,
+            frame_times_days=session.timing.frame_times_days,
         )
     )
 

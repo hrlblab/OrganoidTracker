@@ -331,7 +331,11 @@ def _from_prompt_record(data: Mapping[str, Any], base_dir: Path | None, source: 
             "device": str(model.get("device", DEFAULT_DEVICE)).split(":")[0],
         },
         "calibration": {"um_per_pixel": inputs.get("conversion_factor_um_per_pixel")},
-        "timing": {"time_lapse_days": inputs.get("time_lapse_days")},
+        "timing": (
+            {"frame_times_days": inputs["frame_times_days"]}
+            if inputs.get("frame_times_days") is not None
+            else {"time_lapse_days": inputs.get("time_lapse_days")}
+        ),
         "organoids": data.get("organoids", []),
     }
     try:
