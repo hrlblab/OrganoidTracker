@@ -1840,6 +1840,12 @@ class VideoTrackerApp:
         self.log_event("🧬 DETAILED ORGANOID ANALYSIS DEBUG COMPLETE")
         self.log_event("🧬" + "=" * 60)
         self.log_event(f"🎉 Analysis completed in {analysis_time:.2f}s")
+        tracking = analysis_summary.get("tracking") or {}
+        if tracking and tracking.get("status") != "completed":
+            self.log_event(
+                f"⚠️ PARTIAL TRACKING RUN: {tracking.get('frames_done')} of {tracking.get('frames_total')} frames "
+                f"were tracked ({tracking.get('error') or 'no error recorded'}); the report covers only those frames"
+            )
 
         # Display analysis results summary in the results area
         self.log_event("🧬 ORGANOID-CYST ANALYSIS RESULTS")

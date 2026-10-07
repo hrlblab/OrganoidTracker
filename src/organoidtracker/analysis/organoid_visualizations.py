@@ -683,11 +683,7 @@ class OrganoidVisualizationSuite:
             # Calculate individual cyst growth rates and sort
             cyst_growth_data = []
             for cyst in all_cysts:
-                growth_rate_per_frame = cyst.get_mean_area_growth_rate(experiment.conversion_factor_um_per_pixel)
-                # Convert from μm²/frame to μm²/day using actual time lapse (accounting for Day 0)
-                growth_rate_per_day = (
-                    growth_rate_per_frame * experiment.time_lapse_days / max(1, experiment.total_frames - 1)
-                )
+                growth_rate_per_day = experiment.growth_rate_per_day(cyst)
                 cyst_growth_data.append(
                     {
                         "cyst": cyst,

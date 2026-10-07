@@ -102,8 +102,8 @@ class OrganoidCSVExporter:
                 ]
                 circularities = [frame_data.circularity for frame_data in cyst.frame_data.values()]
 
-                # Growth metrics
-                growth_rate = cyst.get_mean_area_growth_rate(experiment.conversion_factor_um_per_pixel)
+                # Growth metrics (μm² per day over the experiment's time axis)
+                growth_rate = experiment.growth_rate_per_day(cyst)
 
                 row = {
                     "Organoid_ID": organoid_id,
@@ -116,9 +116,7 @@ class OrganoidCSVExporter:
                     "Max_Area_um2": round(max(areas_um2), 2) if areas_um2 else 0,
                     "Mean_Area_um2": round(np.mean(areas_um2), 2) if areas_um2 else 0,
                     "Mean_Circularity": round(np.mean(circularities), 4) if circularities else 0,
-                    "Growth_Rate_um2_per_day": round(
-                        growth_rate * experiment.time_lapse_days / max(1, experiment.total_frames - 1), 4
-                    ),
+                    "Growth_Rate_um2_per_day": round(growth_rate, 4),
                 }
 
                 summary_rows.append(row)

@@ -12,7 +12,6 @@ from typing import Any
 
 from .. import RESULTS_VERSION, __version__
 from ..paths import source_revision
-from .data_reconstruction import DataReconstructionEngine
 from .organoid_analysis_engine import OrganoidAnalysisEngine, OrganoidAnalysisValidator
 from .organoid_csv_exporter import OrganoidCSVExporter
 from .organoid_cyst_data import ExperimentData
@@ -44,7 +43,6 @@ class OrganoidAnalysisReportGenerator:
         self.csv_exporter = OrganoidCSVExporter()
         self.visualizer = OrganoidVisualizationSuite()
         self.validator = OrganoidAnalysisValidator()
-        self.reconstruction_engine = DataReconstructionEngine()
 
     def generate_complete_analysis_report(
         self,
@@ -85,56 +83,31 @@ class OrganoidAnalysisReportGenerator:
         self.analysis_engine.debug_mode = debug_mode
 
         try:
-            # Step 1: Check for data reconstruction needs
-            logger.info("Step 1: Checking data integrity...")
-
-            # Determine total frames from tracking results
-            total_frames = self._determine_total_frames(tracking_results)
-            logger.debug(f"Total frames detected: {total_frames}")
-
-            # Set debug mode for reconstruction engine
-            self.reconstruction_engine.debug_mode = debug_mode
-
-            # Detect potential data mismatch
-            mismatch_info = self.reconstruction_engine.detect_data_mismatch(
-                tracking_results, organoid_data, total_frames
+            # Step 1: Describe the run and compare the annotations with the tracked objects.
+            # Nothing is invented: a cyst without masks has no trajectory, a tracked object that
+            # is not an annotated cyst is ignored, and both cases are reported.
+            logger.info("Step 1: Checking the tracking results...")
+            run = self._describe_tracking(tracking_results)
+            total_frames = run["frames_total"]
+            logger.debug(
+                f"Frames: {total_frames} tracked, {run['frames_with_masks']} with masks; tracking {run['status']}"
             )
-
-            # Reconstruct data if needed
-            final_organoid_data = organoid_data
-            reconstruction_performed = False
-
-            if mismatch_info["has_mismatch"] and mismatch_info["reconstruction_possible"]:
-                logger.info("Step 1b: Reconstructing missing cyst data...")
-                logger.warning(
-                    f"Detected {mismatch_info['missing_cysts']} missing cysts from {mismatch_info['tracked_objects']} tracked objects"
-                )
-
-                final_organoid_data = self.reconstruction_engine.reconstruct_organoid_data(
-                    tracking_results, organoid_data, mismatch_info
-                )
-                reconstruction_performed = True
-
-                # Save reconstruction report
-                if debug_mode:
-                    reconstruction_report_path = output_path / "data_reconstruction_report.json"
-                    self.reconstruction_engine.save_reconstruction_report(
-                        mismatch_info, final_organoid_data, str(reconstruction_report_path)
-                    )
-                    logger.debug(f"Reconstruction report saved: {reconstruction_report_path}")
-
-            elif mismatch_info["has_mismatch"]:
-                logger.warning("Data mismatch detected but reconstruction not possible")
-                logger.debug(f"• Tracked objects: {mismatch_info['tracked_objects']}")
-                logger.debug(f"• Expected objects: {mismatch_info['expected_total']}")
-                logger.debug("• Proceeding with available data...")
+            annotated_ids = sorted(
+                int(cyst["cyst_id"]) for info in organoid_data.values() for cyst in info.get("cysts", [])
+            )
+            untracked = sorted(set(annotated_ids) - set(run["object_ids"]))
+            unannotated = sorted(set(run["object_ids"]) - set(annotated_ids))
+            if untracked:
+                logger.warning(f"Annotated cysts without any tracked mask (no trajectory): {untracked}")
+            if unannotated:
+                logger.warning(f"Tracked objects that are not annotated cysts (ignored): {unannotated}")
 
             # Step 2: Extract experiment data from tracking results
             logger.info("Step 2: Extracting experiment data...")
 
             experiment = self.analysis_engine.extract_experiment_data_from_tracking(
                 tracking_results=tracking_results,
-                organoid_data=final_organoid_data,  # Use reconstructed data
+                organoid_data=organoid_data,
                 time_lapse_days=time_lapse_days,
                 total_frames=total_frames,
             )
@@ -147,23 +120,20 @@ class OrganoidAnalysisReportGenerator:
             # Step 3: Validate data quality
             logger.info("Step 3: Validating data quality...")
             validation_results = self.validator.validate_experiment_data(experiment)
+            if run["status"] != "completed":
+                validation_results["warnings"].append(
+                    f"Tracking {run['status']}: {run['frames_done']} of {run['frames_total']} frames were tracked"
+                    + (f" ({run['error']})" if run["error"] else "")
+                )
+            if untracked:
+                validation_results["warnings"].append(f"Annotated cysts without tracked masks: {untracked}")
 
             logger.debug("Validation summary:")
             logger.debug(f"• Total organoids: {validation_results['total_organoids']}")
             logger.debug(f"• Total cysts: {validation_results['total_cysts']}")
             logger.debug(f"• Frames analyzed: {validation_results['frames_analyzed']}")
-
-            if validation_results.get("warnings"):
-                for warning in validation_results["warnings"]:
-                    logger.warning(f"{warning}")
-
-            # Add reconstruction info to validation results
-            if reconstruction_performed:
-                if "warnings" not in validation_results:
-                    validation_results["warnings"] = []
-                validation_results["warnings"].append(
-                    f"Data reconstruction performed: {mismatch_info['missing_cysts']} cysts recovered"
-                )
+            for warning in validation_results.get("warnings", []):
+                logger.warning(f"{warning}")
 
             # Step 4: Export CSV data
             logger.info("Step 4: Exporting CSV data...")
@@ -198,12 +168,12 @@ class OrganoidAnalysisReportGenerator:
             # Step 6: Generate enhanced PDF report
             logger.info("Step 6: Generating PDF report...")
             pdf_path = self._generate_enhanced_pdf_report(
-                experiment, validation_results, csv_paths, viz_paths, output_path
+                experiment, validation_results, csv_paths, viz_paths, output_path, run
             )
 
             # Step 7: Create analysis summary
             logger.info("Step 7: Creating analysis summary...")
-            summary = self._create_analysis_summary(experiment, validation_results, csv_paths, viz_paths, pdf_path)
+            summary = self._create_analysis_summary(experiment, validation_results, csv_paths, viz_paths, pdf_path, run)
 
             # Save summary as JSON
             summary_json_path = output_path / "analysis_summary.json"
@@ -229,43 +199,56 @@ class OrganoidAnalysisReportGenerator:
                 "timestamp": datetime.now().isoformat(),
             }
 
+    def _describe_tracking(self, tracking_results: Any) -> dict[str, Any]:
+        """Facts about the tracking run behind the results.
+
+        A ``TrackingResult`` carries them (status, frames_total, frames_done, error, direction,
+        frame_map). A plain ``{frame_index: {object_id: mask}}`` dict can only say which frames
+        have masks; its frame count is the highest frame index plus one, because a frame whose
+        masks were all rejected is still a frame of the video.
+        """
+        results = tracking_results
+        if isinstance(results, dict) and "video_segments" in results:
+            results = results["video_segments"]
+        elif isinstance(results, dict) and "masks" in results:
+            results = results["masks"]
+        if not isinstance(results, dict):
+            raise ValueError("tracking results must be a mapping {frame_index: {object_id: mask}}")
+        frame_keys = [key for key in results if isinstance(key, int)]
+        frame_map = list(getattr(tracking_results, "frame_map", None) or [])
+        frames_total = int(getattr(tracking_results, "frames_total", 0) or 0)
+        if frames_total <= 0 and frame_map:
+            frames_total = len(frame_map)
+        if frames_total <= 0:
+            if not frame_keys:
+                raise ValueError("cannot determine the number of frames: the tracking results are empty")
+            frames_total = max(frame_keys) + 1
+        frames_done = int(getattr(tracking_results, "frames_done", 0) or 0) or len(frame_keys)
+        object_ids = sorted({int(obj) for key in frame_keys for obj in results[key]})
+        return {
+            "status": getattr(tracking_results, "status", "completed"),
+            "frames_total": frames_total,
+            "frames_done": frames_done,
+            "frames_with_masks": len(frame_keys),
+            "error": getattr(tracking_results, "error", None),
+            "direction": getattr(tracking_results, "direction", None),
+            "annotation_frame": getattr(tracking_results, "annotation_frame", None),
+            "frame_map": frame_map,
+            "object_ids": object_ids,
+        }
+
     def _determine_total_frames(self, tracking_results: dict[str, Any]) -> int:
-        """
-        Determine total number of frames from tracking results
-        """
-        try:
-            # Try different possible keys for frame count
-            if "total_frames" in tracking_results:
-                return tracking_results["total_frames"]
-            elif "num_frames" in tracking_results:
-                return tracking_results["num_frames"]
-            elif "video_segments" in tracking_results:
-                # Count frames in video_segments
-                segments = tracking_results["video_segments"]
-                if isinstance(segments, dict):
-                    return len(segments)
-                elif isinstance(segments, list):
-                    return len(segments)
-            elif "masks" in tracking_results:
-                # Count frames in masks
-                masks = tracking_results["masks"]
-                if isinstance(masks, dict):
-                    return len(masks)
-                elif isinstance(masks, list):
-                    return len(masks)
-            elif isinstance(tracking_results, dict) and all(isinstance(k, int) for k in tracking_results.keys()):
-                # Direct SAM2 format: {frame_idx: {obj_id: mask}}
-                frame_count = len(tracking_results)
-                logger.info(f"Detected frame count from direct SAM2 format: {frame_count}")
-                return frame_count
+        """Number of frames of the tracked video (see ``_describe_tracking``)."""
+        return self._describe_tracking(tracking_results)["frames_total"]
 
-            # Default fallback
-            logger.warning("Could not determine frame count from tracking results, using default: 100")
-            return 100
-
-        except Exception as e:
-            logger.warning(f"Error determining frame count: {e}, using default: 100")
-            return 100
+    @staticmethod
+    def _tracking_label(run: dict[str, Any] | None) -> str:
+        if run is None:
+            return "not recorded"
+        label = f"{run['status']}: {run['frames_done']} of {run['frames_total']} frames"
+        if run.get("direction"):
+            label += f", {run['direction']}"
+        return label
 
     def _export_csv_data(self, experiment: ExperimentData, output_path: Path) -> dict[str, str]:
         """
@@ -302,6 +285,7 @@ class OrganoidAnalysisReportGenerator:
         csv_paths: dict[str, str],
         viz_paths: dict[str, str],
         output_path: Path,
+        run: dict[str, Any] | None = None,
     ) -> str | None:
         """
         Generate enhanced PDF report with visualizations
@@ -334,6 +318,18 @@ class OrganoidAnalysisReportGenerator:
             story.append(Paragraph("Organoid Cyst Analysis Report", title_style))
             story.append(Spacer(1, 20))
 
+            if run is not None and run["status"] != "completed":
+                notice_style = ParagraphStyle("Notice", parent=styles["Normal"], textColor=colors.red, fontSize=11)
+                error_text = f" ({run['error']})" if run.get("error") else ""
+                story.append(
+                    Paragraph(
+                        f"<b>Partial tracking run:</b> {run['frames_done']} of {run['frames_total']} frames were "
+                        f"tracked{error_text}. Measurements cover only the tracked frames.",
+                        notice_style,
+                    )
+                )
+                story.append(Spacer(1, 12))
+
             # Analysis summary
             story.append(Paragraph("Analysis Summary", styles["Heading2"]))
 
@@ -342,6 +338,7 @@ class OrganoidAnalysisReportGenerator:
                 ["Total Organoids", str(validation_results["total_organoids"])],
                 ["Total Cysts", str(validation_results["total_cysts"])],
                 ["Frames Analyzed", str(validation_results["frames_analyzed"])],
+                ["Tracking", self._tracking_label(run)],
                 ["Time Period", f"{experiment.time_lapse_days} days"],
                 ["Conversion Factor", f"{experiment.conversion_factor_um_per_pixel} μm/pixel"],
                 ["Analysis Date", datetime.now().strftime("%Y-%m-%d %H:%M")],
@@ -450,6 +447,7 @@ class OrganoidAnalysisReportGenerator:
         csv_paths: dict[str, str],
         viz_paths: dict[str, str],
         pdf_path: str | None,
+        run: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Create comprehensive analysis summary
@@ -457,14 +455,8 @@ class OrganoidAnalysisReportGenerator:
         # Calculate key metrics
         all_cysts = experiment.get_all_cysts()
 
-        # Growth rate statistics
-        growth_rates = experiment.sort_organoids_by_growth_rate()
-        # Convert from μm²/frame to μm²/day using actual time lapse (accounting for Day 0)
-        growth_rate_values = (
-            [rate * experiment.time_lapse_days / max(1, experiment.total_frames - 1) for _, rate in growth_rates]
-            if growth_rates
-            else []
-        )
+        # Growth rate statistics (μm² per day on the experiment's time axis)
+        growth_rate_values = [rate for _, rate in experiment.sort_organoids_by_growth_rate()]
 
         # Time coverage statistics
         if all_cysts:
@@ -477,6 +469,8 @@ class OrganoidAnalysisReportGenerator:
 
         summary = {
             "success": True,
+            "complete": run is None or run["status"] == "completed",
+            "tracking": run,
             "timestamp": datetime.now().isoformat(),
             "results_version": RESULTS_VERSION,
             "software": {"organoidtracker": __version__, "source_revision": source_revision()},

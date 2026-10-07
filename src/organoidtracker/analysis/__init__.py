@@ -7,7 +7,6 @@ and comprehensive report generation for kidney organoid research.
 
 # Legacy analysis system (for backwards compatibility)
 from .advanced_visualizations import AdvancedOrganoidVisualizer
-from .data_reconstruction import DataReconstructionEngine
 from .metrics import (
     AnalysisParameters,
     BaseMetric,
@@ -53,5 +52,4 @@ __all__ = [
     "OrganoidCSVExporter",
     "OrganoidVisualizationSuite",
     "OrganoidAnalysisReportGenerator",
-    "DataReconstructionEngine",
 ]
