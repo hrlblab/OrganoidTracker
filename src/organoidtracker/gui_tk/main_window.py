@@ -5,6 +5,7 @@ Built with Tkinter for beginner-friendly GUI development
 """
 
 import logging
+import queue
 import sys
 import threading
 import time
@@ -39,8 +40,7 @@ class LogPanelHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            message = self.format(record)
-            self.app.root.after(0, self.app.log_event, message)
+            self.app.post(self.app.log_event, self.format(record))
         except Exception:  # the Tk main loop has gone away
             pass
 
@@ -98,6 +98,11 @@ class VideoTrackerApp:
         self.time_lapse_var.set(DEFAULT_TIME_LAPSE_DAYS)
         self.conversion_factor_var.set(DEFAULT_CONVERSION_FACTOR)
 
+        # Worker threads never touch Tk: they post callbacks here and the main loop drains the queue.
+        self._ui_queue: queue.Queue = queue.Queue()
+        self._ui_after_id = self.root.after(self.UI_POLL_MS, self._drain_ui_queue)
+        self.root.bind("<Destroy>", self._on_destroy, add="+")
+
         # GUI setup
         self.setup_styles()
         self.create_widgets()
@@ -114,6 +119,33 @@ class VideoTrackerApp:
 
         # Status
         self.set_status("Select a model and load it to begin.")
+
+    UI_POLL_MS = 50
+
+    def post(self, callback, *args) -> None:
+        """Run ``callback(*args)`` on the GUI thread; safe to call from any thread."""
+        self._ui_queue.put((callback, args))
+
+    def _drain_ui_queue(self) -> None:
+        while True:
+            try:
+                callback, args = self._ui_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                callback(*args)
+            except Exception as error:  # a failing callback must not stop the loop
+                logger.error(f"GUI callback {getattr(callback, '__name__', callback)} failed: {error}")
+        self._ui_after_id = self.root.after(self.UI_POLL_MS, self._drain_ui_queue)
+
+    def _on_destroy(self, event) -> None:
+        """Stop the queue poll when the window goes away (a pending ``after`` on a destroyed root errors)."""
+        if event.widget is self.root and self._ui_after_id is not None:
+            try:
+                self.root.after_cancel(self._ui_after_id)
+            except tk.TclError:
+                pass
+            self._ui_after_id = None
 
     def setup_styles(self):
         """Setup custom styles for the GUI"""
@@ -616,14 +648,14 @@ class VideoTrackerApp:
                     if model and model.load_model():
                         load_time = time.time() - start_time
                         self.current_model = model
-                        self.root.after(0, self.on_model_loaded_success, load_time)
+                        self.post(self.on_model_loaded_success, load_time)
                     else:
                         load_time = time.time() - start_time
-                        self.root.after(0, self.on_model_loaded_error, "Failed to load model", load_time)
+                        self.post(self.on_model_loaded_error, "Failed to load model", load_time)
 
                 except Exception as e:
                     load_time = time.time() - start_time
-                    self.root.after(0, self.on_model_loaded_error, str(e), load_time)
+                    self.post(self.on_model_loaded_error, str(e), load_time)
 
             threading.Thread(target=load_model_thread, daemon=True).start()
 
@@ -699,10 +731,10 @@ class VideoTrackerApp:
                 try:
                     video_info = self.current_model.load_video(file_path)
                     load_time = time.time() - start_time
-                    self.root.after(0, self.on_video_loaded_success, file_path, video_info, load_time)
+                    self.post(self.on_video_loaded_success, file_path, video_info, load_time)
                 except Exception as e:
                     load_time = time.time() - start_time
-                    self.root.after(0, self.on_video_loaded_error, str(e), load_time)
+                    self.post(self.on_video_loaded_error, str(e), load_time)
 
             threading.Thread(target=load_video_thread, daemon=True).start()
 
@@ -1218,20 +1250,20 @@ class VideoTrackerApp:
                 # Progress callback
                 def progress_callback(current, total, message):
                     progress = (current / total) * 100 if total > 0 else 0
-                    self.root.after(0, self.tracking_dialog.update_progress, progress, message)
+                    self.post(self.tracking_dialog.update_progress, progress, message)
 
                 # Run tracking
                 self.video_segments = self.current_model.run_tracking(progress_callback)
 
                 # Ensure completion progress is shown
-                self.root.after(0, self.tracking_dialog.update_progress, 100, "Tracking completed!")
+                self.post(self.tracking_dialog.update_progress, 100, "Tracking completed!")
 
                 tracking_time = time.time() - start_time
-                self.root.after(0, self.on_tracking_complete_success, tracking_time)
+                self.post(self.on_tracking_complete_success, tracking_time)
 
             except Exception as e:
                 tracking_time = time.time() - start_time
-                self.root.after(0, self.on_tracking_complete_error, str(e), tracking_time)
+                self.post(self.on_tracking_complete_error, str(e), tracking_time)
 
         # Start tracking in background thread
         threading.Thread(target=tracking_thread, daemon=True).start()
@@ -1402,7 +1434,7 @@ class VideoTrackerApp:
                 def optimized_progress_callback(current, total, message):
                     # Calculate overall progress
                     progress = (current / total) * 100 if total > 0 else 0
-                    self.root.after(0, self.generation_dialog.update_progress, progress, f"{message} ({objects_text})")
+                    self.post(self.generation_dialog.update_progress, progress, f"{message} ({objects_text})")
 
                 created_videos = generator.create_optimized_multi_object_videos(
                     frames=self.current_model.video_frames,
@@ -1416,22 +1448,22 @@ class VideoTrackerApp:
                 )
 
                 # ✅ FIX: Explicitly set progress to 100% when optimization completes
-                self.root.after(0, self.generation_dialog.update_progress, 100, "Video generation completed!")
+                self.post(self.generation_dialog.update_progress, 100, "Video generation completed!")
 
                 # ✅ CRITICAL FIX: Always re-enable button, even if completion callback fails
-                self.root.after(0, lambda: self.generate_btn.config(state="normal"))
+                self.post(lambda: self.generate_btn.config(state="normal"))
 
                 # Log results
                 successful_videos = [v for v in created_videos.values() if v is not None]
                 for video_type, path in created_videos.items():
                     if path:
-                        self.root.after(0, lambda vt=video_type: self.log_event(f"✅ {vt} video created (optimized)"))
+                        self.post(lambda vt=video_type: self.log_event(f"✅ {vt} video created (optimized)"))
                     else:
-                        self.root.after(0, lambda vt=video_type: self.log_event(f"❌ {vt} video failed"))
+                        self.post(lambda vt=video_type: self.log_event(f"❌ {vt} video failed"))
 
                 # FALLBACK TO ORIGINAL METHOD if optimization fails
                 if not successful_videos:
-                    self.root.after(0, lambda: self.log_event("⚠️ Optimization failed, falling back to original method"))
+                    self.post(lambda: self.log_event("⚠️ Optimization failed, falling back to original method"))
 
                     created_videos = {}
                     total_videos = len(video_types)
@@ -1454,7 +1486,7 @@ class VideoTrackerApp:
                                     overall_progress = base_prog
 
                                 message = f"Creating {vid_type} video: {frame_message} ({objects_text})"
-                                self.root.after(0, self.generation_dialog.update_progress, overall_progress, message)
+                                self.post(self.generation_dialog.update_progress, overall_progress, message)
 
                             return report_video_progress
 
@@ -1486,8 +1518,7 @@ class VideoTrackerApp:
 
                             video_time = time.time() - video_start_time
                             # Log individual video completion in main thread
-                            self.root.after(
-                                0,
+                            self.post(
                                 lambda vt=video_type, t=video_time: self.log_event(
                                     f"✅ {vt} video created in {t:.2f}s"
                                 ),
@@ -1498,8 +1529,7 @@ class VideoTrackerApp:
                             created_videos[video_type] = None
 
                             video_time = time.time() - video_start_time
-                            self.root.after(
-                                0,
+                            self.post(
                                 lambda vt=video_type, t=video_time, err=str(e): self.log_event(
                                     f"❌ {vt} video failed after {t:.2f}s: {err}"
                                 ),
@@ -1508,19 +1538,19 @@ class VideoTrackerApp:
                     total_time = time.time() - start_time
 
                     # Ensure completion progress is shown
-                    self.root.after(0, self.generation_dialog.update_progress, 100, "Video generation completed!")
+                    self.post(self.generation_dialog.update_progress, 100, "Video generation completed!")
 
                     # ✅ CRITICAL FIX: Always re-enable button, even if completion callback fails
-                    self.root.after(0, lambda: self.generate_btn.config(state="normal"))
+                    self.post(lambda: self.generate_btn.config(state="normal"))
 
                     # Add delay before callback to allow cleanup and reduce memory pressure
-                    self.root.after(100, self.on_generation_complete_success, created_videos, output_dir, total_time)
+                    self.post(self.on_generation_complete_success, created_videos, output_dir, total_time)
 
             except Exception as e:
                 total_time = time.time() - start_time
                 # ✅ CRITICAL FIX: Always re-enable button, even on exceptions
-                self.root.after(0, lambda: self.generate_btn.config(state="normal"))
-                self.root.after(0, self.on_generation_complete_error, str(e), total_time)
+                self.post(lambda: self.generate_btn.config(state="normal"))
+                self.post(self.on_generation_complete_error, str(e), total_time)
 
         # ✅ FIX: Ensure button is disabled during generation and dialog can be restarted
         self.generate_btn.config(state="disabled")
@@ -1782,11 +1812,11 @@ class VideoTrackerApp:
                 analysis_time = time.time() - start_time
 
                 # Update GUI in main thread with results for display
-                self.root.after(0, self.on_organoid_analysis_complete_success, analysis_summary, analysis_time)
+                self.post(self.on_organoid_analysis_complete_success, analysis_summary, analysis_time)
 
             except Exception as e:
                 analysis_time = time.time() - start_time
-                self.root.after(0, self.on_organoid_analysis_complete_error, str(e), analysis_time)
+                self.post(self.on_organoid_analysis_complete_error, str(e), analysis_time)
 
         # Run analysis in background thread
         import threading
