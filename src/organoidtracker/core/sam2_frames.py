@@ -99,7 +99,9 @@ class FramePredictor(SAM2VideoPredictor):
         return inference_state
 
 
-def build_frame_predictor(config_file: str, ckpt_path: str, device: str, apply_postprocessing: bool = True) -> FramePredictor:
+def build_frame_predictor(
+    config_file: str, ckpt_path: str, device: str, apply_postprocessing: bool = True
+) -> FramePredictor:
     """Instantiate a ``FramePredictor`` from a SAM2 Hydra config and checkpoint.
 
     Must be called inside an initialized Hydra context (the tracker opens one on the

@@ -8,6 +8,8 @@ def test_days_are_numbered_from_one_as_in_the_paper():
 
 
 def test_single_frame_and_uneven_span():
-    assert ExperimentData(total_frames=1, time_lapse_days=6.0, conversion_factor_um_per_pixel=1.0).frame_timestamps == [1.0]
+    assert ExperimentData(total_frames=1, time_lapse_days=6.0, conversion_factor_um_per_pixel=1.0).frame_timestamps == [
+        1.0
+    ]
     experiment = ExperimentData(total_frames=4, time_lapse_days=1.5, conversion_factor_um_per_pixel=1.0)
     assert experiment.frame_timestamps == [1.0, 1.5, 2.0, 2.5]

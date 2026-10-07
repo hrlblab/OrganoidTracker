@@ -17,6 +17,7 @@ def check_dependencies():
     # Check PyTorch
     try:
         import torch
+
         print(f"✅ PyTorch: {torch.__version__}")
     except ImportError:
         missing_deps.append("PyTorch")
@@ -24,6 +25,7 @@ def check_dependencies():
     # Check OpenCV
     try:
         import cv2
+
         print(f"✅ OpenCV: {cv2.__version__}")
     except ImportError:
         missing_deps.append("OpenCV (cv2)")
@@ -31,6 +33,7 @@ def check_dependencies():
     # Check PIL
     try:
         from PIL import Image
+
         print(f"✅ Pillow: {Image.__version__}")
     except ImportError:
         missing_deps.append("Pillow (PIL)")
@@ -38,6 +41,7 @@ def check_dependencies():
     # Check NumPy
     try:
         import numpy as np
+
         print(f"✅ NumPy: {np.__version__}")
     except ImportError:
         missing_deps.append("NumPy")
@@ -78,8 +82,8 @@ def check_models():
 def main():
     """Main entry point"""
     # Fix OpenMP duplicate library issue on Windows (PyTorch + NumPy/SciPy conflict)
-    os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
-    os.environ.setdefault('TK_SILENCE_DEPRECATION', '1')  # Suppress Tkinter warnings on macOS
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+    os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")  # Suppress Tkinter warnings on macOS
 
     print("🏥 Multi-Model Video Object Tracker")
     print("=" * 50)

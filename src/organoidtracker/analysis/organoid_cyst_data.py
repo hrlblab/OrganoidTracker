@@ -15,6 +15,7 @@ import numpy as np
 @dataclass
 class CystFrameData:
     """Data for a single cyst at a specific frame"""
+
     frame_index: int
     area_pixels: float
     circularity: float
@@ -40,6 +41,7 @@ class CystFrameData:
 @dataclass
 class CystTrajectory:
     """Complete trajectory of a single cyst across frames"""
+
     cyst_id: int
     organoid_id: int
     frame_data: dict[int, CystFrameData] = field(default_factory=dict)  # frame_index -> CystFrameData
@@ -86,7 +88,7 @@ class CystTrajectory:
         growth_periods = 0
 
         for i in range(1, len(frames)):
-            prev_frame = frames[i-1]
+            prev_frame = frames[i - 1]
             curr_frame = frames[i]
             prev_area = self.get_area_at_frame(prev_frame, conversion_factor)
             curr_area = self.get_area_at_frame(curr_frame, conversion_factor)
@@ -102,6 +104,7 @@ class CystTrajectory:
 @dataclass
 class OrganoidData:
     """Data for a single organoid and all its cysts"""
+
     organoid_id: int
     marker_point: tuple[float, float]  # Initial click point for identification
     cysts: dict[int, CystTrajectory] = field(default_factory=dict)  # cyst_id -> CystTrajectory
@@ -141,22 +144,23 @@ class OrganoidData:
         """Get the frame where the first cyst appeared"""
         if not self.cysts:
             return None
-        return min(cyst.first_appearance_frame for cyst in self.cysts.values()
-                  if cyst.first_appearance_frame is not None)
+        return min(
+            cyst.first_appearance_frame for cyst in self.cysts.values() if cyst.first_appearance_frame is not None
+        )
 
     def get_mean_growth_rate(self, conversion_factor: float = 1.0) -> float:
         """Calculate mean growth rate across all cysts"""
         if not self.cysts:
             return 0.0
 
-        growth_rates = [cyst.get_mean_area_growth_rate(conversion_factor)
-                       for cyst in self.cysts.values()]
+        growth_rates = [cyst.get_mean_area_growth_rate(conversion_factor) for cyst in self.cysts.values()]
         return np.mean(growth_rates) if growth_rates else 0.0
 
 
 @dataclass
 class ExperimentData:
     """Complete experiment data with all organoids and their cysts"""
+
     total_frames: int
     time_lapse_days: float
     conversion_factor_um_per_pixel: float
@@ -192,13 +196,11 @@ class ExperimentData:
 
     def get_total_cyst_count_at_frame(self, frame_index: int) -> int:
         """Get total number of cysts across all organoids at specific frame"""
-        return sum(organoid.get_cyst_count_at_frame(frame_index)
-                  for organoid in self.organoids.values())
+        return sum(organoid.get_cyst_count_at_frame(frame_index) for organoid in self.organoids.values())
 
     def get_organoids_with_cysts_at_frame(self, frame_index: int) -> int:
         """Get number of organoids that have at least one cyst at specific frame"""
-        return sum(1 for organoid in self.organoids.values()
-                  if organoid.has_cysts_at_frame(frame_index))
+        return sum(1 for organoid in self.organoids.values() if organoid.has_cysts_at_frame(frame_index))
 
     def get_percentage_organoids_with_cysts_at_frame(self, frame_index: int) -> float:
         """Get percentage of organoids with cysts at specific frame"""
@@ -243,25 +245,25 @@ class ExperimentData:
         """Convert to dictionary for JSON serialization"""
         # Note: This is a simplified version - full implementation would handle numpy arrays
         return {
-            'total_frames': self.total_frames,
-            'time_lapse_days': self.time_lapse_days,
-            'conversion_factor_um_per_pixel': self.conversion_factor_um_per_pixel,
-            'total_organoids': self.get_total_organoid_count(),
-            'frame_timestamps': self.frame_timestamps,
-            'organoid_count': len(self.organoids),
-            'total_cyst_count': len(self.get_all_cysts())
+            "total_frames": self.total_frames,
+            "time_lapse_days": self.time_lapse_days,
+            "conversion_factor_um_per_pixel": self.conversion_factor_um_per_pixel,
+            "total_organoids": self.get_total_organoid_count(),
+            "frame_timestamps": self.frame_timestamps,
+            "organoid_count": len(self.organoids),
+            "total_cyst_count": len(self.get_all_cysts()),
         }
 
     def save_to_json(self, filepath: str):
         """Save experiment metadata to JSON (not including full trajectory data)"""
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             json.dump(self.to_dict(), f, indent=2)
 
 
 # Helper functions for data extraction
-def extract_experiment_data_from_tracking(tracking_results: dict[str, Any],
-                                        time_lapse_days: float,
-                                        conversion_factor: float) -> ExperimentData:
+def extract_experiment_data_from_tracking(
+    tracking_results: dict[str, Any], time_lapse_days: float, conversion_factor: float
+) -> ExperimentData:
     """
     Extract experiment data from SAM2 tracking results using the new organoid-cyst model
 
@@ -276,7 +278,5 @@ def extract_experiment_data_from_tracking(tracking_results: dict[str, Any],
     # This will be implemented when we integrate with the GUI
     # For now, return empty structure
     return ExperimentData(
-        total_frames=0,
-        time_lapse_days=time_lapse_days,
-        conversion_factor_um_per_pixel=conversion_factor
+        total_frames=0, time_lapse_days=time_lapse_days, conversion_factor_um_per_pixel=conversion_factor
     )

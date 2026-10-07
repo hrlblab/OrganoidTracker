@@ -108,32 +108,19 @@ class ProgressDialog:
         """Create dialog widgets"""
         # Main frame
         main_frame = ttk.Frame(self.dialog, padding=20)
-        main_frame.grid(row=0, column=0, sticky='ew')
+        main_frame.grid(row=0, column=0, sticky="ew")
 
         # Message label
-        message_label = ttk.Label(
-            main_frame,
-            textvariable=self.message_var,
-            font=('Arial', 10)
-        )
-        message_label.grid(row=0, column=0, pady=(0, 15), sticky='ew')
+        message_label = ttk.Label(main_frame, textvariable=self.message_var, font=("Arial", 10))
+        message_label.grid(row=0, column=0, pady=(0, 15), sticky="ew")
 
         # Progress bar
-        progress_bar = ttk.Progressbar(
-            main_frame,
-            variable=self.progress_var,
-            mode='determinate',
-            length=300
-        )
-        progress_bar.grid(row=1, column=0, pady=(0, 10), sticky='ew')
+        progress_bar = ttk.Progressbar(main_frame, variable=self.progress_var, mode="determinate", length=300)
+        progress_bar.grid(row=1, column=0, pady=(0, 10), sticky="ew")
 
         # Progress text
-        self.progress_text = ttk.Label(
-            main_frame,
-            text="0%",
-            font=('Arial', 9)
-        )
-        self.progress_text.grid(row=2, column=0, sticky='ew')
+        self.progress_text = ttk.Label(main_frame, text="0%", font=("Arial", 9))
+        self.progress_text.grid(row=2, column=0, sticky="ew")
 
         # Configure grid weights
         main_frame.columnconfigure(0, weight=1)
@@ -152,6 +139,7 @@ class ProgressDialog:
 
         # Throttling: skip updates that are too frequent (except for completion)
         import time
+
         current_time = time.time()
         if progress < 100 and (current_time - self.last_update_time) < self.min_update_interval:
             return
@@ -167,7 +155,7 @@ class ProgressDialog:
                 self.message_var.set(message)
 
             # Update progress text only if the widget exists
-            if hasattr(self, 'progress_text') and self.progress_text:
+            if hasattr(self, "progress_text") and self.progress_text:
                 try:
                     self.progress_text.config(text=f"{progress:.1f}%")
                 except tk.TclError:
@@ -175,7 +163,7 @@ class ProgressDialog:
                     pass
 
             # Force immediate update of the dialog (use update_idletasks to prevent recursion)
-            if self.dialog and hasattr(self.dialog, 'update_idletasks'):
+            if self.dialog and hasattr(self.dialog, "update_idletasks"):
                 self.dialog.update_idletasks()
 
         except tk.TclError:
@@ -185,7 +173,7 @@ class ProgressDialog:
         # Auto-close when complete (with a longer delay for user to see completion)
         if progress >= 100:
             # Check if dialog still exists before scheduling auto-close
-            if self.dialog and hasattr(self.dialog, 'after'):
+            if self.dialog and hasattr(self.dialog, "after"):
                 try:
                     self.dialog.after(2000, self.close)  # Close after 2 seconds to show completion
                 except tk.TclError:

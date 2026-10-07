@@ -53,11 +53,7 @@ class ResultsViewer:
     def setup_widgets(self):
         """Create all widgets"""
         # Title
-        self.title_label = ttk.Label(
-            self.window,
-            text="Tracking Results Viewer",
-            font=('Arial', 14, 'bold')
-        )
+        self.title_label = ttk.Label(self.window, text="Tracking Results Viewer", font=("Arial", 14, "bold"))
 
         # Controls frame
         self.controls_frame = ttk.Frame(self.window)
@@ -65,32 +61,16 @@ class ResultsViewer:
         # Navigation controls
         self.nav_frame = ttk.LabelFrame(self.controls_frame, text="Navigation", padding=5)
 
-        self.prev_btn = ttk.Button(
-            self.nav_frame,
-            text="◀ Previous",
-            command=self.prev_frame
-        )
+        self.prev_btn = ttk.Button(self.nav_frame, text="◀ Previous", command=self.prev_frame)
 
         self.frame_var = tk.StringVar(value="Frame 1 / 1")
-        self.frame_label = ttk.Label(
-            self.nav_frame,
-            textvariable=self.frame_var,
-            font=('Arial', 10, 'bold')
-        )
+        self.frame_label = ttk.Label(self.nav_frame, textvariable=self.frame_var, font=("Arial", 10, "bold"))
 
-        self.next_btn = ttk.Button(
-            self.nav_frame,
-            text="Next ▶",
-            command=self.next_frame
-        )
+        self.next_btn = ttk.Button(self.nav_frame, text="Next ▶", command=self.next_frame)
 
         # Frame slider
         self.frame_scale = ttk.Scale(
-            self.nav_frame,
-            from_=0,
-            to=len(self.frames) - 1,
-            orient='horizontal',
-            command=self.on_scale_change
+            self.nav_frame, from_=0, to=len(self.frames) - 1, orient="horizontal", command=self.on_scale_change
         )
 
         # View mode controls
@@ -99,27 +79,15 @@ class ResultsViewer:
         self.view_var = tk.StringVar(value=self.view_mode)
 
         self.original_radio = ttk.Radiobutton(
-            self.view_frame,
-            text="Original",
-            variable=self.view_var,
-            value="original",
-            command=self.on_view_mode_change
+            self.view_frame, text="Original", variable=self.view_var, value="original", command=self.on_view_mode_change
         )
 
         self.overlay_radio = ttk.Radiobutton(
-            self.view_frame,
-            text="Overlay",
-            variable=self.view_var,
-            value="overlay",
-            command=self.on_view_mode_change
+            self.view_frame, text="Overlay", variable=self.view_var, value="overlay", command=self.on_view_mode_change
         )
 
         self.mask_radio = ttk.Radiobutton(
-            self.view_frame,
-            text="Mask",
-            variable=self.view_var,
-            value="mask",
-            command=self.on_view_mode_change
+            self.view_frame, text="Mask", variable=self.view_var, value="mask", command=self.on_view_mode_change
         )
 
         self.side_radio = ttk.Radiobutton(
@@ -127,7 +95,7 @@ class ResultsViewer:
             text="Side-by-Side",
             variable=self.view_var,
             value="side_by_side",
-            command=self.on_view_mode_change
+            command=self.on_view_mode_change,
         )
 
         # Display canvas
@@ -136,42 +104,32 @@ class ResultsViewer:
         # Info frame
         self.info_frame = ttk.LabelFrame(self.window, text="Frame Information", padding=5)
 
-        self.info_text = tk.Text(
-            self.info_frame,
-            height=4,
-            width=50,
-            state='disabled',
-            font=('Courier', 9)
-        )
+        self.info_text = tk.Text(self.info_frame, height=4, width=50, state="disabled", font=("Courier", 9))
 
         # Close button
-        self.close_btn = ttk.Button(
-            self.window,
-            text="Close",
-            command=self.close
-        )
+        self.close_btn = ttk.Button(self.window, text="Close", command=self.close)
 
     def setup_layout(self):
         """Setup widget layout"""
         # Title
-        self.title_label.grid(row=0, column=0, pady=10, sticky='ew')
+        self.title_label.grid(row=0, column=0, pady=10, sticky="ew")
 
         # Controls
-        self.controls_frame.grid(row=1, column=0, padx=10, pady=5, sticky='ew')
+        self.controls_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
 
         # Navigation frame layout
-        self.nav_frame.grid(row=0, column=0, padx=5, sticky='ew')
+        self.nav_frame.grid(row=0, column=0, padx=5, sticky="ew")
 
         self.prev_btn.grid(row=0, column=0, padx=5, pady=2)
         self.frame_label.grid(row=0, column=1, padx=10, pady=2)
         self.next_btn.grid(row=0, column=2, padx=5, pady=2)
 
-        self.frame_scale.grid(row=1, column=0, columnspan=3, sticky='ew', padx=5, pady=5)
+        self.frame_scale.grid(row=1, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
 
         self.nav_frame.columnconfigure(1, weight=1)
 
         # View mode frame layout
-        self.view_frame.grid(row=0, column=1, padx=5, sticky='ew')
+        self.view_frame.grid(row=0, column=1, padx=5, sticky="ew")
 
         self.original_radio.grid(row=0, column=0, padx=3, pady=2)
         self.overlay_radio.grid(row=0, column=1, padx=3, pady=2)
@@ -185,8 +143,8 @@ class ResultsViewer:
         self.canvas.grid(row=2, column=0, padx=10, pady=5)
 
         # Info frame
-        self.info_frame.grid(row=3, column=0, padx=10, pady=5, sticky='ew')
-        self.info_text.grid(row=0, column=0, sticky='ew')
+        self.info_frame.grid(row=3, column=0, padx=10, pady=5, sticky="ew")
+        self.info_text.grid(row=0, column=0, sticky="ew")
         self.info_frame.columnconfigure(0, weight=1)
 
         # Close button
@@ -217,8 +175,8 @@ class ResultsViewer:
         self.update_info(frame_idx)
 
         # Update navigation buttons
-        self.prev_btn.config(state='normal' if frame_idx > 0 else 'disabled')
-        self.next_btn.config(state='normal' if frame_idx < len(self.frames) - 1 else 'disabled')
+        self.prev_btn.config(state="normal" if frame_idx > 0 else "disabled")
+        self.next_btn.config(state="normal" if frame_idx < len(self.frames) - 1 else "disabled")
 
     def generate_display_frame(self, frame: np.ndarray, frame_idx: int) -> np.ndarray:
         """
@@ -259,10 +217,9 @@ class ResultsViewer:
             # Resize mask to match frame if needed
             if mask_binary.shape != frame.shape[:2]:
                 import cv2
+
                 mask_binary = cv2.resize(
-                    mask_binary.astype(np.uint8),
-                    (frame.shape[1], frame.shape[0]),
-                    interpolation=cv2.INTER_NEAREST
+                    mask_binary.astype(np.uint8), (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_NEAREST
                 ).astype(bool)
 
             # Apply red overlay
@@ -282,11 +239,8 @@ class ResultsViewer:
             # Resize mask to match frame if needed
             if mask_binary.shape != frame.shape[:2]:
                 import cv2
-                mask_binary = cv2.resize(
-                    mask_binary,
-                    (frame.shape[1], frame.shape[0]),
-                    interpolation=cv2.INTER_NEAREST
-                )
+
+                mask_binary = cv2.resize(mask_binary, (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_NEAREST)
 
             # Convert to 3-channel image (white mask on black background)
             mask_frame = np.stack([mask_binary * 255] * 3, axis=-1)
@@ -325,10 +279,10 @@ class ResultsViewer:
             info_text += "Segmentation: Not found\n"
             info_text += "Coverage: 0.0%"
 
-        self.info_text.config(state='normal')
+        self.info_text.config(state="normal")
         self.info_text.delete(1.0, tk.END)
         self.info_text.insert(1.0, info_text)
-        self.info_text.config(state='disabled')
+        self.info_text.config(state="disabled")
 
     def prev_frame(self):
         """Go to previous frame"""

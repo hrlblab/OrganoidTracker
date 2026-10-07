@@ -22,6 +22,7 @@ try:
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import inch
     from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
     HAS_REPORTLAB = True
 except ImportError:
     HAS_REPORTLAB = False
@@ -48,7 +49,7 @@ class OrganoidAnalysisReportGenerator:
         conversion_factor: float,
         output_dir: str,
         debug_mode: bool = False,
-        original_frames: list | None = None
+        original_frames: list | None = None,
     ) -> dict[str, Any]:
         """
         Generate comprehensive analysis report with all components
@@ -98,9 +99,11 @@ class OrganoidAnalysisReportGenerator:
             final_organoid_data = organoid_data
             reconstruction_performed = False
 
-            if mismatch_info['has_mismatch'] and mismatch_info['reconstruction_possible']:
+            if mismatch_info["has_mismatch"] and mismatch_info["reconstruction_possible"]:
                 print("\n🛠️ Step 1b: Reconstructing missing cyst data...")
-                print(f"   ⚠️ Detected {mismatch_info['missing_cysts']} missing cysts from {mismatch_info['tracked_objects']} tracked objects")
+                print(
+                    f"   ⚠️ Detected {mismatch_info['missing_cysts']} missing cysts from {mismatch_info['tracked_objects']} tracked objects"
+                )
 
                 final_organoid_data = self.reconstruction_engine.reconstruct_organoid_data(
                     tracking_results, organoid_data, mismatch_info
@@ -115,7 +118,7 @@ class OrganoidAnalysisReportGenerator:
                     )
                     print(f"   📄 Reconstruction report saved: {reconstruction_report_path}")
 
-            elif mismatch_info['has_mismatch']:
+            elif mismatch_info["has_mismatch"]:
                 print("\n⚠️ Warning: Data mismatch detected but reconstruction not possible")
                 print(f"   • Tracked objects: {mismatch_info['tracked_objects']}")
                 print(f"   • Expected objects: {mismatch_info['expected_total']}")
@@ -128,7 +131,7 @@ class OrganoidAnalysisReportGenerator:
                 tracking_results=tracking_results,
                 organoid_data=final_organoid_data,  # Use reconstructed data
                 time_lapse_days=time_lapse_days,
-                total_frames=total_frames
+                total_frames=total_frames,
             )
 
             # Save experiment data for debugging
@@ -145,15 +148,17 @@ class OrganoidAnalysisReportGenerator:
             print(f"      • Total cysts: {validation_results['total_cysts']}")
             print(f"      • Frames analyzed: {validation_results['frames_analyzed']}")
 
-            if validation_results.get('warnings'):
-                for warning in validation_results['warnings']:
+            if validation_results.get("warnings"):
+                for warning in validation_results["warnings"]:
                     print(f"   ⚠️ {warning}")
 
             # Add reconstruction info to validation results
             if reconstruction_performed:
-                if 'warnings' not in validation_results:
-                    validation_results['warnings'] = []
-                validation_results['warnings'].append(f"Data reconstruction performed: {mismatch_info['missing_cysts']} cysts recovered")
+                if "warnings" not in validation_results:
+                    validation_results["warnings"] = []
+                validation_results["warnings"].append(
+                    f"Data reconstruction performed: {mismatch_info['missing_cysts']} cysts recovered"
+                )
 
             # Step 4: Export CSV data
             print("\n📊 Step 4: Exporting CSV data...")
@@ -161,9 +166,7 @@ class OrganoidAnalysisReportGenerator:
 
             # Step 5: Generate visualizations
             print("\n🎨 Step 5: Creating visualizations...")
-            viz_paths = self.visualizer.create_all_visualizations(
-                experiment, str(output_path / "visualizations")
-            )
+            viz_paths = self.visualizer.create_all_visualizations(experiment, str(output_path / "visualizations"))
 
             # Step 5.1: Generate frame comparison visualization (TEMPORARILY DISABLED)
             print("\n📸 Step 5.1: Frame comparison visualization temporarily disabled")
@@ -195,13 +198,11 @@ class OrganoidAnalysisReportGenerator:
 
             # Step 7: Create analysis summary
             print("\n📋 Step 7: Creating analysis summary...")
-            summary = self._create_analysis_summary(
-                experiment, validation_results, csv_paths, viz_paths, pdf_path
-            )
+            summary = self._create_analysis_summary(experiment, validation_results, csv_paths, viz_paths, pdf_path)
 
             # Save summary as JSON
             summary_json_path = output_path / "analysis_summary.json"
-            with open(summary_json_path, 'w') as f:
+            with open(summary_json_path, "w") as f:
                 json.dump(summary, f, indent=2, default=str)
 
             print("\n✅ Complete analysis finished successfully!")
@@ -212,14 +213,15 @@ class OrganoidAnalysisReportGenerator:
         except Exception as e:
             print(f"\n❌ Analysis failed: {e}")
             import traceback
+
             traceback.print_exc()
 
             # Return error summary
             return {
-                'success': False,
-                'error': str(e),
-                'output_directory': str(output_dir),
-                'timestamp': datetime.now().isoformat()
+                "success": False,
+                "error": str(e),
+                "output_directory": str(output_dir),
+                "timestamp": datetime.now().isoformat(),
             }
 
     def _determine_total_frames(self, tracking_results: dict[str, Any]) -> int:
@@ -228,20 +230,20 @@ class OrganoidAnalysisReportGenerator:
         """
         try:
             # Try different possible keys for frame count
-            if 'total_frames' in tracking_results:
-                return tracking_results['total_frames']
-            elif 'num_frames' in tracking_results:
-                return tracking_results['num_frames']
-            elif 'video_segments' in tracking_results:
+            if "total_frames" in tracking_results:
+                return tracking_results["total_frames"]
+            elif "num_frames" in tracking_results:
+                return tracking_results["num_frames"]
+            elif "video_segments" in tracking_results:
                 # Count frames in video_segments
-                segments = tracking_results['video_segments']
+                segments = tracking_results["video_segments"]
                 if isinstance(segments, dict):
                     return len(segments)
                 elif isinstance(segments, list):
                     return len(segments)
-            elif 'masks' in tracking_results:
+            elif "masks" in tracking_results:
                 # Count frames in masks
-                masks = tracking_results['masks']
+                masks = tracking_results["masks"]
                 if isinstance(masks, dict):
                     return len(masks)
                 elif isinstance(masks, list):
@@ -269,19 +271,15 @@ class OrganoidAnalysisReportGenerator:
         try:
             # Raw data table
             raw_csv_path = output_path / "raw_cyst_data.csv"
-            csv_paths['raw_data'] = self.csv_exporter.export_raw_data_table(
-                experiment, str(raw_csv_path)
-            )
+            csv_paths["raw_data"] = self.csv_exporter.export_raw_data_table(experiment, str(raw_csv_path))
 
             # Cyst summary
             summary_csv_path = output_path / "cyst_summary.csv"
-            csv_paths['cyst_summary'] = self.csv_exporter.export_summary_table(
-                experiment, str(summary_csv_path)
-            )
+            csv_paths["cyst_summary"] = self.csv_exporter.export_summary_table(experiment, str(summary_csv_path))
 
             # Organoid summary
             organoid_csv_path = output_path / "organoid_summary.csv"
-            csv_paths['organoid_summary'] = self.csv_exporter.export_organoid_summary(
+            csv_paths["organoid_summary"] = self.csv_exporter.export_organoid_summary(
                 experiment, str(organoid_csv_path)
             )
 
@@ -298,7 +296,7 @@ class OrganoidAnalysisReportGenerator:
         validation_results: dict[str, Any],
         csv_paths: dict[str, str],
         viz_paths: dict[str, str],
-        output_path: Path
+        output_path: Path,
     ) -> str | None:
         """
         Generate enhanced PDF report with visualizations
@@ -312,12 +310,7 @@ class OrganoidAnalysisReportGenerator:
 
             # Create PDF document
             doc = SimpleDocTemplate(
-                str(pdf_path),
-                pagesize=A4,
-                rightMargin=72,
-                leftMargin=72,
-                topMargin=72,
-                bottomMargin=18
+                str(pdf_path), pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18
             )
 
             # Build PDF content
@@ -326,40 +319,44 @@ class OrganoidAnalysisReportGenerator:
 
             # Title
             title_style = ParagraphStyle(
-                'CustomTitle',
-                parent=styles['Heading1'],
+                "CustomTitle",
+                parent=styles["Heading1"],
                 fontSize=24,
                 spaceAfter=30,
-                alignment=1  # Center
+                alignment=1,  # Center
             )
 
             story.append(Paragraph("Organoid Cyst Analysis Report", title_style))
             story.append(Spacer(1, 20))
 
             # Analysis summary
-            story.append(Paragraph("Analysis Summary", styles['Heading2']))
+            story.append(Paragraph("Analysis Summary", styles["Heading2"]))
 
             summary_data = [
-                ['Metric', 'Value'],
-                ['Total Organoids', str(validation_results['total_organoids'])],
-                ['Total Cysts', str(validation_results['total_cysts'])],
-                ['Frames Analyzed', str(validation_results['frames_analyzed'])],
-                ['Time Period', f"{experiment.time_lapse_days} days"],
-                ['Conversion Factor', f"{experiment.conversion_factor_um_per_pixel} μm/pixel"],
-                ['Analysis Date', datetime.now().strftime("%Y-%m-%d %H:%M")]
+                ["Metric", "Value"],
+                ["Total Organoids", str(validation_results["total_organoids"])],
+                ["Total Cysts", str(validation_results["total_cysts"])],
+                ["Frames Analyzed", str(validation_results["frames_analyzed"])],
+                ["Time Period", f"{experiment.time_lapse_days} days"],
+                ["Conversion Factor", f"{experiment.conversion_factor_um_per_pixel} μm/pixel"],
+                ["Analysis Date", datetime.now().strftime("%Y-%m-%d %H:%M")],
             ]
 
-            summary_table = Table(summary_data, colWidths=[3*inch, 2*inch])
-            summary_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
+            summary_table = Table(summary_data, colWidths=[3 * inch, 2 * inch])
+            summary_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, 0), 12),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                        ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                        ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                    ]
+                )
+            )
 
             story.append(summary_table)
             story.append(Spacer(1, 20))
@@ -367,27 +364,27 @@ class OrganoidAnalysisReportGenerator:
             # Note: Frame comparison is now handled as a standard visualization (g_frame_comparison.png)
 
             # Add visualizations
-            story.append(Paragraph("Visualizations", styles['Heading2']))
+            story.append(Paragraph("Visualizations", styles["Heading2"]))
 
             for viz_name, viz_path in viz_paths.items():
                 if viz_path and Path(viz_path).exists():
                     try:
                         # Add visualization title
                         viz_titles = {
-                            'organoids_with_cysts': 'Percentage of Organoids with Cysts Over Time',
-                            'cyst_organoid_ratio': 'Cyst to Organoid Ratio Over Time',
-                            'cyst_areas_multiline': 'Individual Cyst Area Trajectories',
-                            'cyst_circularity_multiline': 'Individual Cyst Circularity Trajectories',
-                            'circularity_scatter': 'Circularity vs Time (Sized by Area)',
-                            'lasagna_plot': 'Organoid Growth Heatmap (Lasagna Plot)',
-                            'frame_comparison': 'Frame-by-Frame Comparison: Original vs Tracked Cysts'
+                            "organoids_with_cysts": "Percentage of Organoids with Cysts Over Time",
+                            "cyst_organoid_ratio": "Cyst to Organoid Ratio Over Time",
+                            "cyst_areas_multiline": "Individual Cyst Area Trajectories",
+                            "cyst_circularity_multiline": "Individual Cyst Circularity Trajectories",
+                            "circularity_scatter": "Circularity vs Time (Sized by Area)",
+                            "lasagna_plot": "Organoid Growth Heatmap (Lasagna Plot)",
+                            "frame_comparison": "Frame-by-Frame Comparison: Original vs Tracked Cysts",
                         }
 
-                        title = viz_titles.get(viz_name, viz_name.replace('_', ' ').title())
-                        story.append(Paragraph(title, styles['Heading3']))
+                        title = viz_titles.get(viz_name, viz_name.replace("_", " ").title())
+                        story.append(Paragraph(title, styles["Heading3"]))
 
                         # Add image
-                        img = Image(viz_path, width=6*inch, height=4*inch)
+                        img = Image(viz_path, width=6 * inch, height=4 * inch)
                         story.append(img)
                         story.append(Spacer(1, 12))
 
@@ -395,31 +392,39 @@ class OrganoidAnalysisReportGenerator:
                         print(f"   ⚠️ Could not add visualization {viz_name}: {e}")
 
             # Add data files information
-            story.append(Paragraph("Generated Data Files", styles['Heading2']))
+            story.append(Paragraph("Generated Data Files", styles["Heading2"]))
 
             file_info = []
-            file_info.append(['File Type', 'Description', 'Filename'])
+            file_info.append(["File Type", "Description", "Filename"])
 
-            if csv_paths.get('raw_data'):
-                file_info.append(['Raw Data CSV', 'Frame-by-frame cyst measurements', Path(csv_paths['raw_data']).name])
-            if csv_paths.get('cyst_summary'):
-                file_info.append(['Cyst Summary CSV', 'Aggregate metrics per cyst', Path(csv_paths['cyst_summary']).name])
-            if csv_paths.get('organoid_summary'):
-                file_info.append(['Organoid Summary CSV', 'Aggregate metrics per organoid', Path(csv_paths['organoid_summary']).name])
+            if csv_paths.get("raw_data"):
+                file_info.append(["Raw Data CSV", "Frame-by-frame cyst measurements", Path(csv_paths["raw_data"]).name])
+            if csv_paths.get("cyst_summary"):
+                file_info.append(
+                    ["Cyst Summary CSV", "Aggregate metrics per cyst", Path(csv_paths["cyst_summary"]).name]
+                )
+            if csv_paths.get("organoid_summary"):
+                file_info.append(
+                    ["Organoid Summary CSV", "Aggregate metrics per organoid", Path(csv_paths["organoid_summary"]).name]
+                )
 
             if len(file_info) > 1:
-                files_table = Table(file_info, colWidths=[1.5*inch, 3*inch, 1.5*inch])
-                files_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 10),
-                    ('FONTSIZE', (0, 1), (-1, -1), 9),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ]))
+                files_table = Table(file_info, colWidths=[1.5 * inch, 3 * inch, 1.5 * inch])
+                files_table.setStyle(
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("FONTSIZE", (0, 0), (-1, 0), 10),
+                            ("FONTSIZE", (0, 1), (-1, -1), 9),
+                            ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                            ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                        ]
+                    )
+                )
 
                 story.append(files_table)
 
@@ -439,7 +444,7 @@ class OrganoidAnalysisReportGenerator:
         validation_results: dict[str, Any],
         csv_paths: dict[str, str],
         viz_paths: dict[str, str],
-        pdf_path: str | None
+        pdf_path: str | None,
     ) -> dict[str, Any]:
         """
         Create comprehensive analysis summary
@@ -450,8 +455,11 @@ class OrganoidAnalysisReportGenerator:
         # Growth rate statistics
         growth_rates = experiment.sort_organoids_by_growth_rate()
         # Convert from μm²/frame to μm²/day using actual time lapse (accounting for Day 0)
-        growth_rate_values = [rate * experiment.time_lapse_days / max(1, experiment.total_frames - 1)
-                             for _, rate in growth_rates] if growth_rates else []
+        growth_rate_values = (
+            [rate * experiment.time_lapse_days / max(1, experiment.total_frames - 1) for _, rate in growth_rates]
+            if growth_rates
+            else []
+        )
 
         # Time coverage statistics
         if all_cysts:
@@ -463,35 +471,34 @@ class OrganoidAnalysisReportGenerator:
             coverage_percent = 0
 
         summary = {
-            'success': True,
-            'timestamp': datetime.now().isoformat(),
-            'experiment_info': {
-                'total_organoids': len(experiment.organoids),
-                'total_cysts': len(all_cysts),
-                'total_frames': experiment.total_frames,
-                'time_lapse_days': experiment.time_lapse_days,
-                'conversion_factor_um_per_pixel': experiment.conversion_factor_um_per_pixel
+            "success": True,
+            "timestamp": datetime.now().isoformat(),
+            "experiment_info": {
+                "total_organoids": len(experiment.organoids),
+                "total_cysts": len(all_cysts),
+                "total_frames": experiment.total_frames,
+                "time_lapse_days": experiment.time_lapse_days,
+                "conversion_factor_um_per_pixel": experiment.conversion_factor_um_per_pixel,
             },
-            'quality_metrics': {
-                'mean_trajectory_length_frames': round(mean_trajectory_length, 1),
-                'tracking_coverage_percent': round(coverage_percent, 1),
-                'organoids_with_cysts': sum(1 for org in experiment.organoids.values() if len(org.cysts) > 0)
+            "quality_metrics": {
+                "mean_trajectory_length_frames": round(mean_trajectory_length, 1),
+                "tracking_coverage_percent": round(coverage_percent, 1),
+                "organoids_with_cysts": sum(1 for org in experiment.organoids.values() if len(org.cysts) > 0),
             },
-            'growth_statistics': {
-                'mean_growth_rate_um2_per_day': round(sum(growth_rate_values) / len(growth_rate_values), 4) if growth_rate_values else 0,
-                'max_growth_rate_um2_per_day': round(max(growth_rate_values), 4) if growth_rate_values else 0,
-                'min_growth_rate_um2_per_day': round(min(growth_rate_values), 4) if growth_rate_values else 0
+            "growth_statistics": {
+                "mean_growth_rate_um2_per_day": round(sum(growth_rate_values) / len(growth_rate_values), 4)
+                if growth_rate_values
+                else 0,
+                "max_growth_rate_um2_per_day": round(max(growth_rate_values), 4) if growth_rate_values else 0,
+                "min_growth_rate_um2_per_day": round(min(growth_rate_values), 4) if growth_rate_values else 0,
             },
-            'output_files': {
-                'csv_files': csv_paths,
-                'visualizations': viz_paths,
-                'pdf_report': pdf_path
-            },
-            'validation_results': validation_results
+            "output_files": {"csv_files": csv_paths, "visualizations": viz_paths, "pdf_report": pdf_path},
+            "validation_results": validation_results,
         }
 
         return summary
 
         # Note: Frame comparison is now handled as a Stage 2 visualization (g_frame_comparison.png)
+
     # The old _create_frame_comparison_section method has been removed and replaced with
     # create_frame_comparison_visualization in OrganoidVisualizationSuite

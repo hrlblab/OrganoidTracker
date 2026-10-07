@@ -13,7 +13,7 @@ N, H, W, SQ = 6, 64, 96, 16
 def square_mask(k):
     mask = np.zeros((H, W), bool)
     x = 4 + 14 * k
-    mask[24:24 + SQ, x:x + SQ] = True
+    mask[24 : 24 + SQ, x : x + SQ] = True
     return mask
 
 
@@ -58,7 +58,9 @@ def test_process_single_mask_accepts_packed_and_logit_masks():
 
 def test_optimized_videos_use_chronological_indices(tmp_path):
     gen = VideoOutputGenerator()
-    created = gen.create_optimized_multi_object_videos(frames(), packed_segments(), tmp_path, fps=2.0, alpha=0.6, quality_scale=1.0)
+    created = gen.create_optimized_multi_object_videos(
+        frames(), packed_segments(), tmp_path, fps=2.0, alpha=0.6, quality_scale=1.0
+    )
     assert set(created) == {"overlay", "mask", "side_by_side"} and all(created.values())
     assert_identity_mapping(created["overlay"])
     mask_frames = read_video(created["mask"])
@@ -68,7 +70,9 @@ def test_optimized_videos_use_chronological_indices(tmp_path):
 
 def test_single_video_path_uses_chronological_indices(tmp_path):
     gen = VideoOutputGenerator()
-    path = gen.create_multi_object_video(frames(), legacy_logit_segments(), tmp_path / "overlay.mp4", fps=2.0, video_type="overlay", alpha=0.6)
+    path = gen.create_multi_object_video(
+        frames(), legacy_logit_segments(), tmp_path / "overlay.mp4", fps=2.0, video_type="overlay", alpha=0.6
+    )
     assert path is not None
     assert_identity_mapping(path)
 

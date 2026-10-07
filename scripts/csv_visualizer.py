@@ -19,12 +19,13 @@ from organoidtracker.analysis.organoid_visualizations import OrganoidVisualizati
 # application does; run this script from the repository root (or the directory holding data/).
 project_root = Path.cwd()
 
+
 def load_csv_data():
     """Load real data from CSV files"""
 
-    data_dir = project_root / 'data' / 'output_videos'
-    raw_data_file = data_dir / 'raw_cyst_data.csv'
-    summary_file = data_dir / 'analysis_summary.json'
+    data_dir = project_root / "data" / "output_videos"
+    raw_data_file = data_dir / "raw_cyst_data.csv"
+    summary_file = data_dir / "analysis_summary.json"
 
     if not raw_data_file.exists():
         print(f"❌ Raw data CSV not found: {raw_data_file}")
@@ -38,10 +39,11 @@ def load_csv_data():
 
     # Load metadata
     import json
+
     with open(summary_file) as f:
         metadata = json.load(f)
 
-    experiment_info = metadata['experiment_info']
+    experiment_info = metadata["experiment_info"]
 
     print(f"   📊 Experiment: {experiment_info['total_organoids']} organoids, {experiment_info['total_cysts']} cysts")
     print(f"   🕐 Duration: {experiment_info['time_lapse_days']} days")
@@ -49,30 +51,30 @@ def load_csv_data():
 
     return df, experiment_info
 
+
 def create_experiment_from_csv(df, experiment_info):
     """Create ExperimentData object from CSV data"""
 
-
     # Create experiment
     experiment = ExperimentData(
-        total_frames=experiment_info['total_frames'],
-        time_lapse_days=experiment_info['time_lapse_days'],
-        conversion_factor_um_per_pixel=experiment_info['conversion_factor_um_per_pixel'],
-        frame_timestamps=list(range(experiment_info['total_frames']))  # 0, 1, 2, ..., frames-1
+        total_frames=experiment_info["total_frames"],
+        time_lapse_days=experiment_info["time_lapse_days"],
+        conversion_factor_um_per_pixel=experiment_info["conversion_factor_um_per_pixel"],
+        frame_timestamps=list(range(experiment_info["total_frames"])),  # 0, 1, 2, ..., frames-1
     )
 
     # Group data by organoid and cyst
-    organoid_groups = df.groupby('Organoid_ID')
+    organoid_groups = df.groupby("Organoid_ID")
 
     for org_id, org_data in organoid_groups:
         # Create organoid (use first cyst's centroid as marker point)
         first_row = org_data.iloc[0]
-        marker_point = (first_row['Centroid_X'], first_row['Centroid_Y'])
+        marker_point = (first_row["Centroid_X"], first_row["Centroid_Y"])
 
         organoid = OrganoidData(organoid_id=org_id, marker_point=marker_point)
 
         # Process cysts for this organoid
-        cyst_groups = org_data.groupby('Cyst_ID')
+        cyst_groups = org_data.groupby("Cyst_ID")
 
         for cyst_id, cyst_data in cyst_groups:
             # Create cyst trajectory
@@ -81,10 +83,10 @@ def create_experiment_from_csv(df, experiment_info):
             # Add frame data from CSV
             for _, row in cyst_data.iterrows():
                 frame_data = CystFrameData(
-                    frame_index=int(row['Frame']),
-                    area_pixels=row['Area_um2'] / (experiment_info['conversion_factor_um_per_pixel'] ** 2),
-                    circularity=row['Circularity'],
-                    centroid=(row['Centroid_X'], row['Centroid_Y'])
+                    frame_index=int(row["Frame"]),
+                    area_pixels=row["Area_um2"] / (experiment_info["conversion_factor_um_per_pixel"] ** 2),
+                    circularity=row["Circularity"],
+                    centroid=(row["Centroid_X"], row["Centroid_Y"]),
                 )
                 cyst_trajectory.add_frame_data(frame_data)
 
@@ -93,6 +95,7 @@ def create_experiment_from_csv(df, experiment_info):
         experiment.add_organoid(organoid)
 
     return experiment
+
 
 def generate_visualizations_from_csv(output_dir="csv_output"):
     """Generate visualizations from CSV data"""
@@ -116,7 +119,7 @@ def generate_visualizations_from_csv(output_dir="csv_output"):
     # Create output directory
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    viz_dir = output_path / 'visualizations'
+    viz_dir = output_path / "visualizations"
     viz_dir.mkdir(exist_ok=True)
 
     print(f"📁 Output directory: {viz_dir}")
@@ -143,8 +146,10 @@ def generate_visualizations_from_csv(output_dir="csv_output"):
         print("❌ Visualization generation failed")
         return 1
 
+
 def main():
     return generate_visualizations_from_csv()
+
 
 if __name__ == "__main__":
     sys.exit(main())

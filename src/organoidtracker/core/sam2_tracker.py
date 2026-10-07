@@ -135,8 +135,15 @@ class SAM2Tracker(BaseVideoTracker):
     Implements BaseVideoTracker for the SAM 2 and SAM 2.1 model families
     """
 
-    def __init__(self, model_config='sam2_hiera_b', checkpoint_path=None,
-                 device='cuda', enable_reverse_tracking=True, checkpoint_family=None, **kwargs):
+    def __init__(
+        self,
+        model_config="sam2_hiera_b",
+        checkpoint_path=None,
+        device="cuda",
+        enable_reverse_tracking=True,
+        checkpoint_family=None,
+        **kwargs,
+    ):
         """
         Initialize the SAM2 tracker
 
@@ -153,7 +160,9 @@ class SAM2Tracker(BaseVideoTracker):
         self.enable_reverse_tracking = bool(enable_reverse_tracking)
         self.checkpoint_family = str(checkpoint_family or _app_setting("SAM2_CHECKPOINT_FAMILY", "2.1"))
         if self.checkpoint_family not in CHECKPOINT_FAMILIES:
-            raise ValueError(f"Unknown checkpoint family {self.checkpoint_family!r}; use one of {sorted(CHECKPOINT_FAMILIES)}")
+            raise ValueError(
+                f"Unknown checkpoint family {self.checkpoint_family!r}; use one of {sorted(CHECKPOINT_FAMILIES)}"
+            )
 
         # Resolve the device once; every later operation uses the same resolved device.
         requested = str(device)
@@ -176,9 +185,9 @@ class SAM2Tracker(BaseVideoTracker):
         # Model and video state
         self.predictor = None
         self.inference_state = None
-        self.video_frames: list[np.ndarray] | None = None   # unique frames, chronological
+        self.video_frames: list[np.ndarray] | None = None  # unique frames, chronological
         self.original_frames: list[np.ndarray] | None = None  # same list; kept for consumers
-        self.frame_map: list[int] = []                            # unique index -> decoded index
+        self.frame_map: list[int] = []  # unique index -> decoded index
         self.decoded_frame_count = 0
         self.duplicate_frames_removed = 0
         self.annotation_frame_index = 0
@@ -199,9 +208,9 @@ class SAM2Tracker(BaseVideoTracker):
                 ModelCapabilities.CLICK_PROMPTS,
                 ModelCapabilities.BBOX_PROMPTS,
                 ModelCapabilities.MULTI_OBJECT,
-                ModelCapabilities.REAL_TIME
+                ModelCapabilities.REAL_TIME,
             ],
-            requirements=["PyTorch", "SAM2 package", "CUDA (recommended)"]
+            requirements=["PyTorch", "SAM2 package", "CUDA (recommended)"],
         )
 
     @classmethod
@@ -243,6 +252,7 @@ class SAM2Tracker(BaseVideoTracker):
             return True
         except Exception as e:
             import traceback
+
             print(f"❌ Error loading SAM2: {str(e)}")
             print("Full traceback:")
             print(traceback.format_exc())
@@ -304,9 +314,13 @@ class SAM2Tracker(BaseVideoTracker):
 
         if self.duplicate_frames_removed:
             removed = [i for i in range(decoded) if i not in set(keep)]
-            print(f"🧹 Collapsed {self.duplicate_frames_removed} duplicated frame(s) {removed}: {decoded} decoded -> {n} unique time points")
+            print(
+                f"🧹 Collapsed {self.duplicate_frames_removed} duplicated frame(s) {removed}: {decoded} decoded -> {n} unique time points"
+            )
         direction = "reverse" if self.enable_reverse_tracking else "forward"
-        print(f"🔄 Tracking direction: {direction}; annotation frame = chronological frame {self.annotation_frame_index}")
+        print(
+            f"🔄 Tracking direction: {direction}; annotation frame = chronological frame {self.annotation_frame_index}"
+        )
 
         print(f"🔍 Initializing inference state on device: {self.device}")
         self.inference_state = self.predictor.init_state_from_frames(
@@ -315,16 +329,16 @@ class SAM2Tracker(BaseVideoTracker):
         print(f"✅ Loaded {n} unique frames ({decoded} decoded) at nominal {self.fps} FPS")
 
         return {
-            'num_frames': n,
-            'decoded_frames': decoded,
-            'duplicate_frames_removed': self.duplicate_frames_removed,
-            'frame_map': list(keep),
-            'fps': self.fps,
-            'dimensions': self.video_frames[0].shape[:2],
-            'total_frames': decoded,
-            'reported_frame_count': reported_frame_count,
-            'direction': direction,
-            'annotation_frame_index': self.annotation_frame_index,
+            "num_frames": n,
+            "decoded_frames": decoded,
+            "duplicate_frames_removed": self.duplicate_frames_removed,
+            "frame_map": list(keep),
+            "fps": self.fps,
+            "dimensions": self.video_frames[0].shape[:2],
+            "total_frames": decoded,
+            "reported_frame_count": reported_frame_count,
+            "direction": direction,
+            "annotation_frame_index": self.annotation_frame_index,
         }
 
     def get_annotation_frame(self) -> np.ndarray:
@@ -358,11 +372,16 @@ class SAM2Tracker(BaseVideoTracker):
                 labels=np.array([label], dtype=np.int32),
                 clear_old_points=False,
             )
-            self.prompts.setdefault(obj_id, []).append({
-                'frame_idx': chronological,
-                'display_frame_idx': frame_idx,
-                'x': x, 'y': y, 'label': label, 'type': 'click',
-            })
+            self.prompts.setdefault(obj_id, []).append(
+                {
+                    "frame_idx": chronological,
+                    "display_frame_idx": frame_idx,
+                    "x": x,
+                    "y": y,
+                    "label": label,
+                    "type": "click",
+                }
+            )
             return True
         except Exception as e:
             print(f"❌ Error adding click prompt: {str(e)}")
@@ -376,7 +395,9 @@ class SAM2Tracker(BaseVideoTracker):
         try:
             chronological = self._to_chronological(frame_idx)
             if self.debug_mode:
-                print(f"📦 Adding bbox prompt ({x1}, {y1})-({x2}, {y2}) for object {obj_id} on chronological frame {chronological}")
+                print(
+                    f"📦 Adding bbox prompt ({x1}, {y1})-({x2}, {y2}) for object {obj_id} on chronological frame {chronological}"
+                )
             self.predictor.add_new_points_or_box(
                 inference_state=self.inference_state,
                 frame_idx=chronological,
@@ -384,12 +405,17 @@ class SAM2Tracker(BaseVideoTracker):
                 box=np.array([x1, y1, x2, y2], dtype=np.float32),
                 clear_old_points=True,
             )
-            self.prompts.setdefault(obj_id, []).append({
-                'frame_idx': chronological,
-                'display_frame_idx': frame_idx,
-                'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2,
-                'type': 'bbox',
-            })
+            self.prompts.setdefault(obj_id, []).append(
+                {
+                    "frame_idx": chronological,
+                    "display_frame_idx": frame_idx,
+                    "x1": x1,
+                    "y1": y1,
+                    "x2": x2,
+                    "y2": y2,
+                    "type": "bbox",
+                }
+            )
             return True
         except Exception as e:
             print(f"❌ Error adding bbox prompt: {str(e)}")
@@ -440,7 +466,9 @@ class SAM2Tracker(BaseVideoTracker):
                     mask_logits = out_mask_logits[i]
                     if enable_quality_filtering:
                         cleaned = self._clean_mask_to_largest_component(mask_logits)
-                        if cleaned is not None and self._is_mask_quality_acceptable(cleaned, min_mask_area, min_confidence):
+                        if cleaned is not None and self._is_mask_quality_acceptable(
+                            cleaned, min_mask_area, min_confidence
+                        ):
                             frame_masks[out_obj_id] = PackedMask.from_logits(cleaned)
                         else:
                             print(f"   🔍 Frame {frame_idx}, Object {out_obj_id}: Low quality mask filtered out")
@@ -457,8 +485,9 @@ class SAM2Tracker(BaseVideoTracker):
 
                 result.frames_done += 1
                 if progress_callback:
-                    progress_callback(result.frames_done, total_frames,
-                                      f"Processing frame {result.frames_done}/{total_frames}")
+                    progress_callback(
+                        result.frames_done, total_frames, f"Processing frame {result.frames_done}/{total_frames}"
+                    )
         except Exception as e:
             result.status = TrackingResult.PARTIAL
             result.error = f"{type(e).__name__}: {e}"
@@ -518,8 +547,10 @@ class SAM2Tracker(BaseVideoTracker):
             if removed_components > 0:
                 original_area = int(np.count_nonzero(binary_mask))
                 cleaned_area = int(np.count_nonzero(largest_component_mask))
-                print(f"      🧹 Cleaned mask: kept largest component ({cleaned_area}px), "
-                      f"removed {removed_components} smaller components ({original_area - cleaned_area}px)")
+                print(
+                    f"      🧹 Cleaned mask: kept largest component ({cleaned_area}px), "
+                    f"removed {removed_components} smaller components ({original_area - cleaned_area}px)"
+                )
             return cleaned
         except Exception as e:
             print(f"      Warning: Error cleaning mask: {e}")
@@ -568,7 +599,9 @@ class SAM2Tracker(BaseVideoTracker):
             compactness = None
             if mask_area > 0:
                 try:
-                    contours, _ = cv2.findContours(binary_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    contours, _ = cv2.findContours(
+                        binary_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                    )
                     if contours:
                         largest_contour = max(contours, key=cv2.contourArea)
                         area = cv2.contourArea(largest_contour)
@@ -584,8 +617,10 @@ class SAM2Tracker(BaseVideoTracker):
             result = area_ok and confidence_ok and structure_ok
             if not result:
                 detail = f", compactness={compactness:.3f}>0.15? {structure_ok}" if compactness is not None else ""
-                print(f"      Quality check: area={mask_area}>={min_area}? {area_ok}, "
-                      f"confidence={max_confidence:.3f}>={min_confidence}? {confidence_ok}{detail}")
+                print(
+                    f"      Quality check: area={mask_area}>={min_area}? {area_ok}, "
+                    f"confidence={max_confidence:.3f}>={min_confidence}? {confidence_ok}{detail}"
+                )
             return result
         except Exception as e:
             print(f"      Warning: Error in mask quality check: {e}")
@@ -604,8 +639,14 @@ class SAM2Tracker(BaseVideoTracker):
             mask_binary = cv2.resize(mask_binary, (w, h), interpolation=cv2.INTER_NEAREST)
         return mask_binary
 
-    def get_frame_overlay(self, frame_idx: int, obj_id: int = 1, video_segments: dict | None = None,
-                          color: tuple[int, int, int] = (255, 0, 0), alpha: float = 0.3) -> np.ndarray:
+    def get_frame_overlay(
+        self,
+        frame_idx: int,
+        obj_id: int = 1,
+        video_segments: dict | None = None,
+        color: tuple[int, int, int] = (255, 0, 0),
+        alpha: float = 0.3,
+    ) -> np.ndarray:
         """Frame with the object's mask blended in."""
         frame = self.video_frames[frame_idx].copy()
         mask = self.get_frame_mask(frame_idx, obj_id, video_segments)
@@ -633,21 +674,21 @@ class SAM2Tracker(BaseVideoTracker):
             self._reset_inference_state()
             for remaining_obj_id, prompts_list in self.prompts.items():
                 for prompt in prompts_list:
-                    if prompt['type'] == 'bbox':
+                    if prompt["type"] == "bbox":
                         self.predictor.add_new_points_or_box(
                             inference_state=self.inference_state,
-                            frame_idx=prompt['frame_idx'],
+                            frame_idx=prompt["frame_idx"],
                             obj_id=remaining_obj_id,
-                            box=np.array([prompt['x1'], prompt['y1'], prompt['x2'], prompt['y2']], dtype=np.float32),
+                            box=np.array([prompt["x1"], prompt["y1"], prompt["x2"], prompt["y2"]], dtype=np.float32),
                             clear_old_points=True,
                         )
-                    elif prompt['type'] == 'click':
+                    elif prompt["type"] == "click":
                         self.predictor.add_new_points_or_box(
                             inference_state=self.inference_state,
-                            frame_idx=prompt['frame_idx'],
+                            frame_idx=prompt["frame_idx"],
                             obj_id=remaining_obj_id,
-                            points=np.array([[prompt['x'], prompt['y']]], dtype=np.float32),
-                            labels=np.array([prompt.get('label', 1)], dtype=np.int32),
+                            points=np.array([[prompt["x"], prompt["y"]]], dtype=np.float32),
+                            labels=np.array([prompt.get("label", 1)], dtype=np.int32),
                             clear_old_points=False,
                         )
             print(f"🧹 Prompts cleared for object {obj_id}")
@@ -665,20 +706,20 @@ class SAM2Tracker(BaseVideoTracker):
     def provenance(self) -> dict[str, Any]:
         """Facts needed to reproduce a run."""
         return {
-            'backend': 'sam2-vendored',
-            'checkpoint_family': self.checkpoint_family,
-            'model_config': self.model_config,
-            'checkpoint_path': self.checkpoint_path,
-            'checkpoint_sha256': self.checkpoint_sha256,
-            'device': self.device_name,
-            'torch_version': torch.__version__,
-            'cuda_version': torch.version.cuda,
-            'video_path': self.current_video_path,
-            'video_sha256': self.video_sha256,
-            'decoded_frames': self.decoded_frame_count,
-            'unique_frames': len(self.video_frames) if self.video_frames else 0,
-            'frame_map': list(self.frame_map),
-            'duplicate_threshold': self.duplicate_threshold,
-            'direction': 'reverse' if self.enable_reverse_tracking else 'forward',
-            'annotation_frame_index': self.annotation_frame_index,
+            "backend": "sam2-vendored",
+            "checkpoint_family": self.checkpoint_family,
+            "model_config": self.model_config,
+            "checkpoint_path": self.checkpoint_path,
+            "checkpoint_sha256": self.checkpoint_sha256,
+            "device": self.device_name,
+            "torch_version": torch.__version__,
+            "cuda_version": torch.version.cuda,
+            "video_path": self.current_video_path,
+            "video_sha256": self.video_sha256,
+            "decoded_frames": self.decoded_frame_count,
+            "unique_frames": len(self.video_frames) if self.video_frames else 0,
+            "frame_map": list(self.frame_map),
+            "duplicate_threshold": self.duplicate_threshold,
+            "direction": "reverse" if self.enable_reverse_tracking else "forward",
+            "annotation_frame_index": self.annotation_frame_index,
         }

@@ -10,8 +10,9 @@ pytestmark = pytest.mark.model
 def make_tracker(checkpoint, device, reverse):
     from organoidtracker.core.sam2_tracker import SAM2Tracker
 
-    tracker = SAM2Tracker(model_config="sam2_hiera_t", checkpoint_path=str(checkpoint), device=device,
-                          enable_reverse_tracking=reverse)
+    tracker = SAM2Tracker(
+        model_config="sam2_hiera_t", checkpoint_path=str(checkpoint), device=device, enable_reverse_tracking=reverse
+    )
     assert tracker.load_model()
     return tracker
 

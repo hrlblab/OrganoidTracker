@@ -16,7 +16,7 @@ class VideoOutputGenerator:
     """
 
     def __init__(self):
-        self.supported_types = ['original', 'overlay', 'mask', 'side_by_side']
+        self.supported_types = ["original", "overlay", "mask", "side_by_side"]
         self._codec_cache = {}  # Cache successful codecs
         self._system_codecs_tested = False
         self._debug_session_timestamp = None  # For organizing debug frames by session
@@ -32,11 +32,11 @@ class VideoOutputGenerator:
 
         print("🔍 Detecting available video codecs...")
         test_codecs = [
-            ('mp4v', cv2.VideoWriter_fourcc(*'mp4v')),
-            ('MJPG', cv2.VideoWriter_fourcc(*'MJPG')),
-            ('XVID', cv2.VideoWriter_fourcc(*'XVID')),
-            ('I420', cv2.VideoWriter_fourcc(*'I420')),
-            ('IYUV', cv2.VideoWriter_fourcc(*'IYUV')),
+            ("mp4v", cv2.VideoWriter_fourcc(*"mp4v")),
+            ("MJPG", cv2.VideoWriter_fourcc(*"MJPG")),
+            ("XVID", cv2.VideoWriter_fourcc(*"XVID")),
+            ("I420", cv2.VideoWriter_fourcc(*"I420")),
+            ("IYUV", cv2.VideoWriter_fourcc(*"IYUV")),
         ]
 
         # Test with small dummy video
@@ -54,6 +54,7 @@ class VideoOutputGenerator:
         # Clean up test file
         try:
             import os
+
             if os.path.exists(test_path):
                 os.remove(test_path)
         except Exception:
@@ -80,8 +81,9 @@ class VideoOutputGenerator:
 
         return optimized_fps
 
-    def create_video(self, frames, video_segments, obj_id, output_path,
-                    fps=30.0, video_type='overlay', color=(255, 0, 0), alpha=0.3):
+    def create_video(
+        self, frames, video_segments, obj_id, output_path, fps=30.0, video_type="overlay", color=(255, 0, 0), alpha=0.3
+    ):
         """
         Create MP4 video from frames and segmentation results
 
@@ -125,16 +127,23 @@ class VideoOutputGenerator:
             # Generate frames
             for frame_idx in range(len(frames)):
                 output_frame = self._generate_frame(
-                    frames[frame_idx], frame_idx, video_segments, obj_id,
-                    video_type, color, alpha, target_width, target_height
+                    frames[frame_idx],
+                    frame_idx,
+                    video_segments,
+                    obj_id,
+                    video_type,
+                    color,
+                    alpha,
+                    target_width,
+                    target_height,
                 )
 
                 # Apply scaling if needed for performance
-                if hasattr(self, '_current_scale_factor') and self._current_scale_factor < 1.0:
+                if hasattr(self, "_current_scale_factor") and self._current_scale_factor < 1.0:
                     output_frame = cv2.resize(
                         output_frame.astype(np.uint8),
                         (self._target_width, self._target_height),
-                        interpolation=cv2.INTER_LINEAR
+                        interpolation=cv2.INTER_LINEAR,
                     )
 
                 # Convert RGB to BGR for OpenCV
@@ -149,8 +158,18 @@ class VideoOutputGenerator:
             video_writer.release()
             raise RuntimeError(f"Error creating video: {str(e)}") from e
 
-    def create_multi_object_video(self, frames, video_segments, output_path,
-                                 fps=30.0, video_type='overlay', alpha=0.3, progress_callback=None, quality_scale=1.0, tracker=None):
+    def create_multi_object_video(
+        self,
+        frames,
+        video_segments,
+        output_path,
+        fps=30.0,
+        video_type="overlay",
+        alpha=0.3,
+        progress_callback=None,
+        quality_scale=1.0,
+        tracker=None,
+    ):
         """
         Create video with multiple objects, each with different colors
 
@@ -169,11 +188,13 @@ class VideoOutputGenerator:
             str: Path to created video file
         """
         # Reset debug session for new video processing
-        if hasattr(self, 'debug_mode') and self.debug_mode:
+        if hasattr(self, "debug_mode") and self.debug_mode:
             self.reset_debug_session()
 
         print(f"🎬 Creating multi-object {video_type} video...")
-        print(f"🔍 ENTRY DEBUG: frames={len(frames)}, video_segments={len(video_segments) if video_segments else 0}, tracker={tracker}")
+        print(
+            f"🔍 ENTRY DEBUG: frames={len(frames)}, video_segments={len(video_segments) if video_segments else 0}, tracker={tracker}"
+        )
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -189,27 +210,27 @@ class VideoOutputGenerator:
 
         # Object colors (RGB format) - expanded palette for 20+ objects
         object_colors = {
-            0: (128, 128, 128), # Gray - Background
-            1: (255, 0, 0),     # Red
-            2: (0, 255, 0),     # Green
-            3: (0, 0, 255),     # Blue
-            4: (255, 255, 0),   # Yellow
-            5: (255, 0, 255),   # Magenta
-            6: (0, 255, 255),   # Cyan
-            7: (255, 165, 0),   # Orange
-            8: (128, 0, 128),   # Purple
-            9: (255, 192, 203), # Pink
+            0: (128, 128, 128),  # Gray - Background
+            1: (255, 0, 0),  # Red
+            2: (0, 255, 0),  # Green
+            3: (0, 0, 255),  # Blue
+            4: (255, 255, 0),  # Yellow
+            5: (255, 0, 255),  # Magenta
+            6: (0, 255, 255),  # Cyan
+            7: (255, 165, 0),  # Orange
+            8: (128, 0, 128),  # Purple
+            9: (255, 192, 203),  # Pink
             10: (165, 42, 42),  # Brown
-            11: (144, 238, 144), # Light Green
-            12: (135, 206, 235), # Sky Blue
-            13: (221, 160, 221), # Plum
-            14: (240, 230, 140), # Khaki
+            11: (144, 238, 144),  # Light Green
+            12: (135, 206, 235),  # Sky Blue
+            13: (221, 160, 221),  # Plum
+            14: (240, 230, 140),  # Khaki
             15: (255, 99, 71),  # Tomato
-            16: (64, 224, 208), # Turquoise
-            17: (238, 130, 238), # Violet
-            18: (255, 182, 193), # Light Pink
-            19: (152, 251, 152), # Pale Green
-            20: (245, 222, 179), # Wheat
+            16: (64, 224, 208),  # Turquoise
+            17: (238, 130, 238),  # Violet
+            18: (255, 182, 193),  # Light Pink
+            19: (152, 251, 152),  # Pale Green
+            20: (245, 222, 179),  # Wheat
         }
 
         # Get frame dimensions
@@ -219,13 +240,17 @@ class VideoOutputGenerator:
         frame_size_mb = (height * width * 3) / (1024 * 1024)  # RGB frame size in MB
         total_memory_mb = frame_size_mb * len(frames)
 
-        print(f"📊 Video dimensions: {width}x{height}, Frame size: {frame_size_mb:.1f}MB, Total: {total_memory_mb:.1f}MB")
+        print(
+            f"📊 Video dimensions: {width}x{height}, Frame size: {frame_size_mb:.1f}MB, Total: {total_memory_mb:.1f}MB"
+        )
 
         if frame_size_mb > 50:  # Frames larger than 50MB each
             print(f"⚠️ Large frame size detected ({frame_size_mb:.1f}MB). Using aggressive scaling.")
 
         if total_memory_mb > 1000:  # Total video memory > 1GB
-            print(f"⚠️ Large video memory footprint ({total_memory_mb:.1f}MB). Consider using fewer frames or lower resolution.")
+            print(
+                f"⚠️ Large video memory footprint ({total_memory_mb:.1f}MB). Consider using fewer frames or lower resolution."
+            )
 
         # Detect available codecs on first use
         self._detect_system_codecs()
@@ -250,7 +275,9 @@ class VideoOutputGenerator:
                 if frame_objects:
                     frames_with_masks += 1
                     total_objects += len(frame_objects)
-            print(f"🔍 CRITICAL: {frames_with_masks}/{len(video_segments)} frames have masks, {total_objects} total objects")
+            print(
+                f"🔍 CRITICAL: {frames_with_masks}/{len(video_segments)} frames have masks, {total_objects} total objects"
+            )
 
             processed_frames = []
             total_frames = len(frames)
@@ -263,7 +290,7 @@ class VideoOutputGenerator:
                 mask_idx = frame_idx
                 frame_objects = list(video_segments[mask_idx].keys()) if mask_idx in video_segments else []
                 # Conditional debug output based on debug_mode parameter
-                if hasattr(self, 'debug_mode') and self.debug_mode:
+                if hasattr(self, "debug_mode") and self.debug_mode:
                     print(f"🔍 DEBUG: Frame {frame_idx} using mask {mask_idx}, has objects: {frame_objects}")
 
                     # ENHANCED DEBUG: Save debug frames for ALL objects
@@ -278,13 +305,19 @@ class VideoOutputGenerator:
                         mask_data = video_segments[mask_idx][first_obj]
 
                         # Get mask content info
-                        if hasattr(mask_data, 'cpu'):
+                        if hasattr(mask_data, "cpu"):
                             mask_np = mask_data.cpu().numpy().squeeze()
                             non_zero_count = np.count_nonzero(mask_np > 0.5)
-                            print(f"🔍 DEEP DEBUG: Frame {frame_idx} (mask {mask_idx}) obj {first_obj} mask shape: {mask_data.shape}, non-zero: {non_zero_count}")
-                        elif hasattr(mask_data, 'shape'):
-                            print(f"🔍 DEEP DEBUG: Frame {frame_idx} (mask {mask_idx}) obj {first_obj} mask shape: {mask_data.shape}")
-                        print(f"🔍 DEEP DEBUG: Frame {frame_idx} (mask {mask_idx}) obj {first_obj} mask type: {type(mask_data)}")
+                            print(
+                                f"🔍 DEEP DEBUG: Frame {frame_idx} (mask {mask_idx}) obj {first_obj} mask shape: {mask_data.shape}, non-zero: {non_zero_count}"
+                            )
+                        elif hasattr(mask_data, "shape"):
+                            print(
+                                f"🔍 DEEP DEBUG: Frame {frame_idx} (mask {mask_idx}) obj {first_obj} mask shape: {mask_data.shape}"
+                            )
+                        print(
+                            f"🔍 DEEP DEBUG: Frame {frame_idx} (mask {mask_idx}) obj {first_obj} mask type: {type(mask_data)}"
+                        )
 
                 # Create custom video_segments dict with correct mask index
                 frame_video_segments = {}
@@ -292,16 +325,22 @@ class VideoOutputGenerator:
                     frame_video_segments[frame_idx] = video_segments[mask_idx]
 
                 output_frame = self._generate_multi_object_frame(
-                    frames[frame_idx], frame_idx, frame_video_segments, object_colors,
-                    video_type, alpha, target_width, target_height
+                    frames[frame_idx],
+                    frame_idx,
+                    frame_video_segments,
+                    object_colors,
+                    video_type,
+                    alpha,
+                    target_width,
+                    target_height,
                 )
 
                 # Apply scaling if needed for performance
-                if hasattr(self, '_current_scale_factor') and self._current_scale_factor < 1.0:
+                if hasattr(self, "_current_scale_factor") and self._current_scale_factor < 1.0:
                     output_frame = cv2.resize(
                         output_frame.astype(np.uint8),
                         (self._target_width, self._target_height),
-                        interpolation=cv2.INTER_LINEAR
+                        interpolation=cv2.INTER_LINEAR,
                     )
 
                 # Store processed frame for postprocessing
@@ -310,6 +349,7 @@ class VideoOutputGenerator:
                 # Force garbage collection for large frames to prevent memory buildup
                 if (frame_idx + 1) % 10 == 0:  # Every 10 frames
                     import gc
+
                     gc.collect()
 
             # Write frames in correct temporal progression
@@ -332,6 +372,7 @@ class VideoOutputGenerator:
 
             # Force garbage collection after video completion
             import gc
+
             gc.collect()
 
             print(f"✅ Multi-object video saved: {output_path}")
@@ -345,11 +386,21 @@ class VideoOutputGenerator:
                 pass
             # Force cleanup on error
             import gc
+
             gc.collect()
             raise RuntimeError(f"Error creating multi-object video: {str(e)}") from e
 
-    def create_optimized_multi_object_videos(self, frames, video_segments, output_dir,
-                                           fps=5.0, alpha=0.4, progress_callback=None, quality_scale=1.0, tracker=None):
+    def create_optimized_multi_object_videos(
+        self,
+        frames,
+        video_segments,
+        output_dir,
+        fps=5.0,
+        alpha=0.4,
+        progress_callback=None,
+        quality_scale=1.0,
+        tracker=None,
+    ):
         """
         🚀 OPTIMIZED: Create all video types with single mask processing pass
 
@@ -377,7 +428,9 @@ class VideoOutputGenerator:
         start_time = time.time()
 
         print(f"🚀 OPTIMIZATION: Single-pass mask processing for {len(frames)} frames")
-        print(f"🔍 OPTIMIZED ENTRY DEBUG: frames={len(frames)}, video_segments={len(video_segments) if video_segments else 0}, tracker={tracker}")
+        print(
+            f"🔍 OPTIMIZED ENTRY DEBUG: frames={len(frames)}, video_segments={len(video_segments) if video_segments else 0}, tracker={tracker}"
+        )
 
         # CRITICAL: Check if we have any data to work with
         if not frames:
@@ -390,12 +443,27 @@ class VideoOutputGenerator:
 
         # Object colors (same as original)
         object_colors = {
-            0: (128, 128, 128), 1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255),
-            4: (255, 255, 0), 5: (255, 0, 255), 6: (0, 255, 255), 7: (255, 165, 0),
-            8: (128, 0, 128), 9: (255, 192, 203), 10: (165, 42, 42), 11: (144, 238, 144),
-            12: (135, 206, 235), 13: (221, 160, 221), 14: (240, 230, 140), 15: (255, 99, 71),
-            16: (64, 224, 208), 17: (238, 130, 238), 18: (255, 182, 193), 19: (152, 251, 152),
-            20: (245, 222, 179)
+            0: (128, 128, 128),
+            1: (255, 0, 0),
+            2: (0, 255, 0),
+            3: (0, 0, 255),
+            4: (255, 255, 0),
+            5: (255, 0, 255),
+            6: (0, 255, 255),
+            7: (255, 165, 0),
+            8: (128, 0, 128),
+            9: (255, 192, 203),
+            10: (165, 42, 42),
+            11: (144, 238, 144),
+            12: (135, 206, 235),
+            13: (221, 160, 221),
+            14: (240, 230, 140),
+            15: (255, 99, 71),
+            16: (64, 224, 208),
+            17: (238, 130, 238),
+            18: (255, 182, 193),
+            19: (152, 251, 152),
+            20: (245, 222, 179),
         }
 
         total_frames = len(frames)
@@ -411,14 +479,16 @@ class VideoOutputGenerator:
             if frame_objects:
                 frames_with_masks += 1
                 total_objects += len(frame_objects)
-        print(f"🔍 OPTIMIZED CRITICAL: {frames_with_masks}/{len(video_segments)} frames have masks, {total_objects} total objects")
+        print(
+            f"🔍 OPTIMIZED CRITICAL: {frames_with_masks}/{len(video_segments)} frames have masks, {total_objects} total objects"
+        )
         processed_frames = self._process_all_frames_optimized(
             frames, video_segments, object_colors, alpha, quality_scale, progress_callback
         )
 
         # STEP 2: Generate all video types from processed frames
         created_videos = {}
-        video_types = ['overlay', 'mask', 'side_by_side']
+        video_types = ["overlay", "mask", "side_by_side"]
 
         for i, video_type in enumerate(video_types):
             base_progress = total_frames + (i * total_frames)
@@ -439,28 +509,26 @@ class VideoOutputGenerator:
             except Exception as e:
                 print(f"❌ Error creating {video_type} video: {e}")
                 import traceback
+
                 traceback.print_exc()
                 created_videos[video_type] = None
 
         optimization_time = time.time() - start_time
 
-        if hasattr(self, 'debug_mode') and self.debug_mode:
+        if hasattr(self, "debug_mode") and self.debug_mode:
             print(f"🎉 OPTIMIZATION COMPLETE: All videos generated in {optimization_time:.2f}s")
 
         return created_videos
 
-    def _process_all_frames_optimized(self, frames, video_segments, object_colors, alpha, quality_scale, progress_callback):
+    def _process_all_frames_optimized(
+        self, frames, video_segments, object_colors, alpha, quality_scale, progress_callback
+    ):
         """
         🚀 Process all frames once with all video type variants
         Returns: dict with all processed frame variants
         """
         total_frames = len(frames)
-        processed_frames = {
-            'original': [],
-            'overlay': [],
-            'mask': [],
-            'side_by_side': []
-        }
+        processed_frames = {"original": [], "overlay": [], "mask": [], "side_by_side": []}
 
         # Get frame dimensions and apply quality scaling
         height, width = frames[0].shape[:2]
@@ -507,21 +575,25 @@ class VideoOutputGenerator:
 
             # CRITICAL DEBUG: Report object processing for first few frames
             if frame_idx < 3:
-                print(f"🔍 PROCESS DEBUG: Frame {frame_idx} -> mask_idx {mask_idx}, processed {objects_processed_this_frame} objects")
+                print(
+                    f"🔍 PROCESS DEBUG: Frame {frame_idx} -> mask_idx {mask_idx}, processed {objects_processed_this_frame} objects"
+                )
 
             # Finalize frame variants
             overlay_frame = overlay_frame.astype(np.uint8)
             side_by_side_frame = np.hstack([original_frame, overlay_frame])
 
             # Store all variants
-            processed_frames['original'].append(original_frame)
-            processed_frames['overlay'].append(overlay_frame)
-            processed_frames['mask'].append(mask_frame)
-            processed_frames['side_by_side'].append(side_by_side_frame)
+            processed_frames["original"].append(original_frame)
+            processed_frames["overlay"].append(overlay_frame)
+            processed_frames["mask"].append(mask_frame)
+            processed_frames["side_by_side"].append(side_by_side_frame)
 
         return processed_frames
 
-    def _create_video_from_processed_frames(self, processed_frames, video_type, output_path, fps, progress_callback, base_progress):
+    def _create_video_from_processed_frames(
+        self, processed_frames, video_type, output_path, fps, progress_callback, base_progress
+    ):
         """
         Create video from pre-processed frames (NO mask processing!)
         """
@@ -542,8 +614,8 @@ class VideoOutputGenerator:
 
         # CRITICAL FIX: Use the actual scaled dimensions from video writer creation
         # The _create_video_writer method stores the scaled dimensions in instance variables
-        actual_width = getattr(self, '_target_width', width)
-        actual_height = getattr(self, '_target_height', height)
+        actual_width = getattr(self, "_target_width", width)
+        actual_height = getattr(self, "_target_height", height)
         print(f"🔧 Video writer created with actual dimensions: {actual_width}x{actual_height}")
 
         frames_to_write = frames  # already in chronological order
@@ -563,7 +635,9 @@ class VideoOutputGenerator:
             if i == 0:  # Only debug first frame to avoid spam
                 non_zero_pixels = np.count_nonzero(frame)
                 frame_mean = np.mean(frame)
-                print(f"🔍 FRAME DEBUG: First frame non-zero pixels={non_zero_pixels}, mean={frame_mean:.2f}, shape={frame.shape}")
+                print(
+                    f"🔍 FRAME DEBUG: First frame non-zero pixels={non_zero_pixels}, mean={frame_mean:.2f}, shape={frame.shape}"
+                )
                 print(f"🔍 WRITER DEBUG: Video writer expects {actual_width}x{actual_height}")
 
             # Convert RGB to BGR for OpenCV
@@ -580,6 +654,7 @@ class VideoOutputGenerator:
 
         # CRITICAL DEBUG: Check final file size and validity
         import os
+
         if os.path.exists(output_path):
             file_size = os.path.getsize(output_path)
             print(f"🔍 FILE DEBUG: Created {output_path} with size {file_size} bytes")
@@ -594,7 +669,7 @@ class VideoOutputGenerator:
 
     def _get_target_dimensions(self, width, height, video_type, quality_scale=1.0):
         """Calculate target video dimensions with codec limit handling and quality scaling"""
-        if video_type == 'side_by_side':
+        if video_type == "side_by_side":
             target_width = width * 2
             target_height = height
 
@@ -624,8 +699,9 @@ class VideoOutputGenerator:
 
         # Suppress OpenCV codec warnings
         import os
-        original_opencv_log_level = os.environ.get('OPENCV_LOG_LEVEL', '')
-        os.environ['OPENCV_LOG_LEVEL'] = 'ERROR'
+
+        original_opencv_log_level = os.environ.get("OPENCV_LOG_LEVEL", "")
+        os.environ["OPENCV_LOG_LEVEL"] = "ERROR"
 
         # Performance optimization: scale down very large videos for better encoding speed
         original_width, original_height = width, height
@@ -645,10 +721,10 @@ class VideoOutputGenerator:
         # Optimized codec selection based on resolution and system capabilities
         if max_dimension <= 1080:
             # For smaller videos, use high-quality codecs (prefer cached ones)
-            preferred_codecs = ['mp4v', 'MJPG', 'XVID']
+            preferred_codecs = ["mp4v", "MJPG", "XVID"]
         else:
             # For large videos, prioritize speed and compatibility
-            preferred_codecs = ['mp4v', 'MJPG', 'I420', 'IYUV']
+            preferred_codecs = ["mp4v", "MJPG", "I420", "IYUV"]
 
         # Use cached codecs first, then fallback to testing
         codecs_to_try = []
@@ -658,11 +734,11 @@ class VideoOutputGenerator:
 
         # Add any remaining codecs not in cache
         all_codecs = [
-            ('mp4v', cv2.VideoWriter_fourcc(*'mp4v')),
-            ('MJPG', cv2.VideoWriter_fourcc(*'MJPG')),
-            ('XVID', cv2.VideoWriter_fourcc(*'XVID')),
-            ('I420', cv2.VideoWriter_fourcc(*'I420')),
-            ('IYUV', cv2.VideoWriter_fourcc(*'IYUV')),
+            ("mp4v", cv2.VideoWriter_fourcc(*"mp4v")),
+            ("MJPG", cv2.VideoWriter_fourcc(*"MJPG")),
+            ("XVID", cv2.VideoWriter_fourcc(*"XVID")),
+            ("I420", cv2.VideoWriter_fourcc(*"I420")),
+            ("IYUV", cv2.VideoWriter_fourcc(*"IYUV")),
         ]
 
         for codec_name, fourcc in all_codecs:
@@ -684,9 +760,9 @@ class VideoOutputGenerator:
 
                     # Restore original log level
                     if original_opencv_log_level:
-                        os.environ['OPENCV_LOG_LEVEL'] = original_opencv_log_level
+                        os.environ["OPENCV_LOG_LEVEL"] = original_opencv_log_level
                     else:
-                        os.environ.pop('OPENCV_LOG_LEVEL', None)
+                        os.environ.pop("OPENCV_LOG_LEVEL", None)
 
                     return test_writer
                 else:
@@ -699,8 +775,8 @@ class VideoOutputGenerator:
         # If all optimized codecs fail, try basic fallback
         print("   Trying basic fallback codecs...")
         basic_codecs = [
-            ('Raw', cv2.VideoWriter_fourcc(*'RGBA')),
-            ('Uncompressed', 0),  # Uncompressed
+            ("Raw", cv2.VideoWriter_fourcc(*"RGBA")),
+            ("Uncompressed", 0),  # Uncompressed
         ]
 
         for codec_name, fourcc in basic_codecs:
@@ -716,21 +792,24 @@ class VideoOutputGenerator:
 
         # Restore log level before error
         if original_opencv_log_level:
-            os.environ['OPENCV_LOG_LEVEL'] = original_opencv_log_level
+            os.environ["OPENCV_LOG_LEVEL"] = original_opencv_log_level
         else:
-            os.environ.pop('OPENCV_LOG_LEVEL', None)
+            os.environ.pop("OPENCV_LOG_LEVEL", None)
 
-        raise RuntimeError(f"Could not initialize video writer for {width}x{height} video with any codec. "
-                          f"Original size: {original_width}x{original_height}")
+        raise RuntimeError(
+            f"Could not initialize video writer for {width}x{height} video with any codec. "
+            f"Original size: {original_width}x{original_height}"
+        )
 
-    def _generate_frame(self, frame, frame_idx, video_segments, obj_id,
-                       video_type, color, alpha, target_width, target_height):
+    def _generate_frame(
+        self, frame, frame_idx, video_segments, obj_id, video_type, color, alpha, target_width, target_height
+    ):
         """Generate a single output frame based on video type"""
 
-        if video_type == 'original':
+        if video_type == "original":
             output_frame = frame.copy()
 
-        elif video_type == 'mask':
+        elif video_type == "mask":
             # Create mask-only frame
             mask = self._get_frame_mask(frame, frame_idx, video_segments, obj_id)
             # Convert to 3-channel image (white mask on black background)
@@ -744,7 +823,7 @@ class VideoOutputGenerator:
                 output_frame[:, :, 0] = np.minimum(output_frame[:, :, 0] + 50, 255)  # Add red tint
                 output_frame = output_frame.astype(np.uint8)
 
-        elif video_type == 'overlay':
+        elif video_type == "overlay":
             # Create overlay with segmentation
             output_frame = frame.copy().astype(np.float32)
             mask = self._get_frame_mask(frame, frame_idx, video_segments, obj_id)
@@ -756,7 +835,7 @@ class VideoOutputGenerator:
 
             output_frame = output_frame.astype(np.uint8)
 
-        elif video_type == 'side_by_side':
+        elif video_type == "side_by_side":
             # Create side-by-side comparison
             original_frame = frame.copy()
             overlay_frame = frame.copy().astype(np.float32)
@@ -780,11 +859,12 @@ class VideoOutputGenerator:
 
         return output_frame
 
-    def _generate_multi_object_frame(self, frame, frame_idx, video_segments, object_colors,
-                                   video_type, alpha, target_width, target_height):
+    def _generate_multi_object_frame(
+        self, frame, frame_idx, video_segments, object_colors, video_type, alpha, target_width, target_height
+    ):
         """Generate a single output frame with multiple objects"""
 
-        if video_type == 'mask':
+        if video_type == "mask":
             # Create multi-object mask frame
             output_frame = np.zeros_like(frame)
 
@@ -799,7 +879,7 @@ class VideoOutputGenerator:
                         for c in range(3):
                             output_frame[:, :, c] = np.where(mask > 0, color[c], output_frame[:, :, c])
 
-        elif video_type == 'overlay':
+        elif video_type == "overlay":
             # Create multi-object overlay
             output_frame = frame.copy().astype(np.float32)
 
@@ -816,7 +896,7 @@ class VideoOutputGenerator:
 
             output_frame = output_frame.astype(np.uint8)
 
-        elif video_type == 'side_by_side':
+        elif video_type == "side_by_side":
             # Create side-by-side with multi-object overlay
             original_frame = frame.copy()
             overlay_frame = frame.copy().astype(np.float32)
@@ -847,9 +927,9 @@ class VideoOutputGenerator:
     def _process_single_mask(self, mask_data, frame_shape):
         """Process a single mask from tracking results"""
         # Handle tensor conversion
-        if hasattr(mask_data, 'cpu'):
+        if hasattr(mask_data, "cpu"):
             mask = mask_data.cpu().numpy()
-        elif hasattr(mask_data, 'numpy'):
+        elif hasattr(mask_data, "numpy"):
             mask = mask_data.numpy()
         else:
             mask = mask_data
@@ -863,11 +943,7 @@ class VideoOutputGenerator:
 
         # Resize to match frame size if needed
         if mask_binary.shape != frame_shape:
-            mask_binary = cv2.resize(
-                mask_binary,
-                (frame_shape[1], frame_shape[0]),
-                interpolation=cv2.INTER_NEAREST
-            )
+            mask_binary = cv2.resize(mask_binary, (frame_shape[1], frame_shape[0]), interpolation=cv2.INTER_NEAREST)
 
         return mask_binary
 
@@ -880,9 +956,9 @@ class VideoOutputGenerator:
         mask = video_segments[frame_idx][obj_id]
 
         # Handle tensor conversion
-        if hasattr(mask, 'cpu'):
+        if hasattr(mask, "cpu"):
             mask = mask.cpu().numpy()
-        elif hasattr(mask, 'numpy'):
+        elif hasattr(mask, "numpy"):
             mask = mask.numpy()
 
         mask = np.asarray(mask)
@@ -894,11 +970,7 @@ class VideoOutputGenerator:
 
         # Resize to match frame size if needed
         if mask_binary.shape != frame.shape[:2]:
-            mask_binary = cv2.resize(
-                mask_binary,
-                (frame.shape[1], frame.shape[0]),
-                interpolation=cv2.INTER_NEAREST
-            )
+            mask_binary = cv2.resize(mask_binary, (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_NEAREST)
 
         return mask_binary
 
@@ -909,8 +981,9 @@ class VideoOutputGenerator:
             # (Note: Will create separate debug sessions for each video type)
 
             # Create main debug directory with persistent session timestamp
-            if not hasattr(self, '_debug_session_timestamp') or self._debug_session_timestamp is None:
+            if not hasattr(self, "_debug_session_timestamp") or self._debug_session_timestamp is None:
                 from datetime import datetime
+
                 self._debug_session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
             debug_base_dir = Path("data/output_videos/debug_frames")
@@ -932,10 +1005,10 @@ class VideoOutputGenerator:
                 obj_dir.mkdir(exist_ok=True)
 
                 # Process mask data
-                if hasattr(mask_data, 'cpu'):
+                if hasattr(mask_data, "cpu"):
                     mask_np = mask_data.cpu().numpy().squeeze()
                 else:
-                    mask_np = mask_data.squeeze() if hasattr(mask_data, 'squeeze') else mask_data
+                    mask_np = mask_data.squeeze() if hasattr(mask_data, "squeeze") else mask_data
 
                 # Convert logits to probabilities and then to 0-255
                 if mask_np.dtype == np.float32 or mask_np.dtype == np.float64:
@@ -947,8 +1020,9 @@ class VideoOutputGenerator:
 
                 # Resize mask to match frame if needed
                 if mask_binary.shape != frame.shape[:2]:
-                    mask_binary = cv2.resize(mask_binary, (frame.shape[1], frame.shape[0]),
-                                           interpolation=cv2.INTER_NEAREST)
+                    mask_binary = cv2.resize(
+                        mask_binary, (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_NEAREST
+                    )
 
                 # Save mask for this object
                 mask_path = obj_dir / f"frame_{frame_idx:03d}_mask.png"
@@ -956,13 +1030,13 @@ class VideoOutputGenerator:
 
                 # Create and save overlay for this object with unique color
                 overlay = frame_rgb.copy().astype(np.float32)
-                mask_3d = np.stack([mask_binary/255.0] * 3, axis=-1)
+                mask_3d = np.stack([mask_binary / 255.0] * 3, axis=-1)
 
                 # Use different colors for different objects
                 colors = [
-                    [255, 0, 0],    # Red
-                    [0, 255, 0],    # Green
-                    [0, 0, 255],    # Blue
+                    [255, 0, 0],  # Red
+                    [0, 255, 0],  # Green
+                    [0, 0, 255],  # Blue
                     [255, 255, 0],  # Yellow
                     [255, 0, 255],  # Magenta
                     [0, 255, 255],  # Cyan
@@ -986,7 +1060,7 @@ class VideoOutputGenerator:
                         cv2.imwrite(str(obj_frame_path), cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR))
 
             # Print debug info only once per session and create session summary
-            if frame_idx == 0 and hasattr(self, 'debug_mode') and self.debug_mode:
+            if frame_idx == 0 and hasattr(self, "debug_mode") and self.debug_mode:
                 num_objects = len(frame_objects_data)
                 print(f"💾 DEBUG: Saving organized debug frames to {debug_session_dir}")
                 print(f"🔍 DEBUG: Processing {num_objects} objects with individual subfolders")
@@ -1005,27 +1079,28 @@ class VideoOutputGenerator:
             from datetime import datetime
 
             session_info = {
-                'session_timestamp': self._debug_session_timestamp,
-                'video_type': video_type,
-                'num_objects': num_objects,
-                'created_at': datetime.now().isoformat(),
-                'debug_structure': {
-                    'session_dir': f"session_{self._debug_session_timestamp}/",
-                    'object_dirs': [f"object_{i:02d}/" for i in range(1, num_objects + 1)],
-                    'file_types': ['frame_XXX_original.png', 'frame_XXX_mask.png', 'frame_XXX_overlay.png']
+                "session_timestamp": self._debug_session_timestamp,
+                "video_type": video_type,
+                "num_objects": num_objects,
+                "created_at": datetime.now().isoformat(),
+                "debug_structure": {
+                    "session_dir": f"session_{self._debug_session_timestamp}/",
+                    "object_dirs": [f"object_{i:02d}/" for i in range(1, num_objects + 1)],
+                    "file_types": ["frame_XXX_original.png", "frame_XXX_mask.png", "frame_XXX_overlay.png"],
                 },
-                'description': 'Debug frames organized by object for kidney organoid cyst tracking analysis'
+                "description": "Debug frames organized by object for kidney organoid cyst tracking analysis",
             }
 
             # Write JSON info file
             import json
+
             info_path = debug_session_dir / "session_info.json"
-            with open(info_path, 'w') as f:
+            with open(info_path, "w") as f:
                 json.dump(session_info, f, indent=2)
 
             # Write README file
             readme_path = debug_session_dir / "README.md"
-            with open(readme_path, 'w') as f:
+            with open(readme_path, "w") as f:
                 f.write(f"# Debug Session: {self._debug_session_timestamp}\n\n")
                 f.write(f"**Video Type:** {video_type}\n")
                 f.write(f"**Objects Tracked:** {num_objects}\n")
@@ -1062,8 +1137,7 @@ class VideoOutputGenerator:
         frame_objects_data = {obj_id: mask_data}
         self._save_debug_frames_for_all_objects(frame, frame_objects_data, frame_idx, frame_idx, video_type)
 
-    def create_multiple_videos(self, frames, video_segments, obj_id, output_dir,
-                              fps=30.0, video_types=None, **kwargs):
+    def create_multiple_videos(self, frames, video_segments, obj_id, output_dir, fps=30.0, video_types=None, **kwargs):
         """
         Create multiple video types at once
 
@@ -1080,7 +1154,7 @@ class VideoOutputGenerator:
             dict: Mapping of video_type -> output_path
         """
         if video_types is None:
-            video_types = ['overlay']
+            video_types = ["overlay"]
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1090,8 +1164,7 @@ class VideoOutputGenerator:
             try:
                 output_path = output_dir / f"output_{video_type}.mp4"
                 result_path = self.create_video(
-                    frames, video_segments, obj_id, output_path,
-                    fps=fps, video_type=video_type, **kwargs
+                    frames, video_segments, obj_id, output_path, fps=fps, video_type=video_type, **kwargs
                 )
                 created_videos[video_type] = result_path
             except Exception as e:
@@ -1135,8 +1208,7 @@ def save_frame_sequence(frames, video_segments, obj_id, output_dir):
 
         # Save overlay
         overlay_frame = generator._generate_frame(
-            frame, frame_idx, video_segments, obj_id,
-            'overlay', (255, 0, 0), 0.3, frame.shape[1], frame.shape[0]
+            frame, frame_idx, video_segments, obj_id, "overlay", (255, 0, 0), 0.3, frame.shape[1], frame.shape[0]
         )
         overlay_pil = Image.fromarray(overlay_frame.astype(np.uint8))
         overlay_pil.save(overlays_dir / f"overlay_{frame_idx:04d}.png")
@@ -1159,7 +1231,7 @@ def create_summary_image(frames, video_segments, obj_id, output_path):
     num_frames = len(frames)
 
     # Select key frames
-    key_frame_indices = [0, num_frames//4, num_frames//2, 3*num_frames//4, num_frames-1]
+    key_frame_indices = [0, num_frames // 4, num_frames // 2, 3 * num_frames // 4, num_frames - 1]
     key_frame_indices = [idx for idx in key_frame_indices if idx < num_frames and idx in video_segments]
 
     if not key_frame_indices:
@@ -1167,7 +1239,7 @@ def create_summary_image(frames, video_segments, obj_id, output_path):
         return
 
     # Create visualization
-    fig, axes = plt.subplots(2, len(key_frame_indices), figsize=(4*len(key_frame_indices), 8))
+    fig, axes = plt.subplots(2, len(key_frame_indices), figsize=(4 * len(key_frame_indices), 8))
     if len(key_frame_indices) == 1:
         axes = axes.reshape(2, 1)
 
@@ -1176,21 +1248,28 @@ def create_summary_image(frames, video_segments, obj_id, output_path):
     for i, frame_idx in enumerate(key_frame_indices):
         # Original frame
         axes[0, i].imshow(frames[frame_idx])
-        axes[0, i].set_title(f'Frame {frame_idx}')
-        axes[0, i].axis('off')
+        axes[0, i].set_title(f"Frame {frame_idx}")
+        axes[0, i].axis("off")
 
         # Frame with overlay
         overlay_frame = generator._generate_frame(
-            frames[frame_idx], frame_idx, video_segments, obj_id,
-            'overlay', (255, 0, 0), 0.3, frames[frame_idx].shape[1], frames[frame_idx].shape[0]
+            frames[frame_idx],
+            frame_idx,
+            video_segments,
+            obj_id,
+            "overlay",
+            (255, 0, 0),
+            0.3,
+            frames[frame_idx].shape[1],
+            frames[frame_idx].shape[0],
         )
 
         axes[1, i].imshow(overlay_frame.astype(np.uint8))
-        axes[1, i].set_title(f'Segmentation {frame_idx}')
-        axes[1, i].axis('off')
+        axes[1, i].set_title(f"Segmentation {frame_idx}")
+        axes[1, i].axis("off")
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
     print(f"✅ Summary saved: {output_path}")

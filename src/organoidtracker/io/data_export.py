@@ -32,7 +32,7 @@ class TrackingDataExporter:
         original_frames: list | None = None,
         debug_mode: bool = False,
         video_path: str | None = None,
-        output_dir: str = "data/exported_tracking_data"
+        output_dir: str = "data/exported_tracking_data",
     ) -> dict[str, str]:
         """
         Export all data needed for standalone visualization generation
@@ -71,9 +71,9 @@ class TrackingDataExporter:
             "has_original_frames": original_frames is not None,
             "export_info": {
                 "total_organoids": len(organoid_data),
-                "total_cysts": sum(len(org['cysts']) for org in organoid_data.values()),
-                "active_object_ids": self._get_tracked_object_ids(tracking_results)
-            }
+                "total_cysts": sum(len(org["cysts"]) for org in organoid_data.values()),
+                "active_object_ids": self._get_tracked_object_ids(tracking_results),
+            },
         }
 
         exported_files = {}
@@ -81,16 +81,16 @@ class TrackingDataExporter:
         try:
             # 1. Save metadata (JSON - human readable)
             metadata_path = output_path / f"experiment_metadata_{timestamp}.json"
-            with open(metadata_path, 'w') as f:
+            with open(metadata_path, "w") as f:
                 json.dump(metadata, f, indent=2, default=str)
-            exported_files['metadata'] = str(metadata_path)
+            exported_files["metadata"] = str(metadata_path)
             print(f"   ✅ Metadata saved: {metadata_path.name}")
 
             # 2. Save organoid data (JSON - human readable)
             organoid_path = output_path / f"organoid_data_{timestamp}.json"
-            with open(organoid_path, 'w') as f:
+            with open(organoid_path, "w") as f:
                 json.dump(organoid_data, f, indent=2)
-            exported_files['organoid_data'] = str(organoid_path)
+            exported_files["organoid_data"] = str(organoid_path)
             print(f"   ✅ Organoid data saved: {organoid_path.name}")
 
             # 3. Save tracking results (compressed pickle - handles tensors/arrays)
@@ -99,16 +99,16 @@ class TrackingDataExporter:
             # Convert PyTorch tensors to numpy arrays for better serialization
             serializable_tracking = self._convert_tensors_to_numpy(tracking_results)
 
-            with gzip.open(tracking_path, 'wb') as f:
+            with gzip.open(tracking_path, "wb") as f:
                 pickle.dump(serializable_tracking, f, protocol=pickle.HIGHEST_PROTOCOL)
-            exported_files['tracking_results'] = str(tracking_path)
+            exported_files["tracking_results"] = str(tracking_path)
             print(f"   ✅ Tracking results saved: {tracking_path.name}")
 
             # 4. Save original frames (optional - as compressed video to save space)
             if original_frames is not None:
                 frames_path = output_path / f"original_frames_{timestamp}.mp4"
                 self._save_frames_as_video(original_frames, str(frames_path))
-                exported_files['original_frames'] = str(frames_path)
+                exported_files["original_frames"] = str(frames_path)
                 print(f"   ✅ Original frames saved: {frames_path.name}")
             else:
                 print("   ⚠️ No original frames to save")
@@ -116,15 +116,15 @@ class TrackingDataExporter:
             # 5. Create a combined data file for easy loading
             combined_path = output_path / f"combined_data_{timestamp}.pkl.gz"
             combined_data = {
-                'metadata': metadata,
-                'organoid_data': organoid_data,
-                'tracking_results': serializable_tracking,
-                'original_frames_available': original_frames is not None
+                "metadata": metadata,
+                "organoid_data": organoid_data,
+                "tracking_results": serializable_tracking,
+                "original_frames_available": original_frames is not None,
             }
 
-            with gzip.open(combined_path, 'wb') as f:
+            with gzip.open(combined_path, "wb") as f:
                 pickle.dump(combined_data, f, protocol=pickle.HIGHEST_PROTOCOL)
-            exported_files['combined_data'] = str(combined_path)
+            exported_files["combined_data"] = str(combined_path)
             print(f"   ✅ Combined data saved: {combined_path.name}")
 
             # 6. Create usage instructions
@@ -134,7 +134,7 @@ Standalone Visualization Data Export
 ===================================
 
 Generated: {timestamp}
-Video: {video_path or 'Unknown'}
+Video: {video_path or "Unknown"}
 
 Usage:
     python scripts/standalone_visualizer.py {combined_path.name}
@@ -143,19 +143,19 @@ Files exported:
     • {metadata_path.name} - Experiment parameters (JSON)
     • {organoid_path.name} - Organoid-cyst relationships (JSON)
     • {tracking_path.name} - SAM2 tracking results (compressed pickle)
-    • {frames_path.name if original_frames else 'N/A'} - Original video frames (MP4)
+    • {frames_path.name if original_frames else "N/A"} - Original video frames (MP4)
     • {combined_path.name} - Combined data file (recommended)
 
 Data Summary:
-    • Total organoids: {metadata['export_info']['total_organoids']}
-    • Total cysts: {metadata['export_info']['total_cysts']}
-    • Total frames: {metadata['total_frames']}
+    • Total organoids: {metadata["export_info"]["total_organoids"]}
+    • Total cysts: {metadata["export_info"]["total_cysts"]}
+    • Total frames: {metadata["total_frames"]}
     • Time period: {time_lapse_days} days
     • Conversion: {conversion_factor} μm/pixel
 """
-            with open(instructions_path, 'w') as f:
+            with open(instructions_path, "w") as f:
                 f.write(instructions)
-            exported_files['instructions'] = str(instructions_path)
+            exported_files["instructions"] = str(instructions_path)
 
             print(f"📁 All data exported to: {output_dir}")
             print(f"🚀 Use: python scripts/standalone_visualizer.py {combined_path.name}")
@@ -165,6 +165,7 @@ Data Summary:
         except Exception as e:
             print(f"❌ Export failed: {e}")
             import traceback
+
             traceback.print_exc()
             return {}
 
@@ -187,20 +188,22 @@ Data Summary:
 
         try:
             # Try loading as combined data file first
-            if data_path.suffix == '.gz' or 'combined_data' in data_path.name:
-                with gzip.open(data_path, 'rb') as f:
+            if data_path.suffix == ".gz" or "combined_data" in data_path.name:
+                with gzip.open(data_path, "rb") as f:
                     combined_data = pickle.load(f)
 
-                print(f"   ✅ Loaded combined data (version: {combined_data.get('metadata', {}).get('version', 'unknown')})")
+                print(
+                    f"   ✅ Loaded combined data (version: {combined_data.get('metadata', {}).get('version', 'unknown')})"
+                )
                 return combined_data
 
             # Fallback: load individual files based on metadata
-            elif data_path.suffix == '.json':
+            elif data_path.suffix == ".json":
                 # Load metadata to find other files
                 with open(data_path) as f:
                     metadata = json.load(f)
 
-                timestamp = metadata.get('timestamp', '')
+                timestamp = metadata.get("timestamp", "")
                 data_dir = data_path.parent
 
                 # Load organoid data
@@ -210,14 +213,14 @@ Data Summary:
 
                 # Load tracking results
                 tracking_file = data_dir / f"tracking_results_{timestamp}.pkl.gz"
-                with gzip.open(tracking_file, 'rb') as f:
+                with gzip.open(tracking_file, "rb") as f:
                     tracking_results = pickle.load(f)
 
                 return {
-                    'metadata': metadata,
-                    'organoid_data': organoid_data,
-                    'tracking_results': tracking_results,
-                    'original_frames_available': False  # Would need separate loading
+                    "metadata": metadata,
+                    "organoid_data": organoid_data,
+                    "tracking_results": tracking_results,
+                    "original_frames_available": False,  # Would need separate loading
                 }
 
             else:
@@ -231,7 +234,7 @@ Data Summary:
         """
         Recursively convert PyTorch tensors to numpy arrays for serialization
         """
-        if hasattr(data, 'cpu') and hasattr(data, 'numpy'):
+        if hasattr(data, "cpu") and hasattr(data, "numpy"):
             # PyTorch tensor
             return data.cpu().numpy()
         elif isinstance(data, dict):
@@ -246,8 +249,8 @@ Data Summary:
     def _get_total_frames(self, tracking_results: dict[str, Any]) -> int:
         """Extract total frame count from tracking results"""
         if isinstance(tracking_results, dict):
-            if 'video_segments' in tracking_results:
-                return len(tracking_results['video_segments'])
+            if "video_segments" in tracking_results:
+                return len(tracking_results["video_segments"])
             elif all(isinstance(k, int) for k in tracking_results.keys()):
                 return len(tracking_results)
         return 0
@@ -274,7 +277,7 @@ Data Summary:
             height, width = frames[0].shape[:2]
 
             # Create video writer
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
             # Write frames
@@ -302,10 +305,7 @@ class StandaloneVisualizationRunner:
         self.exporter = TrackingDataExporter()
 
     def generate_visualizations_from_file(
-        self,
-        data_file: str,
-        output_dir: str = "standalone_visualizations",
-        debug_mode: bool = False
+        self, data_file: str, output_dir: str = "standalone_visualizations", debug_mode: bool = False
     ) -> dict[str, Any]:
         """
         Generate visualizations from exported tracking data
@@ -327,11 +327,13 @@ class StandaloneVisualizationRunner:
             data = self.exporter.load_tracking_data(data_file)
 
             # Extract components
-            metadata = data['metadata']
-            organoid_data = data['organoid_data']
-            tracking_results = data['tracking_results']
+            metadata = data["metadata"]
+            organoid_data = data["organoid_data"]
+            tracking_results = data["tracking_results"]
 
-            print(f"   📊 Loaded: {metadata['export_info']['total_organoids']} organoids, {metadata['export_info']['total_cysts']} cysts")
+            print(
+                f"   📊 Loaded: {metadata['export_info']['total_organoids']} organoids, {metadata['export_info']['total_cysts']} cysts"
+            )
 
             # Import analysis system
             from ..analysis import OrganoidAnalysisReportGenerator
@@ -343,11 +345,11 @@ class StandaloneVisualizationRunner:
             analysis_summary = report_generator.generate_complete_analysis_report(
                 tracking_results=tracking_results,
                 organoid_data=organoid_data,
-                time_lapse_days=metadata['time_lapse_days'],
-                conversion_factor=metadata['conversion_factor_um_per_pixel'],
+                time_lapse_days=metadata["time_lapse_days"],
+                conversion_factor=metadata["conversion_factor_um_per_pixel"],
                 output_dir=output_dir,
-                debug_mode=debug_mode or metadata.get('debug_mode', False),
-                original_frames=None  # Skip frame comparison for faster iteration
+                debug_mode=debug_mode or metadata.get("debug_mode", False),
+                original_frames=None,  # Skip frame comparison for faster iteration
             )
 
             print("✅ Standalone visualization generation completed!")
@@ -358,5 +360,6 @@ class StandaloneVisualizationRunner:
         except Exception as e:
             print(f"❌ Standalone visualization failed: {e}")
             import traceback
+
             traceback.print_exc()
-            return {'success': False, 'error': str(e)}
+            return {"success": False, "error": str(e)}

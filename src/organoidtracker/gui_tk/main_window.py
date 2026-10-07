@@ -47,7 +47,7 @@ class VideoTrackerApp:
         self.root.geometry("1400x900")
 
         # Make window resizable and properly scalable
-        self.root.state('zoomed') if sys.platform == 'win32' else None
+        self.root.state("zoomed") if sys.platform == "win32" else None
 
         # Enable window resizing
         self.root.resizable(True, True)
@@ -63,7 +63,7 @@ class VideoTrackerApp:
         self.generation_dialog = None
 
         # Analysis parameter variables (simplified - no manual organoid input needed)
-        self.time_lapse_var = tk.DoubleVar(value=7.0)   # Default: 7 days
+        self.time_lapse_var = tk.DoubleVar(value=7.0)  # Default: 7 days
         self.conversion_factor_var = tk.DoubleVar(value=1.0)  # Default: 1.0 μm/pixel
 
         # New organoid-cyst tracking state
@@ -96,15 +96,15 @@ class VideoTrackerApp:
         self.style = ttk.Style()
 
         # Configure styles for better appearance
-        self.style.configure('Title.TLabel', font=('Arial', 14, 'bold'))
-        self.style.configure('Header.TLabel', font=('Arial', 10, 'bold'))
-        self.style.configure('Status.TLabel', font=('Arial', 9))
-        self.style.configure('VideoLoad.TButton', font=('Arial', 10, 'bold'))
-        self.style.configure('Action.TButton', font=('Arial', 10))
+        self.style.configure("Title.TLabel", font=("Arial", 14, "bold"))
+        self.style.configure("Header.TLabel", font=("Arial", 10, "bold"))
+        self.style.configure("Status.TLabel", font=("Arial", 9))
+        self.style.configure("VideoLoad.TButton", font=("Arial", 10, "bold"))
+        self.style.configure("Action.TButton", font=("Arial", 10))
 
         # Error style for analysis input validation (MobaXterm-friendly)
         try:
-            self.style.configure('Error.TEntry', fieldbackground='#ffe6e6', bordercolor='red')
+            self.style.configure("Error.TEntry", fieldbackground="#ffe6e6", bordercolor="red")
         except Exception:
             # Fallback if style configuration fails in MobaXterm
             pass
@@ -112,30 +112,17 @@ class VideoTrackerApp:
     def create_widgets(self):
         """Create all GUI widgets"""
         # Main title
-        self.title_label = ttk.Label(
-            self.root,
-            text="Multi-Model Video Object Tracker",
-            style='Title.TLabel'
-        )
+        self.title_label = ttk.Label(self.root, text="Multi-Model Video Object Tracker", style="Title.TLabel")
 
         # Step 1: Model selection frame
         self.model_frame = ttk.LabelFrame(self.root, text="Step 1: Model Configuration", padding=15)
 
-        self.model_label = ttk.Label(self.model_frame, text="Model:", style='Header.TLabel')
+        self.model_label = ttk.Label(self.model_frame, text="Model:", style="Header.TLabel")
         self.model_var = tk.StringVar()
-        self.model_combo = ttk.Combobox(
-            self.model_frame,
-            textvariable=self.model_var,
-            state='readonly',
-            width=25
-        )
-        self.model_combo.bind('<<ComboboxSelected>>', self.on_model_selected)
+        self.model_combo = ttk.Combobox(self.model_frame, textvariable=self.model_var, state="readonly", width=25)
+        self.model_combo.bind("<<ComboboxSelected>>", self.on_model_selected)
 
-        self.load_model_btn = ttk.Button(
-            self.model_frame,
-            text="Load Model",
-            command=self.load_selected_model
-        )
+        self.load_model_btn = ttk.Button(self.model_frame, text="Load Model", command=self.load_selected_model)
 
         # Model configuration options
         self.config_frame = ttk.LabelFrame(self.model_frame, text="Model Settings", padding=10)
@@ -144,11 +131,7 @@ class VideoTrackerApp:
         self.device_label = ttk.Label(self.config_frame, text="Device:")
         self.device_var = tk.StringVar(value="cuda")
         self.device_combo = ttk.Combobox(
-            self.config_frame,
-            textvariable=self.device_var,
-            values=["cuda", "cpu"],
-            state='readonly',
-            width=15
+            self.config_frame, textvariable=self.device_var, values=["cuda", "cpu"], state="readonly", width=15
         )
 
         # Model config selection
@@ -158,27 +141,21 @@ class VideoTrackerApp:
             self.config_frame,
             textvariable=self.model_config_var,
             values=["sam2_hiera_s", "sam2_hiera_b", "sam2_hiera_l"],
-            state='readonly',
-            width=15
+            state="readonly",
+            width=15,
         )
-        self.model_config_combo.bind('<<ComboboxSelected>>', self.on_model_size_changed)
+        self.model_config_combo.bind("<<ComboboxSelected>>", self.on_model_size_changed)
 
         # Debug mode toggle
         self.debug_label = ttk.Label(self.config_frame, text="Debug Mode:")
         self.debug_var = tk.BooleanVar(value=False)
-        self.debug_check = ttk.Checkbutton(
-            self.config_frame,
-            text="Enable Debug Output",
-            variable=self.debug_var
-        )
+        self.debug_check = ttk.Checkbutton(self.config_frame, text="Enable Debug Output", variable=self.debug_var)
 
         # Reverse tracking toggle
         self.reverse_label = ttk.Label(self.config_frame, text="Temporal Direction:")
         self.reverse_var = tk.BooleanVar(value=True)  # Default to reverse (biological use case)
         self.reverse_check = ttk.Checkbutton(
-            self.config_frame,
-            text="Enable Reverse Tracking (last→first frame)",
-            variable=self.reverse_var
+            self.config_frame, text="Enable Reverse Tracking (last→first frame)", variable=self.reverse_var
         )
 
         # Video quality selection
@@ -188,17 +165,13 @@ class VideoTrackerApp:
             self.config_frame,
             textvariable=self.quality_var,
             values=["original", "mid", "low"],
-            state='readonly',
-            width=15
+            state="readonly",
+            width=15,
         )
 
         # Checkpoint info (read-only display)
         self.checkpoint_label = ttk.Label(self.config_frame, text="Checkpoint:")
-        self.checkpoint_info = ttk.Label(
-            self.config_frame,
-            text="sam2.1_hiera_small.pt",
-            style='Status.TLabel'
-        )
+        self.checkpoint_info = ttk.Label(self.config_frame, text="sam2.1_hiera_small.pt", style="Status.TLabel")
 
         # Step 2: Video loading frame
         self.video_frame = ttk.LabelFrame(self.root, text="Step 2: Video Loading", padding=15)
@@ -207,16 +180,13 @@ class VideoTrackerApp:
             self.video_frame,
             text="📹 Load Video",
             command=self.load_video,
-            state='disabled',
+            state="disabled",
             width=18,
-            style='VideoLoad.TButton'
+            style="VideoLoad.TButton",
         )
 
         self.video_info_label = ttk.Label(
-            self.video_frame,
-            text="No video loaded",
-            style='Status.TLabel',
-            wraplength=250
+            self.video_frame, text="No video loaded", style="Status.TLabel", wraplength=250
         )
 
         # Step 3: Video display and interaction frame
@@ -231,7 +201,7 @@ class VideoTrackerApp:
 
         # Object management controls
         self.object_mgmt_frame = ttk.Frame(self.object_frame)
-        self.object_label = ttk.Label(self.object_mgmt_frame, text="Objects:", style='Header.TLabel')
+        self.object_label = ttk.Label(self.object_mgmt_frame, text="Objects:", style="Header.TLabel")
 
         # Object management settings
         self.max_objects = 20  # Maximum number of objects
@@ -241,27 +211,27 @@ class VideoTrackerApp:
 
         # Object colors - expanded palette for 20+ objects
         self.object_colors = {
-            0: '#808080',   # Gray - Background
-            1: '#FF0000',   # Red
-            2: '#00FF00',   # Green
-            3: '#0000FF',   # Blue
-            4: '#FFFF00',   # Yellow
-            5: '#FF00FF',   # Magenta
-            6: '#00FFFF',   # Cyan
-            7: '#FFA500',   # Orange
-            8: '#800080',   # Purple
-            9: '#FFC0CB',   # Pink
-            10: '#A52A2A',  # Brown
-            11: '#90EE90',  # Light Green
-            12: '#87CEEB',  # Sky Blue
-            13: '#DDA0DD',  # Plum
-            14: '#F0E68C',  # Khaki
-            15: '#FF6347',  # Tomato
-            16: '#40E0D0',  # Turquoise
-            17: '#EE82EE',  # Violet
-            18: '#FFB6C1',  # Light Pink
-            19: '#98FB98',  # Pale Green
-            20: '#F5DEB3',  # Wheat
+            0: "#808080",  # Gray - Background
+            1: "#FF0000",  # Red
+            2: "#00FF00",  # Green
+            3: "#0000FF",  # Blue
+            4: "#FFFF00",  # Yellow
+            5: "#FF00FF",  # Magenta
+            6: "#00FFFF",  # Cyan
+            7: "#FFA500",  # Orange
+            8: "#800080",  # Purple
+            9: "#FFC0CB",  # Pink
+            10: "#A52A2A",  # Brown
+            11: "#90EE90",  # Light Green
+            12: "#87CEEB",  # Sky Blue
+            13: "#DDA0DD",  # Plum
+            14: "#F0E68C",  # Khaki
+            15: "#FF6347",  # Tomato
+            16: "#40E0D0",  # Turquoise
+            17: "#EE82EE",  # Violet
+            18: "#FFB6C1",  # Light Pink
+            19: "#98FB98",  # Pale Green
+            20: "#F5DEB3",  # Wheat
         }
 
         # Object management - simplified (add/remove through canvas clicks and revert button)
@@ -273,9 +243,7 @@ class VideoTrackerApp:
 
         # Workflow status display
         self.workflow_status_label = ttk.Label(
-            self.workflow_frame,
-            text="Click on an organoid location",
-            font=('Arial', 10, 'bold')
+            self.workflow_frame, text="Click on an organoid location", font=("Arial", 10, "bold")
         )
 
         # Simplified workflow - no need for next/finish buttons
@@ -284,19 +252,12 @@ class VideoTrackerApp:
         # Active objects display (scrollable for many objects)
         self.active_objects_frame = ttk.Frame(self.object_frame)
         self.active_objects_label = ttk.Label(
-            self.active_objects_frame,
-            text="Active Objects: None",
-            style='Status.TLabel'
+            self.active_objects_frame, text="Active Objects: None", style="Status.TLabel"
         )
 
         # Object list (scrollable text widget for many objects)
         self.object_list_text = tk.Text(
-            self.active_objects_frame,
-            height=3,
-            width=50,
-            state='disabled',
-            wrap='word',
-            font=('Arial', 9)
+            self.active_objects_frame, height=3, width=50, state="disabled", wrap="word", font=("Arial", 9)
         )
 
         # Initialize object list
@@ -306,32 +267,26 @@ class VideoTrackerApp:
         self.controls_frame = ttk.LabelFrame(self.display_frame, text="Tracking Controls", padding=10)
 
         self.clear_prompts_btn = ttk.Button(
-            self.controls_frame,
-            text="Clear All Objects",
-            command=self.clear_prompts,
-            state='disabled'
+            self.controls_frame, text="Clear All Objects", command=self.clear_prompts, state="disabled"
         )
 
         self.revert_btn = ttk.Button(
-            self.controls_frame,
-            text="/Revert Last",
-            command=self.revert_last_action,
-            state='disabled'
+            self.controls_frame, text="/Revert Last", command=self.revert_last_action, state="disabled"
         )
 
         self.track_btn = ttk.Button(
             self.controls_frame,
             text="🚀 Start Multi-Object Tracking",
             command=self.start_tracking,
-            state='disabled',
-            width=25
+            state="disabled",
+            width=25,
         )
 
         # Prompt info
         self.prompt_info_label = ttk.Label(
             self.controls_frame,
             text="Left click anywhere on the video to add a new object\nNumbers will appear to identify each object",
-            style='Status.TLabel'
+            style="Status.TLabel",
         )
 
         # Step 4: Output frame (video generation)
@@ -339,10 +294,7 @@ class VideoTrackerApp:
 
         # Video generation button
         self.generate_btn = ttk.Button(
-            self.output_frame,
-            text="🎬 Generate Videos",
-            command=self.generate_videos,
-            state='disabled'
+            self.output_frame, text="🎬 Generate Videos", command=self.generate_videos, state="disabled"
         )
 
         # Step 5: Analysis frame (separate section)
@@ -354,140 +306,120 @@ class VideoTrackerApp:
         # Analysis parameter inputs (simplified - organoid count detected automatically)
         self.time_lapse_label = ttk.Label(self.analysis_params_frame, text="Time Lapse (days, first to last frame):")
         self.time_lapse_entry = ttk.Entry(
-            self.analysis_params_frame,
-            width=10,
-            textvariable=self.time_lapse_var,
-            font=('Arial', 10)
+            self.analysis_params_frame, width=10, textvariable=self.time_lapse_var, font=("Arial", 10)
         )
 
         self.conversion_factor_label = ttk.Label(self.analysis_params_frame, text="Conversion Factor (μm/pixel):")
         self.conversion_factor_entry = ttk.Entry(
-            self.analysis_params_frame,
-            width=15,
-            textvariable=self.conversion_factor_var,
-            font=('Arial', 10)
+            self.analysis_params_frame, width=15, textvariable=self.conversion_factor_var, font=("Arial", 10)
         )
 
         # Organoid count display (auto-detected)
         self.organoid_count_label = ttk.Label(self.analysis_params_frame, text="Detected Organoids:")
-        self.organoid_count_display = ttk.Label(self.analysis_params_frame, text="0", font=('Arial', 10, 'bold'))
+        self.organoid_count_display = ttk.Label(self.analysis_params_frame, text="0", font=("Arial", 10, "bold"))
 
         # Add validation for better user experience (especially with MobaXterm)
-        self.time_lapse_entry.bind('<KeyRelease>', self._validate_analysis_inputs)
-        self.conversion_factor_entry.bind('<KeyRelease>', self._validate_analysis_inputs)
+        self.time_lapse_entry.bind("<KeyRelease>", self._validate_analysis_inputs)
+        self.conversion_factor_entry.bind("<KeyRelease>", self._validate_analysis_inputs)
 
         # Add focus events for visual feedback
-        self.time_lapse_entry.bind('<FocusIn>', lambda e: self._on_analysis_entry_focus(e, 'time'))
-        self.conversion_factor_entry.bind('<FocusIn>', lambda e: self._on_analysis_entry_focus(e, 'conversion'))
+        self.time_lapse_entry.bind("<FocusIn>", lambda e: self._on_analysis_entry_focus(e, "time"))
+        self.conversion_factor_entry.bind("<FocusIn>", lambda e: self._on_analysis_entry_focus(e, "conversion"))
 
         # Analysis report button
         self.analysis_btn = ttk.Button(
             self.analysis_frame,
             text="📊 Generate Analysis Report",
             command=self.generate_analysis_report,
-            state='disabled'
+            state="disabled",
         )
 
         # Output and results information text area (shared between output and analysis)
         self.results_frame = ttk.LabelFrame(self.root, text="Results & Log", padding=10)
-        self.output_info_text = scrolledtext.ScrolledText(
-            self.results_frame,
-            height=8,
-            width=50,
-            state='disabled'
-        )
+        self.output_info_text = scrolledtext.ScrolledText(self.results_frame, height=8, width=50, state="disabled")
 
         # Status bar
         self.status_frame = ttk.Frame(self.root)
-        self.status_label = ttk.Label(
-            self.status_frame,
-            text="Ready",
-            style='Status.TLabel',
-            relief='sunken'
-        )
+        self.status_label = ttk.Label(self.status_frame, text="Ready", style="Status.TLabel", relief="sunken")
 
         # Progress bar (initially hidden)
         self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(
-            self.status_frame,
-            variable=self.progress_var,
-            mode='determinate'
-        )
+        self.progress_bar = ttk.Progressbar(self.status_frame, variable=self.progress_var, mode="determinate")
 
     def setup_layout(self):
         """Setup the scalable layout of all widgets with proper step organization"""
         # Main title
-        self.title_label.grid(row=0, column=0, columnspan=3, pady=10, sticky='ew')
+        self.title_label.grid(row=0, column=0, columnspan=3, pady=10, sticky="ew")
 
         # Left column - Steps 1 & 2
-        self.model_frame.grid(row=1, column=0, padx=5, pady=5, sticky='new')
-        self.video_frame.grid(row=2, column=0, padx=5, pady=5, sticky='ew')
+        self.model_frame.grid(row=1, column=0, padx=5, pady=5, sticky="new")
+        self.video_frame.grid(row=2, column=0, padx=5, pady=5, sticky="ew")
 
         # Middle column - Step 3 (main tracking area)
-        self.display_frame.grid(row=1, column=1, rowspan=2, padx=5, pady=5, sticky='nsew')
+        self.display_frame.grid(row=1, column=1, rowspan=2, padx=5, pady=5, sticky="nsew")
 
         # Right column - Steps 4 & 5
-        self.output_frame.grid(row=1, column=2, padx=5, pady=5, sticky='new')
-        self.analysis_frame.grid(row=2, column=2, padx=5, pady=5, sticky='new')
+        self.output_frame.grid(row=1, column=2, padx=5, pady=5, sticky="new")
+        self.analysis_frame.grid(row=2, column=2, padx=5, pady=5, sticky="new")
 
         # Bottom section - Results and status (spans all columns)
-        self.results_frame.grid(row=3, column=0, columnspan=3, padx=5, pady=5, sticky='ew')
-        self.status_frame.grid(row=4, column=0, columnspan=3, sticky='ew', padx=5, pady=2)
+        self.results_frame.grid(row=3, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
+        self.status_frame.grid(row=4, column=0, columnspan=3, sticky="ew", padx=5, pady=2)
 
         # Model frame layout
-        self.model_label.grid(row=0, column=0, sticky='w', pady=2)
-        self.model_combo.grid(row=0, column=1, padx=5, pady=2, sticky='ew')
+        self.model_label.grid(row=0, column=0, sticky="w", pady=2)
+        self.model_combo.grid(row=0, column=1, padx=5, pady=2, sticky="ew")
         self.load_model_btn.grid(row=0, column=2, padx=5, pady=2)
-        self.config_frame.grid(row=1, column=0, columnspan=3, pady=5, sticky='ew')
+        self.config_frame.grid(row=1, column=0, columnspan=3, pady=5, sticky="ew")
 
         # Configuration frame layout
-        self.device_label.grid(row=0, column=0, sticky='w', padx=2, pady=2)
+        self.device_label.grid(row=0, column=0, sticky="w", padx=2, pady=2)
         self.device_combo.grid(row=0, column=1, padx=5, pady=2)
 
-        self.model_config_label.grid(row=0, column=2, sticky='w', padx=10, pady=2)
+        self.model_config_label.grid(row=0, column=2, sticky="w", padx=10, pady=2)
         self.model_config_combo.grid(row=0, column=3, padx=5, pady=2)
 
         # Row 1: Debug and Quality controls
-        self.debug_label.grid(row=1, column=0, sticky='w', padx=2, pady=2)
-        self.debug_check.grid(row=1, column=1, padx=5, pady=2, sticky='w')
+        self.debug_label.grid(row=1, column=0, sticky="w", padx=2, pady=2)
+        self.debug_check.grid(row=1, column=1, padx=5, pady=2, sticky="w")
 
-        self.quality_label.grid(row=1, column=2, sticky='w', padx=10, pady=2)
+        self.quality_label.grid(row=1, column=2, sticky="w", padx=10, pady=2)
         self.quality_combo.grid(row=1, column=3, padx=5, pady=2)
 
         # Row 3: Reverse tracking controls
-        self.reverse_label.grid(row=3, column=0, sticky='w', padx=2, pady=2)
-        self.reverse_check.grid(row=3, column=1, columnspan=2, padx=5, pady=2, sticky='w')
+        self.reverse_label.grid(row=3, column=0, sticky="w", padx=2, pady=2)
+        self.reverse_check.grid(row=3, column=1, columnspan=2, padx=5, pady=2, sticky="w")
 
         # Row 4: Checkpoint info
-        self.checkpoint_label.grid(row=4, column=0, sticky='w', padx=2, pady=2)
-        self.checkpoint_info.grid(row=4, column=1, columnspan=3, padx=5, pady=2, sticky='ew')
+        self.checkpoint_label.grid(row=4, column=0, sticky="w", padx=2, pady=2)
+        self.checkpoint_info.grid(row=4, column=1, columnspan=3, padx=5, pady=2, sticky="ew")
 
         self.model_frame.columnconfigure(1, weight=1)
         self.config_frame.columnconfigure(3, weight=1)
 
         # Video frame layout
-        self.load_video_btn.grid(row=0, column=0, pady=5, sticky='ew')
-        self.video_info_label.grid(row=1, column=0, pady=10, sticky='new')
+        self.load_video_btn.grid(row=0, column=0, pady=5, sticky="ew")
+        self.video_info_label.grid(row=1, column=0, pady=10, sticky="new")
 
         # Make video frame expand properly
         self.video_frame.columnconfigure(0, weight=1)
 
         # Display frame layout
         self.video_canvas.grid(row=0, column=0, columnspan=2, pady=5)
-        self.object_frame.grid(row=1, column=0, columnspan=2, sticky='ew', pady=5)
-        self.controls_frame.grid(row=2, column=0, columnspan=2, sticky='ew', pady=10, padx=5)
+        self.object_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=5)
+        self.controls_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=10, padx=5)
 
         # Object management layout - simplified
-        self.object_mgmt_frame.grid(row=0, column=0, sticky='w', pady=2)
-        self.object_label.grid(row=0, column=0, sticky='w', padx=5)
+        self.object_mgmt_frame.grid(row=0, column=0, sticky="w", pady=2)
+        self.object_label.grid(row=0, column=0, sticky="w", padx=5)
 
         # Workflow layout - simplified
-        self.workflow_frame.grid(row=1, column=0, sticky='ew', pady=5, padx=5)
+        self.workflow_frame.grid(row=1, column=0, sticky="ew", pady=5, padx=5)
         self.workflow_status_label.grid(row=0, column=0, padx=5, pady=2)
 
-        self.active_objects_frame.grid(row=2, column=0, columnspan=2, sticky='ew', pady=5)
-        self.active_objects_label.grid(row=0, column=0, sticky='w')
-        self.object_list_text.grid(row=1, column=0, sticky='ew', pady=2)
+        self.active_objects_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=5)
+        self.active_objects_label.grid(row=0, column=0, sticky="w")
+        self.object_list_text.grid(row=1, column=0, sticky="ew", pady=2)
 
         # Configure frame weights for proper expansion
         self.object_frame.columnconfigure(0, weight=1)
@@ -503,42 +435,42 @@ class VideoTrackerApp:
         self.clear_prompts_btn.grid(row=0, column=0, padx=8, pady=5)
         self.revert_btn.grid(row=0, column=1, padx=8, pady=5)
         self.track_btn.grid(row=0, column=2, padx=8, pady=5)
-        self.prompt_info_label.grid(row=1, column=0, columnspan=3, padx=10, pady=5, sticky='w')
+        self.prompt_info_label.grid(row=1, column=0, columnspan=3, padx=10, pady=5, sticky="w")
 
         self.controls_frame.columnconfigure(0, weight=1)
         self.controls_frame.columnconfigure(1, weight=1)
         self.controls_frame.columnconfigure(2, weight=1)
 
         # Step 4: Output frame layout (simple video generation)
-        self.generate_btn.grid(row=0, column=0, padx=10, pady=10, sticky='ew')
+        self.generate_btn.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
         self.output_frame.columnconfigure(0, weight=1)
 
         # Step 5: Analysis frame layout
-        self.analysis_params_frame.grid(row=0, column=0, sticky='ew', padx=5, pady=5)
-        self.analysis_btn.grid(row=1, column=0, padx=10, pady=10, sticky='ew')
+        self.analysis_params_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        self.analysis_btn.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
 
         # Analysis parameters layout (simplified)
-        self.organoid_count_label.grid(row=0, column=0, sticky='w', padx=2, pady=2)
-        self.organoid_count_display.grid(row=0, column=1, padx=5, pady=2, sticky='w')
+        self.organoid_count_label.grid(row=0, column=0, sticky="w", padx=2, pady=2)
+        self.organoid_count_display.grid(row=0, column=1, padx=5, pady=2, sticky="w")
 
-        self.time_lapse_label.grid(row=1, column=0, sticky='w', padx=2, pady=2)
+        self.time_lapse_label.grid(row=1, column=0, sticky="w", padx=2, pady=2)
         self.time_lapse_entry.grid(row=1, column=1, padx=5, pady=2)
 
-        self.conversion_factor_label.grid(row=2, column=0, sticky='w', padx=2, pady=2)
-        self.conversion_factor_entry.grid(row=2, column=1, padx=5, pady=2, sticky='ew')
+        self.conversion_factor_label.grid(row=2, column=0, sticky="w", padx=2, pady=2)
+        self.conversion_factor_entry.grid(row=2, column=1, padx=5, pady=2, sticky="ew")
 
         # Configure analysis frame weights
         self.analysis_frame.columnconfigure(0, weight=1)
         self.analysis_params_frame.columnconfigure(1, weight=1)
 
         # Results frame layout
-        self.output_info_text.grid(row=0, column=0, padx=10, pady=10, sticky='ew')
+        self.output_info_text.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
         self.results_frame.columnconfigure(0, weight=1)
         self.results_frame.rowconfigure(0, weight=1)
 
         # Status frame layout
-        self.status_label.grid(row=0, column=0, sticky='ew', padx=2)
-        self.progress_bar.grid(row=0, column=1, sticky='ew', padx=2)
+        self.status_label.grid(row=0, column=0, sticky="ew", padx=2)
+        self.progress_bar.grid(row=0, column=1, sticky="ew", padx=2)
 
         self.status_frame.columnconfigure(0, weight=1)
 
@@ -554,14 +486,14 @@ class VideoTrackerApp:
         self.root.rowconfigure(4, weight=0)  # Status frame - fixed height
 
         # Bind window resize for auto-zoom canvas
-        self.root.bind('<Configure>', self.on_window_resize)
+        self.root.bind("<Configure>", self.on_window_resize)
 
     def setup_bindings(self):
         """Setup event bindings"""
-        self.model_combo.bind('<<ComboboxSelected>>', self.on_model_selected)
+        self.model_combo.bind("<<ComboboxSelected>>", self.on_model_selected)
 
         # Ensure window focuses on video loading button when model is loaded
-        self.root.bind('<Button-1>', self.ensure_focus)
+        self.root.bind("<Button-1>", self.ensure_focus)
 
         # Debug shortcut - Press Ctrl+D to check button states
         self.root.bind("<Control-d>", lambda e: self.debug_button_states())
@@ -588,7 +520,7 @@ class VideoTrackerApp:
             for model in available_models:
                 model_options.append(f"{model.display_name} ({model.name})")
 
-            self.model_combo['values'] = model_options
+            self.model_combo["values"] = model_options
 
             if model_options:
                 self.model_combo.current(0)  # Select first model
@@ -613,7 +545,7 @@ class VideoTrackerApp:
         selected = self.model_var.get()
         if selected:
             # Extract model name for status update
-            model_name = selected.split('(')[0].strip()
+            model_name = selected.split("(")[0].strip()
             self.set_status(f"Selected {model_name}. Configure settings and click 'Load Model'.")
 
     def load_selected_model(self):
@@ -624,7 +556,7 @@ class VideoTrackerApp:
             self.log_event("❌ No model selected")
             return
 
-        model_name = selected.split('(')[-1].rstrip(')')
+        model_name = selected.split("(")[-1].rstrip(")")
 
         # Get user configuration
         device = self.device_var.get()
@@ -636,10 +568,11 @@ class VideoTrackerApp:
 
         try:
             import time
+
             start_time = time.time()
 
             self.set_status("Loading model... Please wait.")
-            self.load_model_btn.config(state='disabled')
+            self.load_model_btn.config(state="disabled")
             self.log_event(f"🔄 Loading {selected} with {device.upper()} device...")
             enable_reverse = self.reverse_var.get()  # read Tk variables on the GUI thread
 
@@ -653,7 +586,7 @@ class VideoTrackerApp:
                         device=device,
                         model_config=model_config,
                         checkpoint_path=checkpoint_path,
-                        enable_reverse_tracking=enable_reverse
+                        enable_reverse_tracking=enable_reverse,
                     )
 
                     if model and model.load_model():
@@ -676,8 +609,8 @@ class VideoTrackerApp:
 
     def on_model_loaded_success(self, load_time):
         """Handle successful model loading"""
-        self.load_model_btn.config(state='normal')
-        self.load_video_btn.config(state='normal')
+        self.load_model_btn.config(state="normal")
+        self.load_video_btn.config(state="normal")
 
         # Check tracking settings and show feedback
         direction_status = "reverse" if self.reverse_var.get() else "forward"
@@ -690,11 +623,13 @@ class VideoTrackerApp:
         model_name = metadata.display_name if metadata else selected
 
         direction_icon = "⏪" if self.reverse_var.get() else "⏩"
-        self.log_event(f"✅ {model_name} loaded successfully in {load_time:.2f}s ({direction_icon} {direction_status} tracking)")
+        self.log_event(
+            f"✅ {model_name} loaded successfully in {load_time:.2f}s ({direction_icon} {direction_status} tracking)"
+        )
 
     def on_model_loaded_error(self, error_msg, load_time):
         """Handle model loading error"""
-        self.load_model_btn.config(state='normal')
+        self.load_model_btn.config(state="normal")
         self.set_status(f"Error loading model: {error_msg}")
         self.log_event(f"❌ Model loading failed after {load_time:.2f}s: {error_msg}")
         # Remove popup - just use status and log (already handled above)
@@ -704,10 +639,10 @@ class VideoTrackerApp:
         timestamp = time.strftime("%H:%M:%S", time.localtime())
         log_message = f"[{timestamp}] {message}\n"
 
-        self.output_info_text.config(state='normal')
+        self.output_info_text.config(state="normal")
         self.output_info_text.insert(tk.END, log_message)
         self.output_info_text.see(tk.END)  # Auto-scroll to bottom
-        self.output_info_text.config(state='disabled')
+        self.output_info_text.config(state="disabled")
 
     def load_video(self):
         """Load a video file"""
@@ -717,16 +652,10 @@ class VideoTrackerApp:
             return
 
         # File dialog for video selection
-        file_types = [
-            ("Video files", "*.mp4 *.avi *.mov *.mkv"),
-            ("MP4 files", "*.mp4"),
-            ("All files", "*.*")
-        ]
+        file_types = [("Video files", "*.mp4 *.avi *.mov *.mkv"), ("MP4 files", "*.mp4"), ("All files", "*.*")]
 
         file_path = filedialog.askopenfilename(
-            title="Select a video file",
-            filetypes=file_types,
-            initialdir="./data/input_videos"
+            title="Select a video file", filetypes=file_types, initialdir="./data/input_videos"
         )
 
         if not file_path:
@@ -734,10 +663,11 @@ class VideoTrackerApp:
 
         try:
             import time
+
             start_time = time.time()
 
             self.set_status("Loading video... Please wait.")
-            self.load_video_btn.config(state='disabled')
+            self.load_video_btn.config(state="disabled")
             self.log_event(f"🎬 Loading video: {Path(file_path).name}")
 
             # Load video in thread to prevent GUI freeze
@@ -758,11 +688,11 @@ class VideoTrackerApp:
 
     def on_video_loaded_success(self, file_path, video_info, load_time):
         """Handle successful video loading"""
-        self.load_video_btn.config(state='normal')
+        self.load_video_btn.config(state="normal")
         self.current_video_path = file_path
 
         # Clear all objects from previous video (if model is loaded)
-        if hasattr(self, 'current_model') and self.current_model:
+        if hasattr(self, "current_model") and self.current_model:
             self.clear_prompts()
             self.log_event("🧹 Cleared all objects from previous video")
         else:
@@ -770,9 +700,9 @@ class VideoTrackerApp:
 
         # Update video info display
         info_text = f"✅ Video loaded: {Path(file_path).name}\n"
-        num_frames = video_info.get('num_frames', 'Unknown')
-        decoded = video_info.get('decoded_frames', num_frames)
-        removed = video_info.get('duplicate_frames_removed', 0)
+        num_frames = video_info.get("num_frames", "Unknown")
+        decoded = video_info.get("decoded_frames", num_frames)
+        removed = video_info.get("duplicate_frames_removed", 0)
         if removed:
             info_text += f"Frames: {num_frames} unique time points ({decoded} decoded, {removed} duplicates removed)\n"
         else:
@@ -780,27 +710,27 @@ class VideoTrackerApp:
         info_text += f"FPS: {video_info.get('fps', 'Unknown'):.1f}\n"
 
         # Extract dimensions correctly (dimensions is a tuple: height, width)
-        dimensions = video_info.get('dimensions', (0, 0))
+        dimensions = video_info.get("dimensions", (0, 0))
         if isinstance(dimensions, tuple) and len(dimensions) >= 2:
             height, width = dimensions[:2]
             info_text += f"Size: {width}x{height}"
         else:
             # Fallback for individual width/height keys
-            width = video_info.get('width', '?')
-            height = video_info.get('height', '?')
+            width = video_info.get("width", "?")
+            height = video_info.get("height", "?")
             info_text += f"Size: {width}x{height}"
 
             self.video_info_label.config(text=info_text)
 
         # Display the annotation frame (the last chronological frame in reverse mode)
-        if hasattr(self.current_model, 'video_frames') and self.current_model.video_frames:
+        if hasattr(self.current_model, "video_frames") and self.current_model.video_frames:
             self.video_canvas.display_frame(self.current_model.get_first_frame())
-            if video_info.get('direction') == 'reverse':
+            if video_info.get("direction") == "reverse":
                 self.log_event("🖼️ Showing the last frame of the video for annotation (reverse tracking)")
 
-        # Enable object controls (simplified UI)
-            self.clear_prompts_btn.config(state='normal')
-            self.track_btn.config(state='normal')
+            # Enable object controls (simplified UI)
+            self.clear_prompts_btn.config(state="normal")
+            self.track_btn.config(state="normal")
 
         # Initialize workflow status
         self.update_workflow_status()
@@ -810,7 +740,7 @@ class VideoTrackerApp:
 
     def on_video_loaded_error(self, error_msg, load_time):
         """Handle video loading error"""
-        self.load_video_btn.config(state='normal')
+        self.load_video_btn.config(state="normal")
         self.set_status(f"Error loading video: {error_msg}")
         self.log_event(f"❌ Video loading failed after {load_time:.2f}s: {error_msg}")
         # Remove popup - already handled with status and log above
@@ -822,21 +752,21 @@ class VideoTrackerApp:
             try:
                 time_val = self.time_lapse_var.get()
                 if time_val <= 0:
-                    self.time_lapse_entry.config(style='Error.TEntry')
+                    self.time_lapse_entry.config(style="Error.TEntry")
                 else:
-                    self.time_lapse_entry.config(style='TEntry')
+                    self.time_lapse_entry.config(style="TEntry")
             except (tk.TclError, ValueError):
-                self.time_lapse_entry.config(style='Error.TEntry')
+                self.time_lapse_entry.config(style="Error.TEntry")
 
             # Validate conversion factor
             try:
                 conv_val = self.conversion_factor_var.get()
                 if conv_val <= 0:
-                    self.conversion_factor_entry.config(style='Error.TEntry')
+                    self.conversion_factor_entry.config(style="Error.TEntry")
                 else:
-                    self.conversion_factor_entry.config(style='TEntry')
+                    self.conversion_factor_entry.config(style="TEntry")
             except (tk.TclError, ValueError):
-                self.conversion_factor_entry.config(style='Error.TEntry')
+                self.conversion_factor_entry.config(style="Error.TEntry")
 
         except Exception:
             # Silently handle validation errors
@@ -846,12 +776,12 @@ class VideoTrackerApp:
         """Handle focus events for analysis entry fields with MobaXterm compatibility"""
         try:
             widget = event.widget
-            widget.select_range(0, 'end')  # Select all text for easy editing
+            widget.select_range(0, "end")  # Select all text for easy editing
 
             # Provide helpful status messages
-            if field_type == 'time':
+            if field_type == "time":
                 self.set_status("Enter time lapse period in days")
-            elif field_type == 'conversion':
+            elif field_type == "conversion":
                 self.set_status("Enter conversion factor (micrometers per pixel)")
 
         except Exception:
@@ -869,10 +799,7 @@ class VideoTrackerApp:
         try:
             # Create new organoid entry at click location
             organoid_id = self.next_organoid_id
-            self.organoid_data[organoid_id] = {
-                'point': (x, y),
-                'cysts': []
-            }
+            self.organoid_data[organoid_id] = {"point": (x, y), "cysts": []}
             self.current_organoid_id = organoid_id
             self.next_organoid_id += 1
 
@@ -886,15 +813,11 @@ class VideoTrackerApp:
             self.update_organoid_count_display()
 
             # Store action for revert functionality
-            action = {
-                'type': 'add_organoid',
-                'organoid_id': organoid_id,
-                'point': (x, y)
-            }
+            action = {"type": "add_organoid", "organoid_id": organoid_id, "point": (x, y)}
             self.action_history.append(action)
 
             # Enable controls
-            self.revert_btn.config(state='normal')
+            self.revert_btn.config(state="normal")
 
             self.set_status(f"Organoid {organoid_id} placed. Now drag bounding boxes around its cysts.")
             self.log_event(f"🔴 Added organoid {organoid_id} at ({x},{y})")
@@ -926,10 +849,9 @@ class VideoTrackerApp:
 
             if success:
                 # Store cyst information
-                self.organoid_data[self.current_organoid_id]['cysts'].append({
-                    'cyst_id': cyst_id,
-                    'bbox': (x1, y1, x2, y2)
-                })
+                self.organoid_data[self.current_organoid_id]["cysts"].append(
+                    {"cyst_id": cyst_id, "bbox": (x1, y1, x2, y2)}
+                )
                 self.next_cyst_id += 1
 
                 # Add to active objects for tracking
@@ -937,10 +859,10 @@ class VideoTrackerApp:
 
                 # Store action in history for revert functionality
                 action = {
-                    'type': 'add_cyst',
-                    'organoid_id': self.current_organoid_id,
-                    'cyst_id': cyst_id,
-                    'bbox': (x1, y1, x2, y2)
+                    "type": "add_cyst",
+                    "organoid_id": self.current_organoid_id,
+                    "cyst_id": cyst_id,
+                    "bbox": (x1, y1, x2, y2),
                 }
                 self.action_history.append(action)
 
@@ -952,13 +874,15 @@ class VideoTrackerApp:
                 self.update_organoid_count_display()
 
                 # Enable controls
-                self.clear_prompts_btn.config(state='normal')
-                self.revert_btn.config(state='normal')
-                self.track_btn.config(state='normal')
+                self.clear_prompts_btn.config(state="normal")
+                self.revert_btn.config(state="normal")
+                self.track_btn.config(state="normal")
 
-                cyst_count = len(self.organoid_data[self.current_organoid_id]['cysts'])
+                cyst_count = len(self.organoid_data[self.current_organoid_id]["cysts"])
                 self.set_status(f"Added cyst {cyst_count} to organoid {self.current_organoid_id}")
-                self.log_event(f"🔵 Added cyst {cyst_id} to organoid {self.current_organoid_id}: ({x1},{y1})-({x2},{y2})")
+                self.log_event(
+                    f"🔵 Added cyst {cyst_id} to organoid {self.current_organoid_id}: ({x1},{y1})-({x2},{y2})"
+                )
 
                 # Update workflow status to show current cyst count
                 self.update_workflow_status()
@@ -975,6 +899,7 @@ class VideoTrackerApp:
             self.log_event(f"❌ {error_msg}")
             print(f"❌ DEBUG: Error in on_canvas_bbox: {e}")
             import traceback
+
             traceback.print_exc()
 
     def _get_next_object_id(self):
@@ -986,16 +911,16 @@ class VideoTrackerApp:
         if self.current_organoid_id is None:
             self.workflow_status_label.config(text="Click to place an organoid")
         else:
-            cyst_count = len(self.organoid_data[self.current_organoid_id]['cysts'])
+            cyst_count = len(self.organoid_data[self.current_organoid_id]["cysts"])
             total_organoids = len(self.organoid_data)
-            self.workflow_status_label.config(text=f"Organoid {self.current_organoid_id} ({cyst_count} cysts) | Total: {total_organoids} organoids | Click for new organoid, drag for cysts")
+            self.workflow_status_label.config(
+                text=f"Organoid {self.current_organoid_id} ({cyst_count} cysts) | Total: {total_organoids} organoids | Click for new organoid, drag for cysts"
+            )
 
     def update_organoid_count_display(self):
         """Update the organoid count display"""
         total_organoids = len(self.organoid_data)
         self.organoid_count_display.config(text=str(total_organoids))
-
-
 
     def revert_last_action(self):
         """Revert the last action in the organoid-cyst workflow"""
@@ -1008,10 +933,10 @@ class VideoTrackerApp:
         last_action = self.action_history.pop()
 
         try:
-            if last_action['type'] == 'add_cyst':
+            if last_action["type"] == "add_cyst":
                 # Reverting cyst addition
-                organoid_id = last_action['organoid_id']
-                cyst_id = last_action['cyst_id']
+                organoid_id = last_action["organoid_id"]
+                cyst_id = last_action["cyst_id"]
 
                 # Clear cyst prompts from the model
                 if self.current_model:
@@ -1024,9 +949,8 @@ class VideoTrackerApp:
 
                 # Remove from organoid data
                 if organoid_id in self.organoid_data:
-                    self.organoid_data[organoid_id]['cysts'] = [
-                        c for c in self.organoid_data[organoid_id]['cysts']
-                        if c['cyst_id'] != cyst_id
+                    self.organoid_data[organoid_id]["cysts"] = [
+                        c for c in self.organoid_data[organoid_id]["cysts"] if c["cyst_id"] != cyst_id
                     ]
 
                 # Clear visual markers
@@ -1037,12 +961,12 @@ class VideoTrackerApp:
                     # Find the actual highest cyst ID still in use
                     max_cyst_id = 0
                     for org_data in self.organoid_data.values():
-                        for cyst in org_data['cysts']:
-                            max_cyst_id = max(max_cyst_id, cyst['cyst_id'])
+                        for cyst in org_data["cysts"]:
+                            max_cyst_id = max(max_cyst_id, cyst["cyst_id"])
                     self.next_cyst_id = max_cyst_id + 1
 
                 # Check if organoid has no cysts left - auto remove organoid
-                if organoid_id in self.organoid_data and len(self.organoid_data[organoid_id]['cysts']) == 0:
+                if organoid_id in self.organoid_data and len(self.organoid_data[organoid_id]["cysts"]) == 0:
                     # Remove empty organoid
                     self.video_canvas.clear_markers(f"organoid_{organoid_id}")
                     del self.organoid_data[organoid_id]
@@ -1053,8 +977,9 @@ class VideoTrackerApp:
 
                     # IMPORTANT: Remove the corresponding add_organoid action from history to prevent redundant removal
                     self.action_history = [
-                        action for action in self.action_history
-                        if not (action['type'] == 'add_organoid' and action['organoid_id'] == organoid_id)
+                        action
+                        for action in self.action_history
+                        if not (action["type"] == "add_organoid" and action["organoid_id"] == organoid_id)
                     ]
 
                     # Fix ID continuity for auto-removed organoid: if this was the highest organoid ID, adjust next_organoid_id
@@ -1071,14 +996,14 @@ class VideoTrackerApp:
                     self.set_status(f"Reverted cyst {cyst_id} from organoid {organoid_id}")
                     self.log_event(f"↩️ Reverted cyst {cyst_id} from organoid {organoid_id}")
 
-            elif last_action['type'] == 'add_organoid':
+            elif last_action["type"] == "add_organoid":
                 # Reverting organoid addition (would also remove all its cysts)
-                organoid_id = last_action['organoid_id']
+                organoid_id = last_action["organoid_id"]
 
                 # Remove all cysts for this organoid
                 if organoid_id in self.organoid_data:
-                    for cyst in self.organoid_data[organoid_id]['cysts']:
-                        cyst_id = cyst['cyst_id']
+                    for cyst in self.organoid_data[organoid_id]["cysts"]:
+                        cyst_id = cyst["cyst_id"]
                         if self.current_model:
                             self.current_model.clear_prompts(cyst_id)
                         self.active_object_ids.discard(cyst_id)
@@ -1112,21 +1037,17 @@ class VideoTrackerApp:
 
             # Disable revert button if no more actions
             if not self.action_history:
-                self.revert_btn.config(state='disabled')
+                self.revert_btn.config(state="disabled")
 
             # Update button states
             if not self.active_object_ids:
-                self.track_btn.config(state='disabled')
-                self.clear_prompts_btn.config(state='disabled')
+                self.track_btn.config(state="disabled")
+                self.clear_prompts_btn.config(state="disabled")
 
         except Exception as e:
             error_msg = f"Failed to revert: {str(e)}"
             self.set_status(error_msg)
             self.log_event(f"❌ {error_msg}")
-
-
-
-
 
     def debug_button_states(self):
         """Debug method to check button states - simplified for new interface"""
@@ -1157,9 +1078,9 @@ class VideoTrackerApp:
         """Update the display showing active objects - simplified for sequential numbering"""
         if not self.current_model:
             self.active_objects_label.config(text="Active Objects: None")
-            self.object_list_text.config(state='normal')
+            self.object_list_text.config(state="normal")
             self.object_list_text.delete(1.0, tk.END)
-            self.object_list_text.config(state='disabled')
+            self.object_list_text.config(state="disabled")
             return
 
         try:
@@ -1169,13 +1090,13 @@ class VideoTrackerApp:
 
             # Show organoid and cyst information
             for organoid_id, organoid in self.organoid_data.items():
-                cyst_count = len(organoid['cysts'])
+                cyst_count = len(organoid["cysts"])
                 object_info.append(f"🔴 Organoid {organoid_id}: {cyst_count} cysts")
 
                 # Show individual cysts for current organoid
-                if organoid_id == self.current_organoid_id and organoid['cysts']:
-                    for cyst in organoid['cysts']:
-                        cyst_id = cyst['cyst_id']
+                if organoid_id == self.current_organoid_id and organoid["cysts"]:
+                    for cyst in organoid["cysts"]:
+                        cyst_id = cyst["cyst_id"]
                         object_info.append(f"  🔵 Cyst {cyst_id}")
 
             # Update display
@@ -1184,17 +1105,17 @@ class VideoTrackerApp:
             else:
                 self.active_objects_label.config(text="Organoids: 0, Cysts: 0")
 
-            self.object_list_text.config(state='normal')
+            self.object_list_text.config(state="normal")
             self.object_list_text.delete(1.0, tk.END)
             self.object_list_text.insert(1.0, "\n".join(object_info) if object_info else "Ready to start workflow...")
-            self.object_list_text.config(state='disabled')
+            self.object_list_text.config(state="disabled")
 
         except Exception as e:
             print(f"❌ DEBUG: Error in update_active_objects_display: {e}")
             self.active_objects_label.config(text="Active Objects: None")
-            self.object_list_text.config(state='normal')
+            self.object_list_text.config(state="normal")
             self.object_list_text.delete(1.0, tk.END)
-            self.object_list_text.config(state='disabled')
+            self.object_list_text.config(state="disabled")
 
     def clear_prompts(self):
         """Clear all organoids and cysts - reset to initial state"""
@@ -1223,9 +1144,9 @@ class VideoTrackerApp:
             self.update_workflow_status()
 
             # Disable workflow buttons
-            self.track_btn.config(state='disabled')
-            self.revert_btn.config(state='disabled')
-            self.clear_prompts_btn.config(state='disabled')
+            self.track_btn.config(state="disabled")
+            self.revert_btn.config(state="disabled")
+            self.clear_prompts_btn.config(state="disabled")
 
             self.set_status("All organoids and cysts cleared - ready to start fresh")
             self.log_event("🧹 All organoids and cysts cleared, workflow reset")
@@ -1256,7 +1177,7 @@ class VideoTrackerApp:
         start_time = time.time()
 
         self.tracking_in_progress = True
-        self.track_btn.config(state='disabled')
+        self.track_btn.config(state="disabled")
         self.set_status("Running tracking... Please wait.")
 
         # Count total prompts
@@ -1297,6 +1218,7 @@ class VideoTrackerApp:
         try:
             import json
             import time
+
             model = self.current_model
 
             def tk_value(var):
@@ -1306,35 +1228,37 @@ class VideoTrackerApp:
                     return None
 
             record = {
-                'schema': 'organoidtracker.prompts/1',
-                'created': time.strftime('%Y-%m-%dT%H:%M:%S'),
-                'video': {
-                    'path': str(self.current_video_path),
-                    'sha256': getattr(model, 'video_sha256', None),
-                    'decoded_frames': getattr(model, 'decoded_frame_count', None),
-                    'unique_frames': len(model.video_frames) if model.video_frames else 0,
-                    'frame_map': list(getattr(model, 'frame_map', [])),
+                "schema": "organoidtracker.prompts/1",
+                "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "video": {
+                    "path": str(self.current_video_path),
+                    "sha256": getattr(model, "video_sha256", None),
+                    "decoded_frames": getattr(model, "decoded_frame_count", None),
+                    "unique_frames": len(model.video_frames) if model.video_frames else 0,
+                    "frame_map": list(getattr(model, "frame_map", [])),
                 },
-                'tracking': {
-                    'direction': 'reverse' if getattr(model, 'enable_reverse_tracking', True) else 'forward',
-                    'annotation_frame_index': getattr(model, 'annotation_frame_index', 0),
+                "tracking": {
+                    "direction": "reverse" if getattr(model, "enable_reverse_tracking", True) else "forward",
+                    "annotation_frame_index": getattr(model, "annotation_frame_index", 0),
                 },
-                'model': model.provenance() if hasattr(model, 'provenance') else {'name': getattr(model, 'model_name', '?')},
-                'organoids': [
+                "model": model.provenance()
+                if hasattr(model, "provenance")
+                else {"name": getattr(model, "model_name", "?")},
+                "organoids": [
                     {
-                        'organoid_id': organoid_id,
-                        'point': list(info['point']),
-                        'cysts': [{'cyst_id': c['cyst_id'], 'bbox': list(c['bbox'])} for c in info['cysts']],
+                        "organoid_id": organoid_id,
+                        "point": list(info["point"]),
+                        "cysts": [{"cyst_id": c["cyst_id"], "bbox": list(c["bbox"])} for c in info["cysts"]],
                     }
                     for organoid_id, info in self.organoid_data.items()
                 ],
-                'prompts': {str(obj_id): prompts for obj_id, prompts in model.prompts.items()},
-                'analysis_inputs': {
-                    'time_lapse_days': tk_value(self.time_lapse_var),
-                    'conversion_factor_um_per_pixel': tk_value(self.conversion_factor_var),
+                "prompts": {str(obj_id): prompts for obj_id, prompts in model.prompts.items()},
+                "analysis_inputs": {
+                    "time_lapse_days": tk_value(self.time_lapse_var),
+                    "conversion_factor_um_per_pixel": tk_value(self.conversion_factor_var),
                 },
             }
-            out_dir = Path('data/output_videos/prompts')
+            out_dir = Path("data/output_videos/prompts")
             out_dir.mkdir(parents=True, exist_ok=True)
             stem = Path(str(self.current_video_path)).stem
             path = out_dir / f"{stem}_{time.strftime('%Y%m%d-%H%M%S')}.json"
@@ -1351,11 +1275,11 @@ class VideoTrackerApp:
             self.tracking_dialog = None
 
         self.tracking_in_progress = False
-        self.track_btn.config(state='normal')
+        self.track_btn.config(state="normal")
 
         # Enable results buttons
-        self.generate_btn.config(state='normal')
-        self.analysis_btn.config(state='normal')
+        self.generate_btn.config(state="normal")
+        self.analysis_btn.config(state="normal")
         # self.view_results_btn.config(state='normal') # This line is removed
 
         # Update results info
@@ -1363,11 +1287,13 @@ class VideoTrackerApp:
             num_frames = len(self.video_segments)
             active_objects = list(self.current_model.get_active_objects())
 
-            status = getattr(self.video_segments, 'status', 'completed')
-            if status == 'partial':
-                error = getattr(self.video_segments, 'error', 'unknown error')
+            status = getattr(self.video_segments, "status", "completed")
+            if status == "partial":
+                error = getattr(self.video_segments, "error", "unknown error")
                 self.log_event(f"⚠️ Tracking stopped early after {tracking_time:.2f}s: {error}")
-                self.log_event(f"⚠️ Results cover {num_frames} of {getattr(self.video_segments, 'frames_total', '?')} frames; treat exports as partial")
+                self.log_event(
+                    f"⚠️ Results cover {num_frames} of {getattr(self.video_segments, 'frames_total', '?')} frames; treat exports as partial"
+                )
                 self.set_status("Tracking stopped early; results are partial. Check the log.")
             else:
                 self.log_event(f"✅ Tracking completed in {tracking_time:.2f}s")
@@ -1384,7 +1310,7 @@ class VideoTrackerApp:
             self.tracking_dialog = None
 
         self.tracking_in_progress = False
-        self.track_btn.config(state='normal')
+        self.track_btn.config(state="normal")
 
         self.set_status(f"Error during tracking: {error_msg}")
         self.log_event(f"❌ Tracking failed after {tracking_time:.2f}s: {error_msg}")
@@ -1398,23 +1324,20 @@ class VideoTrackerApp:
             return
 
         # Ask for output directory
-        output_dir = filedialog.askdirectory(
-            title="Select Output Directory",
-            initialdir="./data/output_videos"
-        )
+        output_dir = filedialog.askdirectory(title="Select Output Directory", initialdir="./data/output_videos")
 
         if not output_dir:
             return
 
         start_time = time.time()
 
-        self.generate_btn.config(state='disabled')
+        self.generate_btn.config(state="disabled")
         self.set_status("Generating videos... This may take a while.")
 
         # Count objects for logging
         active_objects = self.current_model.get_active_objects()
         num_frames = len(self.video_segments)
-        video_types = ['overlay', 'mask', 'side_by_side']
+        video_types = ["overlay", "mask", "side_by_side"]
 
         # DETAILED DEBUG OUTPUT
         self.log_event("🎬" + "=" * 60)
@@ -1429,7 +1352,7 @@ class VideoTrackerApp:
         self.log_event(f"   • Output Directory: {output_dir}")
 
         # Video frames analysis
-        if hasattr(self.current_model, 'video_frames') and self.current_model.video_frames:
+        if hasattr(self.current_model, "video_frames") and self.current_model.video_frames:
             frame_count = len(self.current_model.video_frames)
             first_frame_shape = self.current_model.video_frames[0].shape if frame_count > 0 else "N/A"
             self.log_event(f"   • Source Frames: {frame_count} frames")
@@ -1440,7 +1363,9 @@ class VideoTrackerApp:
         # Tracking data analysis
         if self.video_segments:
             frame_indices = list(self.video_segments.keys())
-            self.log_event(f"   • Tracking Frame Indices: {sorted(frame_indices)[:5]}{'...' if len(frame_indices) > 5 else ''}")
+            self.log_event(
+                f"   • Tracking Frame Indices: {sorted(frame_indices)[:5]}{'...' if len(frame_indices) > 5 else ''}"
+            )
 
             sample_frame = frame_indices[0] if frame_indices else None
             if sample_frame is not None and sample_frame in self.video_segments:
@@ -1451,11 +1376,11 @@ class VideoTrackerApp:
 
         # Organoid-cyst mapping
         total_organoids = len(self.organoid_data)
-        total_cysts = sum(len(org['cysts']) for org in self.organoid_data.values())
+        total_cysts = sum(len(org["cysts"]) for org in self.organoid_data.values())
         self.log_event(f"   • Organoid-Cyst Mapping: {total_organoids} organoids, {total_cysts} cysts")
 
         for org_id, org_data in list(self.organoid_data.items())[:3]:  # Show first 3
-            cyst_ids = [c['cyst_id'] for c in org_data['cysts']]
+            cyst_ids = [c["cyst_id"] for c in org_data["cysts"]]
             self.log_event(f"     ◦ Organoid {org_id}: cysts {cyst_ids}")
         if len(self.organoid_data) > 3:
             self.log_event(f"     ◦ ... and {len(self.organoid_data) - 3} more organoids")
@@ -1494,14 +1419,14 @@ class VideoTrackerApp:
                     alpha=0.4,  # Good visibility
                     progress_callback=optimized_progress_callback,
                     quality_scale=quality_scale,
-                    tracker=self.current_model  # Pass tracker for reverse state
+                    tracker=self.current_model,  # Pass tracker for reverse state
                 )
 
                 # ✅ FIX: Explicitly set progress to 100% when optimization completes
                 self.root.after(0, self.generation_dialog.update_progress, 100, "Video generation completed!")
 
                 # ✅ CRITICAL FIX: Always re-enable button, even if completion callback fails
-                self.root.after(0, lambda: self.generate_btn.config(state='normal'))
+                self.root.after(0, lambda: self.generate_btn.config(state="normal"))
 
                 # Log results
                 successful_videos = [v for v in created_videos.values() if v is not None]
@@ -1537,9 +1462,12 @@ class VideoTrackerApp:
 
                                 message = f"Creating {vid_type} video: {frame_message} ({objects_text})"
                                 self.root.after(0, self.generation_dialog.update_progress, overall_progress, message)
+
                             return report_video_progress
 
-                        video_progress_callback = make_progress_callback(base_progress, video_progress_range, video_type)
+                        video_progress_callback = make_progress_callback(
+                            base_progress, video_progress_range, video_type
+                        )
 
                         output_path = output_dir_path / f"multi_object_{video_type}.mp4"
                         try:
@@ -1559,22 +1487,30 @@ class VideoTrackerApp:
                                 alpha=0.4,  # Good visibility
                                 progress_callback=video_progress_callback,
                                 quality_scale=quality_scale,
-                                tracker=self.current_model  # Pass tracker for reverse state
+                                tracker=self.current_model,  # Pass tracker for reverse state
                             )
                             created_videos[video_type] = result_path
 
                             video_time = time.time() - video_start_time
                             # Log individual video completion in main thread
-                            self.root.after(0, lambda vt=video_type, t=video_time:
-                                           self.log_event(f"✅ {vt} video created in {t:.2f}s"))
+                            self.root.after(
+                                0,
+                                lambda vt=video_type, t=video_time: self.log_event(
+                                    f"✅ {vt} video created in {t:.2f}s"
+                                ),
+                            )
 
                         except Exception as e:
                             print(f"❌ Error creating {video_type} video: {str(e)}")
                             created_videos[video_type] = None
 
                             video_time = time.time() - video_start_time
-                            self.root.after(0, lambda vt=video_type, t=video_time, err=str(e):
-                                           self.log_event(f"❌ {vt} video failed after {t:.2f}s: {err}"))
+                            self.root.after(
+                                0,
+                                lambda vt=video_type, t=video_time, err=str(e): self.log_event(
+                                    f"❌ {vt} video failed after {t:.2f}s: {err}"
+                                ),
+                            )
 
                     total_time = time.time() - start_time
 
@@ -1582,7 +1518,7 @@ class VideoTrackerApp:
                     self.root.after(0, self.generation_dialog.update_progress, 100, "Video generation completed!")
 
                     # ✅ CRITICAL FIX: Always re-enable button, even if completion callback fails
-                    self.root.after(0, lambda: self.generate_btn.config(state='normal'))
+                    self.root.after(0, lambda: self.generate_btn.config(state="normal"))
 
                     # Add delay before callback to allow cleanup and reduce memory pressure
                     self.root.after(100, self.on_generation_complete_success, created_videos, output_dir, total_time)
@@ -1590,14 +1526,15 @@ class VideoTrackerApp:
             except Exception as e:
                 total_time = time.time() - start_time
                 # ✅ CRITICAL FIX: Always re-enable button, even on exceptions
-                self.root.after(0, lambda: self.generate_btn.config(state='normal'))
+                self.root.after(0, lambda: self.generate_btn.config(state="normal"))
                 self.root.after(0, self.on_generation_complete_error, str(e), total_time)
 
         # ✅ FIX: Ensure button is disabled during generation and dialog can be restarted
-        self.generate_btn.config(state='disabled')
+        self.generate_btn.config(state="disabled")
 
         # Show progress dialog
         from .progress_dialog import ProgressDialog
+
         self.generation_dialog = ProgressDialog(self.root, "Generating Multi-Object Videos")
 
         # Start generation in background
@@ -1607,11 +1544,12 @@ class VideoTrackerApp:
     def on_generation_complete_success(self, created_videos, output_dir, total_time):
         """Handle successful video generation"""
         # ✅ CRITICAL FIX: Always ensure button is enabled, regardless of any exceptions
-        self.generate_btn.config(state='normal')
+        self.generate_btn.config(state="normal")
 
         try:
             # Force garbage collection before GUI updates to prevent memory pressure
             import gc
+
             gc.collect()
 
             # Close progress dialog
@@ -1619,7 +1557,7 @@ class VideoTrackerApp:
                 self.generation_dialog.close()
                 self.generation_dialog = None
 
-            self.generate_btn.config(state='normal')
+            self.generate_btn.config(state="normal")
 
             # Count successful videos
             successful_videos = [v for v in created_videos.values() if v is not None]
@@ -1636,7 +1574,7 @@ class VideoTrackerApp:
             self.log_event("📋 Detailed Results:")
             for video_type, path in created_videos.items():
                 if path:
-                    file_size = Path(path).stat().st_size / (1024*1024) if Path(path).exists() else 0
+                    file_size = Path(path).stat().st_size / (1024 * 1024) if Path(path).exists() else 0
                     self.log_event(f"   ✅ {video_type}: {Path(path).name} ({file_size:.1f}MB)")
                 else:
                     self.log_event(f"   ❌ {video_type}: FAILED")
@@ -1649,7 +1587,9 @@ class VideoTrackerApp:
             num_frames = len(self.video_segments) if self.video_segments else 0
             if num_frames > 0 and total_time > 0:
                 frames_per_second = num_frames / total_time
-                self.log_event(f"⚡ Performance: {frames_per_second:.1f} frames/sec across {len(successful_videos)} video types")
+                self.log_event(
+                    f"⚡ Performance: {frames_per_second:.1f} frames/sec across {len(successful_videos)} video types"
+                )
 
             self.log_event("🎬" + "=" * 60)
 
@@ -1675,7 +1615,7 @@ class VideoTrackerApp:
         except Exception as e:
             # Handle any errors in completion callback
             # ✅ CRITICAL FIX: Always ensure button is enabled, even on exceptions
-            self.generate_btn.config(state='normal')
+            self.generate_btn.config(state="normal")
             self.log_event(f"❌ Error in video generation completion: {str(e)}")
             if self.generation_dialog:
                 self.generation_dialog.close()
@@ -1684,7 +1624,7 @@ class VideoTrackerApp:
     def on_generation_complete_error(self, error_msg, total_time):
         """Handle video generation error"""
         # ✅ CRITICAL FIX: Always ensure button is enabled first
-        self.generate_btn.config(state='normal')
+        self.generate_btn.config(state="normal")
 
         # Close progress dialog
         if self.generation_dialog:
@@ -1703,12 +1643,7 @@ class VideoTrackerApp:
         from .results_viewer import ResultsViewer
 
         try:
-            viewer = ResultsViewer(
-                self.root,
-                self.current_model.video_frames,
-                self.video_segments,
-                obj_id=1
-            )
+            viewer = ResultsViewer(self.root, self.current_model.video_frames, self.video_segments, obj_id=1)
             viewer.show()
 
         except Exception as e:
@@ -1767,7 +1702,7 @@ class VideoTrackerApp:
 
             # Count detected organoids and cysts
             total_organoids = len(self.organoid_data)
-            total_cysts = sum(len(org['cysts']) for org in self.organoid_data.values())
+            total_cysts = sum(len(org["cysts"]) for org in self.organoid_data.values())
 
             # DETAILED DEBUG OUTPUT - ANALYSIS START
             self.log_event("🧬" + "=" * 60)
@@ -1791,8 +1726,10 @@ class VideoTrackerApp:
             # Model verification
             if self.current_model:
                 self.log_event(f"   • Current Model: {type(self.current_model).__name__}")
-                if hasattr(self.current_model, 'original_frames'):
-                    self.log_event(f"   • Original Frames Available: {len(self.current_model.original_frames) if self.current_model.original_frames else 0}")
+                if hasattr(self.current_model, "original_frames"):
+                    self.log_event(
+                        f"   • Original Frames Available: {len(self.current_model.original_frames) if self.current_model.original_frames else 0}"
+                    )
                 else:
                     self.log_event("   • Original Frames Available: No")
             else:
@@ -1807,8 +1744,7 @@ class VideoTrackerApp:
 
         # Ask for output directory
         output_dir = filedialog.askdirectory(
-            title="Select Output Directory for Organoid Analysis Report",
-            initialdir="./data/output_videos"
+            title="Select Output Directory for Organoid Analysis Report", initialdir="./data/output_videos"
         )
 
         if not output_dir:
@@ -1816,7 +1752,7 @@ class VideoTrackerApp:
 
         start_time = time.time()
 
-        self.analysis_btn.config(state='disabled')
+        self.analysis_btn.config(state="disabled")
         self.set_status("Generating organoid-cyst analysis report... This may take a moment.")
 
         # Log analysis start
@@ -1831,7 +1767,7 @@ class VideoTrackerApp:
 
                 # Get original frames from current model if available
                 original_frames = None
-                if hasattr(self.current_model, 'original_frames') and self.current_model.original_frames:
+                if hasattr(self.current_model, "original_frames") and self.current_model.original_frames:
                     original_frames = self.current_model.original_frames
                     self.log_event(f"   📸 Using {len(original_frames)} original frames for PDF comparison")
                 else:
@@ -1845,7 +1781,7 @@ class VideoTrackerApp:
                     conversion_factor=conversion_factor,
                     output_dir=output_dir,
                     debug_mode=self.debug_var.get(),
-                    original_frames=original_frames
+                    original_frames=original_frames,
                 )
 
                 analysis_time = time.time() - start_time
@@ -1859,17 +1795,16 @@ class VideoTrackerApp:
 
         # Run analysis in background thread
         import threading
+
         analysis_thread = threading.Thread(target=analysis_thread, daemon=True)
         analysis_thread.start()
 
     def on_organoid_analysis_complete_success(self, analysis_summary, analysis_time):
         """Handle successful organoid analysis completion"""
-        self.analysis_btn.config(state='normal')
+        self.analysis_btn.config(state="normal")
 
-        if not analysis_summary.get('success', False):
-            self.on_organoid_analysis_complete_error(
-                analysis_summary.get('error', 'Unknown error'), analysis_time
-            )
+        if not analysis_summary.get("success", False):
+            self.on_organoid_analysis_complete_error(analysis_summary.get("error", "Unknown error"), analysis_time)
             return
 
         # DETAILED DEBUG OUTPUT - ANALYSIS COMPLETION
@@ -1883,7 +1818,7 @@ class VideoTrackerApp:
         self.log_event("🧬" + "=" * 60)
 
         # Display experiment information
-        exp_info = analysis_summary.get('experiment_info', {})
+        exp_info = analysis_summary.get("experiment_info", {})
         self.log_event("🔬 Experiment Summary:")
         self.log_event(f"   • Total Organoids: {exp_info.get('total_organoids', 0)}")
         self.log_event(f"   • Total Cysts: {exp_info.get('total_cysts', 0)}")
@@ -1892,55 +1827,55 @@ class VideoTrackerApp:
         self.log_event(f"   • Conversion Factor: {exp_info.get('conversion_factor_um_per_pixel', 0)} μm/pixel")
 
         # Display quality metrics
-        quality = analysis_summary.get('quality_metrics', {})
+        quality = analysis_summary.get("quality_metrics", {})
         self.log_event("📊 Data Quality:")
         self.log_event(f"   • Tracking Coverage: {quality.get('tracking_coverage_percent', 0):.1f}%")
         self.log_event(f"   • Mean Trajectory Length: {quality.get('mean_trajectory_length_frames', 0):.1f} frames")
         self.log_event(f"   • Organoids with Cysts: {quality.get('organoids_with_cysts', 0)}")
 
         # Display growth statistics
-        growth = analysis_summary.get('growth_statistics', {})
-        if growth.get('mean_growth_rate_um2_per_day', 0) > 0:
+        growth = analysis_summary.get("growth_statistics", {})
+        if growth.get("mean_growth_rate_um2_per_day", 0) > 0:
             self.log_event("📈 Growth Statistics:")
             self.log_event(f"   • Mean Growth Rate: {growth.get('mean_growth_rate_um2_per_day', 0):.4f} μm²/day")
             self.log_event(f"   • Max Growth Rate: {growth.get('max_growth_rate_um2_per_day', 0):.4f} μm²/day")
             self.log_event(f"   • Min Growth Rate: {growth.get('min_growth_rate_um2_per_day', 0):.4f} μm²/day")
 
         # Display output files
-        output_files = analysis_summary.get('output_files', {})
+        output_files = analysis_summary.get("output_files", {})
         self.log_event("📄 Generated Files:")
 
         # CSV files
-        csv_files = output_files.get('csv_files', {})
+        csv_files = output_files.get("csv_files", {})
         if csv_files:
             self.log_event("   📊 CSV Data Files:")
-            if csv_files.get('raw_data'):
+            if csv_files.get("raw_data"):
                 self.log_event(f"      • Raw Data: {Path(csv_files['raw_data']).name}")
-            if csv_files.get('cyst_summary'):
+            if csv_files.get("cyst_summary"):
                 self.log_event(f"      • Cyst Summary: {Path(csv_files['cyst_summary']).name}")
-            if csv_files.get('organoid_summary'):
+            if csv_files.get("organoid_summary"):
                 self.log_event(f"      • Organoid Summary: {Path(csv_files['organoid_summary']).name}")
 
         # Visualizations
-        visualizations = output_files.get('visualizations', {})
+        visualizations = output_files.get("visualizations", {})
         if visualizations:
             viz_count = len([v for v in visualizations.values() if v])
             self.log_event(f"   🎨 Visualizations: {viz_count} advanced plots generated")
             viz_names = {
-                'organoids_with_cysts': 'Organoids with Cysts vs Time',
-                'cyst_organoid_ratio': 'Cyst/Organoid Ratio vs Time',
-                'cyst_areas_multiline': 'Individual Cyst Area Trajectories',
-                'cyst_circularity_multiline': 'Individual Cyst Circularity Trajectories',
-                'circularity_scatter': 'Circularity Scatter (sized by area)',
-                'lasagna_plot': 'Organoid Growth Heatmap (Lasagna Plot)'
+                "organoids_with_cysts": "Organoids with Cysts vs Time",
+                "cyst_organoid_ratio": "Cyst/Organoid Ratio vs Time",
+                "cyst_areas_multiline": "Individual Cyst Area Trajectories",
+                "cyst_circularity_multiline": "Individual Cyst Circularity Trajectories",
+                "circularity_scatter": "Circularity Scatter (sized by area)",
+                "lasagna_plot": "Organoid Growth Heatmap (Lasagna Plot)",
             }
             for viz_key, viz_path in visualizations.items():
                 if viz_path and Path(viz_path).exists():
-                    viz_name = viz_names.get(viz_key, viz_key.replace('_', ' ').title())
+                    viz_name = viz_names.get(viz_key, viz_key.replace("_", " ").title())
                     self.log_event(f"      • {viz_name}")
 
         # PDF report
-        pdf_path = output_files.get('pdf_report')
+        pdf_path = output_files.get("pdf_report")
         if pdf_path and Path(pdf_path).exists():
             self.log_event(f"   📋 Enhanced PDF Report: {Path(pdf_path).name}")
 
@@ -1948,8 +1883,8 @@ class VideoTrackerApp:
         self.log_event(f"⏱️ Analysis completed in {analysis_time:.2f} seconds")
 
         # Validation warnings
-        validation = analysis_summary.get('validation_results', {})
-        warnings = validation.get('warnings', [])
+        validation = analysis_summary.get("validation_results", {})
+        warnings = validation.get("warnings", [])
         if warnings:
             self.log_event("⚠️ Quality Warnings:")
             for warning in warnings:
@@ -1959,7 +1894,7 @@ class VideoTrackerApp:
         self.log_event("✅ Comprehensive organoid analysis report generated successfully!")
 
         # Show completion status
-        output_dir = Path(csv_files.get('raw_data', '')).parent if csv_files.get('raw_data') else None
+        output_dir = Path(csv_files.get("raw_data", "")).parent if csv_files.get("raw_data") else None
         if output_dir:
             self.log_event(f"📁 All files saved to: {output_dir}")
             self.set_status(f"Analysis complete! Files saved to: {output_dir}")
@@ -1976,9 +1911,8 @@ class VideoTrackerApp:
                     elif platform.system() == "Darwin":  # macOS
                         subprocess.run(["open", str(output_dir)], check=False)
                     else:  # Linux - suppress GTK warnings and run in background
-                        with open(os.devnull, 'w') as devnull:
-                            subprocess.Popen(["xdg-open", str(output_dir)],
-                                           stderr=devnull, stdout=devnull)
+                        with open(os.devnull, "w") as devnull:
+                            subprocess.Popen(["xdg-open", str(output_dir)], stderr=devnull, stdout=devnull)
 
                     self.log_event("📂 Output directory opened automatically")
                 except Exception:
@@ -1988,7 +1922,7 @@ class VideoTrackerApp:
 
     def on_organoid_analysis_complete_error(self, error_msg, analysis_time):
         """Handle organoid analysis error"""
-        self.analysis_btn.config(state='normal')
+        self.analysis_btn.config(state="normal")
         self.set_status(f"Analysis failed: {error_msg}")
 
         self.log_event("=" * 60)
@@ -2007,7 +1941,7 @@ class VideoTrackerApp:
 
     def on_analysis_complete_success(self, report_paths, analysis_time, results):
         """Handle successful analysis completion and display metrics in results area"""
-        self.analysis_btn.config(state='normal')
+        self.analysis_btn.config(state="normal")
 
         # Display analysis results summary in the results area
         self.log_event("=" * 50)
@@ -2015,44 +1949,44 @@ class VideoTrackerApp:
         self.log_event("=" * 50)
 
         # Display parameters used
-        params = results['parameters']
+        params = results["parameters"]
         self.log_event("📋 Analysis Parameters:")
         self.log_event(f"   • Total Organoids: {params['total_organoids']}")
         self.log_event(f"   • Time Lapse: {params['time_lapse_days']} days")
         self.log_event(f"   • Conversion Factor: {params['conversion_factor_um_per_pixel']} μm/pixel")
 
         # Display cyst tracking summary
-        summary = results['cyst_data_summary']
+        summary = results["cyst_data_summary"]
         self.log_event("🎯 Tracking Summary:")
         self.log_event(f"   • Cysts Tracked: {summary['num_cysts_tracked']}")
         self.log_event(f"   • Object IDs: {summary['cyst_ids']}")
 
         # Display key metrics
         self.log_event("📈 Key Metrics:")
-        for metric_name, metric_data in results['metrics'].items():
-            if 'error' in metric_data:
+        for metric_name, metric_data in results["metrics"].items():
+            if "error" in metric_data:
                 self.log_event(f"   ❌ {metric_name}: Error - {metric_data['error']}")
                 continue
 
-            metric_data['info']
-            metric_results = metric_data['results']
+            metric_data["info"]
+            metric_results = metric_data["results"]
 
             if metric_name == "Cyst Formation Efficiency":
-                value = metric_results.get('value', 0)
-                organoids_with_cysts = metric_results.get('organoids_with_cysts', 0)
-                total_organoids = metric_results.get('total_organoids', 0)
+                value = metric_results.get("value", 0)
+                organoids_with_cysts = metric_results.get("organoids_with_cysts", 0)
+                total_organoids = metric_results.get("total_organoids", 0)
                 self.log_event(f"   • {metric_name}: {value:.1f}% ({organoids_with_cysts}/{total_organoids} organoids)")
 
             elif metric_name == "De Novo Cyst Formation Rate":
-                value = metric_results.get('value', 0)
+                value = metric_results.get("value", 0)
                 self.log_event(f"   • {metric_name}: {value:.2f} cysts/day")
 
             elif metric_name == "Radial Expansion Velocity":
-                mean_val = metric_results.get('mean_value', 0)
-                std_val = metric_results.get('std_value', 0)
-                max_val = metric_results.get('max_value', 0)
-                min_val = metric_results.get('min_value', 0)
-                num_cysts = metric_results.get('num_cysts', 0)
+                mean_val = metric_results.get("mean_value", 0)
+                std_val = metric_results.get("std_value", 0)
+                max_val = metric_results.get("max_value", 0)
+                min_val = metric_results.get("min_value", 0)
+                num_cysts = metric_results.get("num_cysts", 0)
                 self.log_event(f"   • {metric_name}:")
                 self.log_event(f"     - Mean: {mean_val:.2f} ± {std_val:.2f} μm/day")
                 self.log_event(f"     - Range: {min_val:.2f} to {max_val:.2f} μm/day")
@@ -2063,19 +1997,19 @@ class VideoTrackerApp:
         # Log file generation results
         self.log_event(f"✅ Analysis completed in {analysis_time:.2f}s")
 
-        if 'csv' in report_paths:
+        if "csv" in report_paths:
             self.log_event(f"📄 CSV report: {Path(report_paths['csv']).name}")
 
-        if 'pdf' in report_paths:
+        if "pdf" in report_paths:
             self.log_event(f"📋 PDF report: {Path(report_paths['pdf']).name}")
 
-        if 'json' in report_paths:
+        if "json" in report_paths:
             self.log_event(f"💾 Analysis data: {Path(report_paths['json']).name}")
 
         # Log advanced visualizations
         viz_count = 0
         for key in report_paths:
-            if key.startswith('viz_'):
+            if key.startswith("viz_"):
                 viz_count += 1
 
         if viz_count > 0:
@@ -2085,41 +2019,41 @@ class VideoTrackerApp:
             self.log_event("   📏 Radial expansion heterogeneity (lasagna plots, velocity analysis)")
             self.log_event("   🔬 Morphological & spatial analysis (morphospace, density maps)")
 
-        if 'enhanced_pdf' in report_paths:
+        if "enhanced_pdf" in report_paths:
             self.log_event(f"📋 Enhanced PDF (with visualizations): {Path(report_paths['enhanced_pdf']).name}")
 
-        if 'visualization_summary' in report_paths:
+        if "visualization_summary" in report_paths:
             self.log_event(f"📝 Visualization summary: {Path(report_paths['visualization_summary']).name}")
 
         # Log any errors
-        if 'csv_error' in report_paths:
+        if "csv_error" in report_paths:
             self.log_event(f"❌ CSV generation failed: {report_paths['csv_error']}")
 
-        if 'pdf_error' in report_paths:
+        if "pdf_error" in report_paths:
             self.log_event(f"❌ PDF generation failed: {report_paths['pdf_error']}")
 
-        if 'visualization_error' in report_paths:
+        if "visualization_error" in report_paths:
             self.log_event(f"⚠️ Visualization warning: {report_paths['visualization_error']}")
 
-        if 'enhanced_pdf_error' in report_paths:
+        if "enhanced_pdf_error" in report_paths:
             self.log_event(f"⚠️ Enhanced PDF warning: {report_paths['enhanced_pdf_error']}")
 
         self.set_status("Comprehensive analysis report generated successfully!")
 
         # Add completion info
-        if 'csv' in report_paths:
+        if "csv" in report_paths:
             self.log_event(f"📊 Files saved to: {Path(report_paths['csv']).parent}")
         self.log_event("💡 Tip: Check the output directory for comprehensive analysis reports and visualizations")
 
         # Optional: Open directory automatically (configurable and GTK-safe)
         if self.auto_open_directory:
             try:
-                if 'csv' in report_paths:
+                if "csv" in report_paths:
                     import os
                     import platform
                     import subprocess
 
-                    output_dir = Path(report_paths['csv']).parent
+                    output_dir = Path(report_paths["csv"]).parent
 
                     if platform.system() == "Windows":
                         subprocess.run(["explorer", str(output_dir)], check=False)
@@ -2127,23 +2061,22 @@ class VideoTrackerApp:
                         subprocess.run(["open", str(output_dir)], check=False)
                     else:  # Linux - suppress GTK warnings and run in background
                         # Suppress GTK warnings by redirecting stderr and run detached
-                        with open(os.devnull, 'w') as devnull:
-                            subprocess.Popen(["xdg-open", str(output_dir)],
-                                           stderr=devnull, stdout=devnull)
+                        with open(os.devnull, "w") as devnull:
+                            subprocess.Popen(["xdg-open", str(output_dir)], stderr=devnull, stdout=devnull)
 
                     self.log_event("📂 Output directory opened automatically")
             except Exception:
                 # Silently handle directory opening failures - just show path
-                if 'csv' in report_paths:
+                if "csv" in report_paths:
                     self.log_event(f"ℹ️ Directory: {Path(report_paths['csv']).parent}")
         else:
             # Just show the directory path when auto-open is disabled
-            if 'csv' in report_paths:
+            if "csv" in report_paths:
                 self.log_event(f"ℹ️ Directory: {Path(report_paths['csv']).parent}")
 
     def on_analysis_complete_error(self, error_msg, analysis_time):
         """Handle analysis error"""
-        self.analysis_btn.config(state='normal')
+        self.analysis_btn.config(state="normal")
         self.set_status(f"Error during analysis: {error_msg}")
         self.log_event(f"❌ Analysis failed after {analysis_time:.2f}s: {error_msg}")
 

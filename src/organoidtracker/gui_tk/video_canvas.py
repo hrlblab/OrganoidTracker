@@ -25,7 +25,7 @@ class VideoCanvas:
     def __init__(self, parent, width=600, height=400, **kwargs):
         """Initialize the video canvas"""
         self.parent = parent
-        self.canvas = Canvas(parent, width=width, height=height, bg='black', **kwargs)
+        self.canvas = Canvas(parent, width=width, height=height, bg="black", **kwargs)
 
         # Video display properties
         self.current_image_tk = None
@@ -48,27 +48,27 @@ class VideoCanvas:
 
         # Object colors - expanded palette for 20+ objects
         self.object_colors = {
-            0: '#808080',   # Gray - Background
-            1: '#FF0000',   # Red
-            2: '#00FF00',   # Green
-            3: '#0000FF',   # Blue
-            4: '#FFFF00',   # Yellow
-            5: '#FF00FF',   # Magenta
-            6: '#00FFFF',   # Cyan
-            7: '#FFA500',   # Orange
-            8: '#800080',   # Purple
-            9: '#FFC0CB',   # Pink
-            10: '#A52A2A',  # Brown
-            11: '#90EE90',  # Light Green
-            12: '#87CEEB',  # Sky Blue
-            13: '#DDA0DD',  # Plum
-            14: '#F0E68C',  # Khaki
-            15: '#FF6347',  # Tomato
-            16: '#40E0D0',  # Turquoise
-            17: '#EE82EE',  # Violet
-            18: '#FFB6C1',  # Light Pink
-            19: '#98FB98',  # Pale Green
-            20: '#F5DEB3',  # Wheat
+            0: "#808080",  # Gray - Background
+            1: "#FF0000",  # Red
+            2: "#00FF00",  # Green
+            3: "#0000FF",  # Blue
+            4: "#FFFF00",  # Yellow
+            5: "#FF00FF",  # Magenta
+            6: "#00FFFF",  # Cyan
+            7: "#FFA500",  # Orange
+            8: "#800080",  # Purple
+            9: "#FFC0CB",  # Pink
+            10: "#A52A2A",  # Brown
+            11: "#90EE90",  # Light Green
+            12: "#87CEEB",  # Sky Blue
+            13: "#DDA0DD",  # Plum
+            14: "#F0E68C",  # Khaki
+            15: "#FF6347",  # Tomato
+            16: "#40E0D0",  # Turquoise
+            17: "#EE82EE",  # Violet
+            18: "#FFB6C1",  # Light Pink
+            19: "#98FB98",  # Pale Green
+            20: "#F5DEB3",  # Wheat
         }
 
         # Callback functions for different interactions
@@ -102,18 +102,13 @@ class VideoCanvas:
 
         # Fallback to configured dimensions if not yet rendered
         if canvas_width <= 1 or canvas_height <= 1:
-            canvas_width = int(self.canvas['width'])
-            canvas_height = int(self.canvas['height'])
+            canvas_width = int(self.canvas["width"])
+            canvas_height = int(self.canvas["height"])
 
         text = "Load a video to see the first frame here\nClick for organoids, drag for cyst bounding boxes\nNumbers will show object identities"
 
         self.canvas.create_text(
-            canvas_width // 2,
-            canvas_height // 2,
-            text=text,
-            fill='white',
-            font=('Arial', 12),
-            justify='center'
+            canvas_width // 2, canvas_height // 2, text=text, fill="white", font=("Arial", 12), justify="center"
         )
 
     def display_frame(self, frame: np.ndarray):
@@ -138,8 +133,8 @@ class VideoCanvas:
 
             # If canvas not yet rendered, use configured dimensions
             if canvas_width <= 1 or canvas_height <= 1:
-                canvas_width = int(self.canvas['width'])
-                canvas_height = int(self.canvas['height'])
+                canvas_width = int(self.canvas["width"])
+                canvas_height = int(self.canvas["height"])
 
             # Calculate scaling to fit canvas while maintaining aspect ratio
             img_width, img_height = pil_image.size
@@ -161,12 +156,7 @@ class VideoCanvas:
             self.current_image_tk = ImageTk.PhotoImage(resized_image)
 
             self.canvas.delete("all")
-            self.canvas.create_image(
-                self.offset_x,
-                self.offset_y,
-                anchor='nw',
-                image=self.current_image_tk
-            )
+            self.canvas.create_image(self.offset_x, self.offset_y, anchor="nw", image=self.current_image_tk)
 
             # Redraw click markers
             self.redraw_markers()
@@ -185,16 +175,16 @@ class VideoCanvas:
 
         # Fallback to configured dimensions if not yet rendered
         if canvas_width <= 1 or canvas_height <= 1:
-            canvas_width = int(self.canvas['width'])
-            canvas_height = int(self.canvas['height'])
+            canvas_width = int(self.canvas["width"])
+            canvas_height = int(self.canvas["height"])
 
         self.canvas.create_text(
             canvas_width // 2,
             canvas_height // 2,
             text=f"Error: {message}",
-            fill='red',
-            font=('Arial', 10),
-            justify='center'
+            fill="red",
+            font=("Arial", 10),
+            justify="center",
         )
 
     def canvas_to_image_coords(self, canvas_x: int, canvas_y: int) -> tuple[int, int] | None:
@@ -298,9 +288,13 @@ class VideoCanvas:
 
         # Create preview rectangle
         self.preview_bbox_id = self.canvas.create_rectangle(
-            self.drag_start_x, self.drag_start_y,
-            self.drag_current_x, self.drag_current_y,
-            outline='white', width=2, dash=(5, 5)  # Dashed white outline for preview
+            self.drag_start_x,
+            self.drag_start_y,
+            self.drag_current_x,
+            self.drag_current_y,
+            outline="white",
+            width=2,
+            dash=(5, 5),  # Dashed white outline for preview
         )
 
     def on_mouse_release(self, event):
@@ -381,12 +375,18 @@ class VideoCanvas:
         canvas_x2, canvas_y2 = self.image_to_canvas_coords(img_x2, img_y2)
 
         # Get color for this object
-        color = self.object_colors.get(obj_id, '#FF0000')
+        color = self.object_colors.get(obj_id, "#FF0000")
 
         # Create bounding box rectangle
         bbox_id = self.canvas.create_rectangle(
-            canvas_x1, canvas_y1, canvas_x2, canvas_y2,
-            outline=color, width=2, fill='', stipple='gray25'  # Semi-transparent fill
+            canvas_x1,
+            canvas_y1,
+            canvas_x2,
+            canvas_y2,
+            outline=color,
+            width=2,
+            fill="",
+            stipple="gray25",  # Semi-transparent fill
         )
 
         # Store marker components
@@ -403,11 +403,12 @@ class VideoCanvas:
 
         # Add text label only - small, clear, noticeable color
         text_id = self.canvas.create_text(
-            canvas_x, canvas_y,
+            canvas_x,
+            canvas_y,
             text=str(organoid_id),  # Just the number
-            fill='#00FF00',  # Bright green for high visibility
-            font=('Arial', 8, 'bold'),  # Small, bold font (half size)
-            anchor='center'
+            fill="#00FF00",  # Bright green for high visibility
+            font=("Arial", 8, "bold"),  # Small, bold font (half size)
+            anchor="center",
         )
 
         # Store organoid markers separately (no circle)
@@ -424,7 +425,7 @@ class VideoCanvas:
             if obj_id in self.markers:
                 for bbox_id in self.markers[obj_id]:
                     # marker is just the bounding box ID
-                    self.canvas.delete(bbox_id)     # Delete the bounding box
+                    self.canvas.delete(bbox_id)  # Delete the bounding box
                 del self.markers[obj_id]
         else:
             # Clear all markers (including organoid markers)
@@ -449,7 +450,7 @@ class VideoCanvas:
 
     def get_canvas_size(self) -> tuple[int, int]:
         """Get canvas dimensions"""
-        return (int(self.canvas['width']), int(self.canvas['height']))
+        return (int(self.canvas["width"]), int(self.canvas["height"]))
 
     def update_size(self, width: int, height: int):
         """Update canvas size"""

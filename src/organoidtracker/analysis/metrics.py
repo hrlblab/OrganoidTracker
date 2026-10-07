@@ -17,21 +17,23 @@ import numpy as np
 @dataclass
 class AnalysisParameters:
     """Parameters provided by user for analysis calculations"""
+
     total_organoids: int
     time_lapse_days: float
     conversion_factor_um_per_pixel: float
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            'total_organoids': self.total_organoids,
-            'time_lapse_days': self.time_lapse_days,
-            'conversion_factor_um_per_pixel': self.conversion_factor_um_per_pixel
+            "total_organoids": self.total_organoids,
+            "time_lapse_days": self.time_lapse_days,
+            "conversion_factor_um_per_pixel": self.conversion_factor_um_per_pixel,
         }
 
 
 @dataclass
 class CystData:
     """Enhanced data structure for individual cyst measurements"""
+
     object_id: int
     frame_indices: list[int]
     centroids: list[tuple[float, float]]  # (x, y) coordinates
@@ -89,11 +91,7 @@ class BaseMetric(ABC):
 
     def get_info(self) -> dict[str, str]:
         """Get metric information"""
-        return {
-            'name': self.name,
-            'description': self.description,
-            'unit': self.unit
-        }
+        return {"name": self.name, "description": self.description, "unit": self.unit}
 
 
 class CystFormationEfficiency(BaseMetric):
@@ -103,7 +101,7 @@ class CystFormationEfficiency(BaseMetric):
         super().__init__(
             name="Cyst Formation Efficiency",
             description="Percentage of organoids that developed at least one cyst",
-            unit="%"
+            unit="%",
         )
 
     def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
@@ -119,10 +117,10 @@ class CystFormationEfficiency(BaseMetric):
             efficiency = (num_organoids_with_cysts / total_organoids) * 100
 
         return {
-            'value': efficiency,
-            'organoids_with_cysts': num_organoids_with_cysts,
-            'total_organoids': total_organoids,
-            'formula': f"({num_organoids_with_cysts} / {total_organoids}) × 100"
+            "value": efficiency,
+            "organoids_with_cysts": num_organoids_with_cysts,
+            "total_organoids": total_organoids,
+            "formula": f"({num_organoids_with_cysts} / {total_organoids}) × 100",
         }
 
 
@@ -131,9 +129,7 @@ class DeNovoCystFormationRate(BaseMetric):
 
     def __init__(self):
         super().__init__(
-            name="De Novo Cyst Formation Rate",
-            description="Rate of new cyst formation over time",
-            unit="cysts/day"
+            name="De Novo Cyst Formation Rate", description="Rate of new cyst formation over time", unit="cysts/day"
         )
 
     def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
@@ -142,11 +138,11 @@ class DeNovoCystFormationRate(BaseMetric):
         """
         if not cyst_data or params.time_lapse_days == 0:
             return {
-                'value': 0.0,
-                'initial_cysts': 0,
-                'final_cysts': 0,
-                'time_period_days': params.time_lapse_days,
-                'formula': "0 / 0 (no data)"
+                "value": 0.0,
+                "initial_cysts": 0,
+                "final_cysts": 0,
+                "time_period_days": params.time_lapse_days,
+                "formula": "0 / 0 (no data)",
             }
 
         # For simplicity, assume initial cysts = 0 and final = number of tracked cysts
@@ -157,11 +153,11 @@ class DeNovoCystFormationRate(BaseMetric):
         rate = (final_cysts - initial_cysts) / params.time_lapse_days
 
         return {
-            'value': rate,
-            'initial_cysts': initial_cysts,
-            'final_cysts': final_cysts,
-            'time_period_days': params.time_lapse_days,
-            'formula': f"({final_cysts} - {initial_cysts}) / {params.time_lapse_days}"
+            "value": rate,
+            "initial_cysts": initial_cysts,
+            "final_cysts": final_cysts,
+            "time_period_days": params.time_lapse_days,
+            "formula": f"({final_cysts} - {initial_cysts}) / {params.time_lapse_days}",
         }
 
 
@@ -170,9 +166,7 @@ class RadialExpansionVelocity(BaseMetric):
 
     def __init__(self):
         super().__init__(
-            name="Radial Expansion Velocity",
-            description="Rate of cyst radius expansion over time",
-            unit="um/day"
+            name="Radial Expansion Velocity", description="Rate of cyst radius expansion over time", unit="um/day"
         )
 
     def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
@@ -186,13 +180,15 @@ class RadialExpansionVelocity(BaseMetric):
             if len(cyst.radii_pixels) < 2:
                 # Need at least 2 time points to calculate velocity
                 velocities.append(0.0)
-                cyst_details.append({
-                    'object_id': cyst.object_id,
-                    'velocity_um_per_day': 0.0,
-                    'initial_radius_um': 0.0,
-                    'final_radius_um': 0.0,
-                    'note': 'Insufficient time points'
-                })
+                cyst_details.append(
+                    {
+                        "object_id": cyst.object_id,
+                        "velocity_um_per_day": 0.0,
+                        "initial_radius_um": 0.0,
+                        "final_radius_um": 0.0,
+                        "note": "Insufficient time points",
+                    }
+                )
                 continue
 
             # Convert radii to micrometers
@@ -206,14 +202,16 @@ class RadialExpansionVelocity(BaseMetric):
             velocity = (final_radius - initial_radius) / params.time_lapse_days
             velocities.append(velocity)
 
-            cyst_details.append({
-                'object_id': cyst.object_id,
-                'velocity_um_per_day': velocity,
-                'initial_radius_um': initial_radius,
-                'final_radius_um': final_radius,
-                'radius_change_um': final_radius - initial_radius,
-                'time_period_days': params.time_lapse_days
-            })
+            cyst_details.append(
+                {
+                    "object_id": cyst.object_id,
+                    "velocity_um_per_day": velocity,
+                    "initial_radius_um": initial_radius,
+                    "final_radius_um": final_radius,
+                    "radius_change_um": final_radius - initial_radius,
+                    "time_period_days": params.time_lapse_days,
+                }
+            )
 
         # Calculate statistics
         if velocities:
@@ -225,13 +223,13 @@ class RadialExpansionVelocity(BaseMetric):
             mean_velocity = std_velocity = max_velocity = min_velocity = 0.0
 
         return {
-            'mean_value': mean_velocity,
-            'std_value': std_velocity,
-            'max_value': max_velocity,
-            'min_value': min_velocity,
-            'individual_velocities': velocities,
-            'cyst_details': cyst_details,
-            'num_cysts': len(cyst_data)
+            "mean_value": mean_velocity,
+            "std_value": std_velocity,
+            "max_value": max_velocity,
+            "min_value": min_velocity,
+            "individual_velocities": velocities,
+            "cyst_details": cyst_details,
+            "num_cysts": len(cyst_data),
         }
 
 
@@ -240,9 +238,7 @@ class CysticIndex(BaseMetric):
 
     def __init__(self):
         super().__init__(
-            name="Cystic Index",
-            description="Fraction of total organoid area occupied by cysts",
-            unit="fraction (0-1)"
+            name="Cystic Index", description="Fraction of total organoid area occupied by cysts", unit="fraction (0-1)"
         )
 
     def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
@@ -251,11 +247,11 @@ class CysticIndex(BaseMetric):
         """
         if not cyst_data:
             return {
-                'value': 0.0,
-                'total_cyst_area_pixels': 0.0,
-                'total_organoid_area_pixels': 0.0,
-                'cystic_index_per_frame': [],
-                'formula': "0 / 0 (no cysts detected)"
+                "value": 0.0,
+                "total_cyst_area_pixels": 0.0,
+                "total_organoid_area_pixels": 0.0,
+                "cystic_index_per_frame": [],
+                "formula": "0 / 0 (no cysts detected)",
             }
 
         # Calculate total cyst area for each frame
@@ -283,12 +279,14 @@ class CysticIndex(BaseMetric):
 
             if frame_organoid_area > 0:
                 frame_ci = frame_cyst_area / frame_organoid_area
-                cystic_indices_per_frame.append({
-                    'frame': frame_idx,
-                    'cystic_index': frame_ci,
-                    'cyst_area': frame_cyst_area,
-                    'organoid_area': frame_organoid_area
-                })
+                cystic_indices_per_frame.append(
+                    {
+                        "frame": frame_idx,
+                        "cystic_index": frame_ci,
+                        "cyst_area": frame_cyst_area,
+                        "organoid_area": frame_organoid_area,
+                    }
+                )
                 total_cyst_area += frame_cyst_area
                 total_organoid_area += frame_organoid_area
 
@@ -296,13 +294,17 @@ class CysticIndex(BaseMetric):
         overall_ci = total_cyst_area / total_organoid_area if total_organoid_area > 0 else 0.0
 
         return {
-            'value': overall_ci,
-            'total_cyst_area_pixels': total_cyst_area,
-            'total_organoid_area_pixels': total_organoid_area,
-            'cystic_index_per_frame': cystic_indices_per_frame,
-            'mean_cystic_index': np.mean([ci['cystic_index'] for ci in cystic_indices_per_frame]) if cystic_indices_per_frame else 0.0,
-            'std_cystic_index': np.std([ci['cystic_index'] for ci in cystic_indices_per_frame]) if cystic_indices_per_frame else 0.0,
-            'formula': f"{total_cyst_area:.1f} / {total_organoid_area:.1f}"
+            "value": overall_ci,
+            "total_cyst_area_pixels": total_cyst_area,
+            "total_organoid_area_pixels": total_organoid_area,
+            "cystic_index_per_frame": cystic_indices_per_frame,
+            "mean_cystic_index": np.mean([ci["cystic_index"] for ci in cystic_indices_per_frame])
+            if cystic_indices_per_frame
+            else 0.0,
+            "std_cystic_index": np.std([ci["cystic_index"] for ci in cystic_indices_per_frame])
+            if cystic_indices_per_frame
+            else 0.0,
+            "formula": f"{total_cyst_area:.1f} / {total_organoid_area:.1f}",
         }
 
 
@@ -313,7 +315,7 @@ class MorphologicalAnalysis(BaseMetric):
         super().__init__(
             name="Morphological Analysis",
             description="Shape and morphological characteristics of cysts",
-            unit="dimensionless"
+            unit="dimensionless",
         )
 
     def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
@@ -321,12 +323,7 @@ class MorphologicalAnalysis(BaseMetric):
         Calculate morphological metrics for all cysts
         """
         if not cyst_data:
-            return {
-                'mean_circularity': 0.0,
-                'mean_aspect_ratio': 1.0,
-                'morphospace_data': [],
-                'cyst_morphology': []
-            }
+            return {"mean_circularity": 0.0, "mean_aspect_ratio": 1.0, "morphospace_data": [], "cyst_morphology": []}
 
         all_circularities = []
         all_aspect_ratios = []
@@ -344,32 +341,36 @@ class MorphologicalAnalysis(BaseMetric):
                 # Morphospace data for visualization
                 for i, frame_idx in enumerate(cyst.frame_indices):
                     if i < len(cyst.areas_pixels) and i < len(cyst.circularities):
-                        morphospace_data.append({
-                            'object_id': cyst.object_id,
-                            'frame': frame_idx,
-                            'area_pixels': cyst.areas_pixels[i],
-                            'circularity': cyst.circularities[i],
-                            'aspect_ratio': cyst.aspect_ratios[i] if i < len(cyst.aspect_ratios) else 1.0,
-                            'radius_pixels': cyst.radii_pixels[i]
-                        })
+                        morphospace_data.append(
+                            {
+                                "object_id": cyst.object_id,
+                                "frame": frame_idx,
+                                "area_pixels": cyst.areas_pixels[i],
+                                "circularity": cyst.circularities[i],
+                                "aspect_ratio": cyst.aspect_ratios[i] if i < len(cyst.aspect_ratios) else 1.0,
+                                "radius_pixels": cyst.radii_pixels[i],
+                            }
+                        )
 
-                cyst_morphology.append({
-                    'object_id': cyst.object_id,
-                    'mean_circularity': cyst_mean_circularity,
-                    'mean_aspect_ratio': cyst_mean_aspect_ratio,
-                    'circularity_std': np.std(cyst.circularities),
-                    'aspect_ratio_std': np.std(cyst.aspect_ratios),
-                    'num_timepoints': len(cyst.frame_indices)
-                })
+                cyst_morphology.append(
+                    {
+                        "object_id": cyst.object_id,
+                        "mean_circularity": cyst_mean_circularity,
+                        "mean_aspect_ratio": cyst_mean_aspect_ratio,
+                        "circularity_std": np.std(cyst.circularities),
+                        "aspect_ratio_std": np.std(cyst.aspect_ratios),
+                        "num_timepoints": len(cyst.frame_indices),
+                    }
+                )
 
         return {
-            'mean_circularity': np.mean(all_circularities) if all_circularities else 0.0,
-            'std_circularity': np.std(all_circularities) if all_circularities else 0.0,
-            'mean_aspect_ratio': np.mean(all_aspect_ratios) if all_aspect_ratios else 1.0,
-            'std_aspect_ratio': np.std(all_aspect_ratios) if all_aspect_ratios else 0.0,
-            'morphospace_data': morphospace_data,
-            'cyst_morphology': cyst_morphology,
-            'num_measurements': len(all_circularities)
+            "mean_circularity": np.mean(all_circularities) if all_circularities else 0.0,
+            "std_circularity": np.std(all_circularities) if all_circularities else 0.0,
+            "mean_aspect_ratio": np.mean(all_aspect_ratios) if all_aspect_ratios else 1.0,
+            "std_aspect_ratio": np.std(all_aspect_ratios) if all_aspect_ratios else 0.0,
+            "morphospace_data": morphospace_data,
+            "cyst_morphology": cyst_morphology,
+            "num_measurements": len(all_circularities),
         }
 
 
@@ -380,7 +381,7 @@ class SpatialOrganization(BaseMetric):
         super().__init__(
             name="Spatial Organization",
             description="Spatial distribution and clustering analysis of cysts",
-            unit="various"
+            unit="various",
         )
 
     def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
@@ -389,11 +390,11 @@ class SpatialOrganization(BaseMetric):
         """
         if len(cyst_data) < 2:
             return {
-                'clustering_coefficient': 0.0,
-                'nearest_neighbor_distances': [],
-                'spatial_density_map': None,
-                'ripleys_k': None,
-                'note': 'Insufficient cysts for spatial analysis (need ≥2)'
+                "clustering_coefficient": 0.0,
+                "nearest_neighbor_distances": [],
+                "spatial_density_map": None,
+                "ripleys_k": None,
+                "note": "Insufficient cysts for spatial analysis (need ≥2)",
             }
 
         # Use final frame positions for spatial analysis
@@ -404,11 +405,11 @@ class SpatialOrganization(BaseMetric):
 
         if len(final_positions) < 2:
             return {
-                'clustering_coefficient': 0.0,
-                'nearest_neighbor_distances': [],
-                'spatial_density_map': None,
-                'ripleys_k': None,
-                'note': 'Insufficient position data'
+                "clustering_coefficient": 0.0,
+                "nearest_neighbor_distances": [],
+                "spatial_density_map": None,
+                "ripleys_k": None,
+                "note": "Insufficient position data",
             }
 
         positions = np.array(final_positions)
@@ -416,6 +417,7 @@ class SpatialOrganization(BaseMetric):
         # Calculate nearest neighbor distances
         try:
             from scipy import spatial
+
             distances = spatial.distance_matrix(positions, positions)
             np.fill_diagonal(distances, np.inf)  # Remove self-distances
             nn_distances = np.min(distances, axis=1)
@@ -425,7 +427,7 @@ class SpatialOrganization(BaseMetric):
             for i in range(len(positions)):
                 for j in range(len(positions)):
                     if i != j:
-                        dist = np.sqrt(np.sum((positions[i] - positions[j])**2))
+                        dist = np.sqrt(np.sum((positions[i] - positions[j]) ** 2))
                         distances[i, j] = dist
                     else:
                         distances[i, j] = np.inf
@@ -454,11 +456,11 @@ class SpatialOrganization(BaseMetric):
 
                 density_map, _, _ = np.histogram2d(x_coords, y_coords, bins=[x_bins, y_bins])
                 density_info = {
-                    'grid_shape': density_map.shape,
-                    'max_density': np.max(density_map),
-                    'mean_density': np.mean(density_map),
-                    'x_range': (x_min, x_max),
-                    'y_range': (y_min, y_max)
+                    "grid_shape": density_map.shape,
+                    "max_density": np.max(density_map),
+                    "mean_density": np.mean(density_map),
+                    "x_range": (x_min, x_max),
+                    "y_range": (y_min, y_max),
                 }
             else:
                 density_info = None
@@ -466,16 +468,16 @@ class SpatialOrganization(BaseMetric):
             density_info = None
 
         return {
-            'clustering_coefficient': clustering_coefficient,
-            'nearest_neighbor_distances': nn_distances.tolist(),
-            'mean_nn_distance': np.mean(nn_distances),
-            'std_nn_distance': np.std(nn_distances),
-            'spatial_density_map': density_info,
-            'num_cysts_analyzed': len(final_positions),
-            'spatial_extent': {
-                'x_range': (np.min(positions[:, 0]), np.max(positions[:, 0])),
-                'y_range': (np.min(positions[:, 1]), np.max(positions[:, 1]))
-            }
+            "clustering_coefficient": clustering_coefficient,
+            "nearest_neighbor_distances": nn_distances.tolist(),
+            "mean_nn_distance": np.mean(nn_distances),
+            "std_nn_distance": np.std(nn_distances),
+            "spatial_density_map": density_info,
+            "num_cysts_analyzed": len(final_positions),
+            "spatial_extent": {
+                "x_range": (np.min(positions[:, 0]), np.max(positions[:, 0])),
+                "y_range": (np.min(positions[:, 1]), np.max(positions[:, 1])),
+            },
         }
 
 
@@ -489,7 +491,7 @@ class MetricsCalculator:
             RadialExpansionVelocity(),
             CysticIndex(),
             MorphologicalAnalysis(),
-            SpatialOrganization()
+            SpatialOrganization(),
         ]
 
     def add_metric(self, metric: BaseMetric):
@@ -536,10 +538,10 @@ class MetricsCalculator:
                     mask = video_segments[frame_idx][obj_id]
 
                     # Convert mask to binary format
-                    if hasattr(mask, 'cpu'):
+                    if hasattr(mask, "cpu"):
                         mask_np = mask.cpu().numpy().squeeze()
                     else:
-                        mask_np = mask.squeeze() if hasattr(mask, 'squeeze') else mask
+                        mask_np = mask.squeeze() if hasattr(mask, "squeeze") else mask
 
                     # Convert logits to binary mask
                     if mask_np.dtype in [np.float32, np.float64]:
@@ -549,14 +551,14 @@ class MetricsCalculator:
 
                     # Calculate geometric properties
                     moments = cv2.moments(mask_binary)
-                    if moments['m00'] > 0:  # Avoid division by zero
+                    if moments["m00"] > 0:  # Avoid division by zero
                         # Centroid
-                        cx = moments['m10'] / moments['m00']
-                        cy = moments['m01'] / moments['m00']
+                        cx = moments["m10"] / moments["m00"]
+                        cy = moments["m01"] / moments["m00"]
                         centroids.append((cx, cy))
 
                         # Area
-                        area = moments['m00']
+                        area = moments["m00"]
                         areas_pixels.append(area)
 
                         # Equivalent radius (assuming circular cyst)
@@ -604,22 +606,23 @@ class MetricsCalculator:
                         frame_indices.append(frame_idx)
 
             if frame_indices:  # Only add if we have data
-                cyst_data.append(CystData(
-                    object_id=obj_id,
-                    frame_indices=frame_indices,
-                    centroids=centroids,
-                    areas_pixels=areas_pixels,
-                    radii_pixels=radii_pixels,
-                    perimeters_pixels=perimeters_pixels,
-                    circularities=circularities,
-                    aspect_ratios=aspect_ratios,
-                    masks=masks
-                ))
+                cyst_data.append(
+                    CystData(
+                        object_id=obj_id,
+                        frame_indices=frame_indices,
+                        centroids=centroids,
+                        areas_pixels=areas_pixels,
+                        radii_pixels=radii_pixels,
+                        perimeters_pixels=perimeters_pixels,
+                        circularities=circularities,
+                        aspect_ratios=aspect_ratios,
+                        masks=masks,
+                    )
+                )
 
         return cyst_data
 
-    def calculate_all_metrics(self, video_segments: dict, frames: list,
-                            params: AnalysisParameters) -> dict[str, Any]:
+    def calculate_all_metrics(self, video_segments: dict, frames: list, params: AnalysisParameters) -> dict[str, Any]:
         """
         Calculate all metrics for the given data
 
@@ -636,30 +639,24 @@ class MetricsCalculator:
 
         # Calculate all metrics
         results = {
-            'parameters': params.to_dict(),
-            'cyst_data_summary': {
-                'num_cysts_tracked': len(cyst_data),
-                'cyst_ids': [cyst.object_id for cyst in cyst_data]
+            "parameters": params.to_dict(),
+            "cyst_data_summary": {
+                "num_cysts_tracked": len(cyst_data),
+                "cyst_ids": [cyst.object_id for cyst in cyst_data],
             },
-            'metrics': {}
+            "metrics": {},
         }
 
         for metric in self.metrics:
             try:
                 metric_result = metric.calculate(cyst_data, params)
-                results['metrics'][metric.name] = {
-                    'info': metric.get_info(),
-                    'results': metric_result
-                }
+                results["metrics"][metric.name] = {"info": metric.get_info(), "results": metric_result}
             except Exception as e:
-                results['metrics'][metric.name] = {
-                    'info': metric.get_info(),
-                    'error': str(e)
-                }
+                results["metrics"][metric.name] = {"info": metric.get_info(), "error": str(e)}
 
         return results
 
     def save_analysis_data(self, results: dict[str, Any], output_path: str):
         """Save analysis results to JSON file for later use"""
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, default=str, ensure_ascii=False)

@@ -28,7 +28,7 @@ class OrganoidAnalysisEngine:
         tracking_results: dict[str, Any],
         organoid_data: dict[int, dict],  # From GUI: {organoid_id: {'point': (x,y), 'cysts': [...]}}
         time_lapse_days: float,
-        total_frames: int
+        total_frames: int,
     ) -> ExperimentData:
         """
         Extract complete experiment data from SAM2 tracking results
@@ -48,7 +48,7 @@ class OrganoidAnalysisEngine:
         experiment = ExperimentData(
             total_frames=total_frames,
             time_lapse_days=time_lapse_days,
-            conversion_factor_um_per_pixel=self.conversion_factor
+            conversion_factor_um_per_pixel=self.conversion_factor,
         )
 
         # Process each organoid and its cysts
@@ -56,20 +56,15 @@ class OrganoidAnalysisEngine:
             print(f"📍 Processing organoid {organoid_id} with {len(organoid_info['cysts'])} cysts...")
 
             # Create organoid data structure
-            organoid = OrganoidData(
-                organoid_id=organoid_id,
-                marker_point=organoid_info['point']
-            )
+            organoid = OrganoidData(organoid_id=organoid_id, marker_point=organoid_info["point"])
 
             # Process each cyst for this organoid
-            for cyst_info in organoid_info['cysts']:
-                cyst_id = cyst_info['cyst_id']
+            for cyst_info in organoid_info["cysts"]:
+                cyst_id = cyst_info["cyst_id"]
                 print(f"  🔵 Processing cyst {cyst_id}...")
 
                 # Extract cyst trajectory from tracking results
-                cyst_trajectory = self._extract_cyst_trajectory(
-                    cyst_id, organoid_id, tracking_results, total_frames
-                )
+                cyst_trajectory = self._extract_cyst_trajectory(cyst_id, organoid_id, tracking_results, total_frames)
 
                 if cyst_trajectory and len(cyst_trajectory.frame_data) > 0:
                     organoid.add_cyst(cyst_trajectory)
@@ -80,32 +75,27 @@ class OrganoidAnalysisEngine:
             # Add organoid to experiment
             experiment.add_organoid(organoid)
 
-        print(f"✅ Experiment extraction complete: {len(experiment.organoids)} organoids, {len(experiment.get_all_cysts())} cysts")
+        print(
+            f"✅ Experiment extraction complete: {len(experiment.organoids)} organoids, {len(experiment.get_all_cysts())} cysts"
+        )
         return experiment
 
     def _extract_cyst_trajectory(
-        self,
-        cyst_id: int,
-        organoid_id: int,
-        tracking_results: dict[str, Any],
-        total_frames: int
+        self, cyst_id: int, organoid_id: int, tracking_results: dict[str, Any], total_frames: int
     ) -> CystTrajectory | None:
         """
         Extract trajectory data for a single cyst from tracking results
         """
         # Create cyst trajectory
-        trajectory = CystTrajectory(
-            cyst_id=cyst_id,
-            organoid_id=organoid_id
-        )
+        trajectory = CystTrajectory(cyst_id=cyst_id, organoid_id=organoid_id)
 
         # Extract mask data for this cyst across all frames
         try:
             # Handle different tracking result formats
-            if 'video_segments' in tracking_results:
-                masks_data = tracking_results['video_segments']
-            elif 'masks' in tracking_results:
-                masks_data = tracking_results['masks']
+            if "video_segments" in tracking_results:
+                masks_data = tracking_results["video_segments"]
+            elif "masks" in tracking_results:
+                masks_data = tracking_results["masks"]
             elif isinstance(tracking_results, dict) and all(isinstance(k, int) for k in tracking_results.keys()):
                 # Direct SAM2 format: {frame_idx: {obj_id: mask}}
                 masks_data = tracking_results
@@ -127,9 +117,7 @@ class OrganoidAnalysisEngine:
 
                     if mask is not None and np.any(mask):
                         # Calculate cyst metrics from mask
-                        frame_data = self._calculate_cyst_metrics_from_mask(
-                            mask, frame_idx
-                        )
+                        frame_data = self._calculate_cyst_metrics_from_mask(mask, frame_idx)
 
                         if frame_data:
                             trajectory.add_frame_data(frame_data)
@@ -145,12 +133,7 @@ class OrganoidAnalysisEngine:
             print(f"❌ Error extracting trajectory for cyst {cyst_id}: {e}")
             return None
 
-    def _get_mask_for_cyst_frame(
-        self,
-        masks_data: Any,
-        cyst_id: int,
-        frame_idx: int
-    ) -> np.ndarray | None:
+    def _get_mask_for_cyst_frame(self, masks_data: Any, cyst_id: int, frame_idx: int) -> np.ndarray | None:
         """
         Extract mask for specific cyst at specific frame from tracking results
         """
@@ -176,7 +159,7 @@ class OrganoidAnalysisEngine:
             # Convert PyTorch tensor to NumPy array if needed
             if mask is not None:
                 # Handle PyTorch tensors from SAM2
-                if hasattr(mask, 'cpu') and hasattr(mask, 'numpy'):
+                if hasattr(mask, "cpu") and hasattr(mask, "numpy"):
                     # It's a PyTorch tensor
                     mask = mask.cpu().numpy()
 
@@ -200,11 +183,7 @@ class OrganoidAnalysisEngine:
                 print(f"Error getting mask for cyst {cyst_id}, frame {frame_idx}: {e}")
             return None
 
-    def _calculate_cyst_metrics_from_mask(
-        self,
-        mask: np.ndarray,
-        frame_idx: int
-    ) -> CystFrameData | None:
+    def _calculate_cyst_metrics_from_mask(self, mask: np.ndarray, frame_idx: int) -> CystFrameData | None:
         """
         Calculate cyst metrics (area, circularity, centroid) from binary mask
         """
@@ -247,11 +226,11 @@ class OrganoidAnalysisEngine:
             # Calculate moments for basic metrics
             moments = cv2.moments(mask)
 
-            if moments['m00'] <= 0:  # No area
+            if moments["m00"] <= 0:  # No area
                 return None
 
             # Additional validation: reject masks that are too small or linear
-            area_pixels = float(moments['m00'])
+            area_pixels = float(moments["m00"])
 
             # Reject very small areas (likely noise or artifacts)
             if area_pixels < 9:  # Less than 3x3 pixels minimum
@@ -260,13 +239,12 @@ class OrganoidAnalysisEngine:
                 return None
 
             # Calculate centroid
-            centroid_x = moments['m10'] / moments['m00']
-            centroid_y = moments['m01'] / moments['m00']
+            centroid_x = moments["m10"] / moments["m00"]
+            centroid_y = moments["m01"] / moments["m00"]
             centroid = (float(centroid_x), float(centroid_y))
 
             # Validate centroid is within mask bounds
-            if (centroid_x < 0 or centroid_x >= mask.shape[1] or
-                centroid_y < 0 or centroid_y >= mask.shape[0]):
+            if centroid_x < 0 or centroid_x >= mask.shape[1] or centroid_y < 0 or centroid_y >= mask.shape[0]:
                 if self.debug_mode:
                     print(f"Invalid mask at frame {frame_idx}: Centroid outside bounds")
                 return None
@@ -287,7 +265,7 @@ class OrganoidAnalysisEngine:
                 area_pixels=area_pixels,
                 circularity=circularity,
                 centroid=centroid,
-                mask=mask.copy()
+                mask=mask.copy(),
             )
 
             return frame_data
@@ -365,40 +343,40 @@ class OrganoidAnalysisEngine:
         """
         try:
             # Create summary data (not including full masks)
-            summary = {
-                'experiment_info': experiment.to_dict(),
-                'organoids': []
-            }
+            summary = {"experiment_info": experiment.to_dict(), "organoids": []}
 
             for organoid_id, organoid in experiment.organoids.items():
                 organoid_info = {
-                    'organoid_id': organoid_id,
-                    'marker_point': organoid.marker_point,
-                    'cyst_count': len(organoid.cysts),
-                    'cysts': []
+                    "organoid_id": organoid_id,
+                    "marker_point": organoid.marker_point,
+                    "cyst_count": len(organoid.cysts),
+                    "cysts": [],
                 }
 
                 for cyst_id, cyst in organoid.cysts.items():
                     cyst_info = {
-                        'cyst_id': cyst_id,
-                        'frames_count': len(cyst.frame_data),
-                        'first_frame': cyst.first_appearance_frame,
-                        'last_frame': cyst.last_appearance_frame,
-                        'mean_area_um2': np.mean([
-                            frame_data.get_area_um2(experiment.conversion_factor_um_per_pixel)
-                            for frame_data in cyst.frame_data.values()
-                        ]) if cyst.frame_data else 0,
-                        'mean_circularity': np.mean([
-                            frame_data.circularity
-                            for frame_data in cyst.frame_data.values()
-                        ]) if cyst.frame_data else 0,
+                        "cyst_id": cyst_id,
+                        "frames_count": len(cyst.frame_data),
+                        "first_frame": cyst.first_appearance_frame,
+                        "last_frame": cyst.last_appearance_frame,
+                        "mean_area_um2": np.mean(
+                            [
+                                frame_data.get_area_um2(experiment.conversion_factor_um_per_pixel)
+                                for frame_data in cyst.frame_data.values()
+                            ]
+                        )
+                        if cyst.frame_data
+                        else 0,
+                        "mean_circularity": np.mean([frame_data.circularity for frame_data in cyst.frame_data.values()])
+                        if cyst.frame_data
+                        else 0,
                     }
-                    organoid_info['cysts'].append(cyst_info)
+                    organoid_info["cysts"].append(cyst_info)
 
-                summary['organoids'].append(organoid_info)
+                summary["organoids"].append(organoid_info)
 
             # Save to file
-            with open(output_path, 'w') as f:
+            with open(output_path, "w") as f:
                 json.dump(summary, f, indent=2)
 
             print(f"💾 Experiment data summary saved to: {output_path}")
@@ -418,20 +396,17 @@ class OrganoidAnalysisValidator:
         Validate experiment data and return quality metrics
         """
         validation_results = {
-            'total_organoids': len(experiment.organoids),
-            'total_cysts': len(experiment.get_all_cysts()),
-            'frames_analyzed': experiment.total_frames,
-            'issues': [],
-            'warnings': []
+            "total_organoids": len(experiment.organoids),
+            "total_cysts": len(experiment.get_all_cysts()),
+            "frames_analyzed": experiment.total_frames,
+            "issues": [],
+            "warnings": [],
         }
 
         # Check for empty organoids
-        empty_organoids = [
-            org_id for org_id, org in experiment.organoids.items()
-            if len(org.cysts) == 0
-        ]
+        empty_organoids = [org_id for org_id, org in experiment.organoids.items() if len(org.cysts) == 0]
         if empty_organoids:
-            validation_results['warnings'].append(f"Empty organoids: {empty_organoids}")
+            validation_results["warnings"].append(f"Empty organoids: {empty_organoids}")
 
         # Check for cysts with insufficient data
         short_cysts = []
@@ -441,16 +416,16 @@ class OrganoidAnalysisValidator:
                     short_cysts.append(f"Organoid {cyst.organoid_id}, Cyst {cyst.cyst_id}")
 
         if short_cysts:
-            validation_results['warnings'].append(f"Cysts with <3 frames: {short_cysts}")
+            validation_results["warnings"].append(f"Cysts with <3 frames: {short_cysts}")
 
         # Check time coverage
         all_cysts = experiment.get_all_cysts()
         if all_cysts:
             max_frames_tracked = max(len(cyst.frame_data) for cyst in all_cysts)
             coverage = max_frames_tracked / experiment.total_frames * 100
-            validation_results['max_tracking_coverage_percent'] = coverage
+            validation_results["max_tracking_coverage_percent"] = coverage
 
             if coverage < 50:
-                validation_results['warnings'].append(f"Low tracking coverage: {coverage:.1f}%")
+                validation_results["warnings"].append(f"Low tracking coverage: {coverage:.1f}%")
 
         return validation_results

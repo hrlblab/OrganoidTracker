@@ -130,8 +130,14 @@ class BaseVideoTracker(ABC):
         pass
 
     @abstractmethod
-    def get_frame_overlay(self, frame_idx: int, obj_id: int = 1, video_segments: dict | None = None,
-                         color: tuple[int, int, int] = (255, 0, 0), alpha: float = 0.3) -> np.ndarray:
+    def get_frame_overlay(
+        self,
+        frame_idx: int,
+        obj_id: int = 1,
+        video_segments: dict | None = None,
+        color: tuple[int, int, int] = (255, 0, 0),
+        alpha: float = 0.3,
+    ) -> np.ndarray:
         """
         Get frame with segmentation overlay
 
@@ -154,13 +160,13 @@ class BaseVideoTracker(ABC):
 
     def get_active_objects(self) -> list[int]:
         """Get list of object IDs that have prompts"""
-        if not hasattr(self, 'prompts') or not self.prompts:
+        if not hasattr(self, "prompts") or not self.prompts:
             return []
         return list(self.prompts.keys())
 
     def get_prompt_count(self, obj_id: int | None = None) -> int:
         """Get total prompt count or count for specific object"""
-        if not hasattr(self, 'prompts') or not self.prompts:
+        if not hasattr(self, "prompts") or not self.prompts:
             return 0
 
         if obj_id is not None:
@@ -176,11 +182,11 @@ class BaseVideoTracker(ABC):
             dict: Model information
         """
         return {
-            'name': self.model_name,
-            'is_loaded': self.is_loaded,
-            'is_initialized': self.is_initialized,
-            'video_loaded': self.video_frames is not None,
-            'num_prompts': sum(len(prompts) for prompts in self.prompts.values()) if self.prompts else 0
+            "name": self.model_name,
+            "is_loaded": self.is_loaded,
+            "is_initialized": self.is_initialized,
+            "video_loaded": self.video_frames is not None,
+            "num_prompts": sum(len(prompts) for prompts in self.prompts.values()) if self.prompts else 0,
         }
 
     def get_video_info(self) -> dict[str, Any] | None:
@@ -194,11 +200,11 @@ class BaseVideoTracker(ABC):
             return None
 
         return {
-            'num_frames': len(self.video_frames),
-            'fps': self.fps,
-            'dimensions': self.video_frames[0].shape[:2],
-            'video_path': self.video_path,
-            'prompts': self.prompts
+            "num_frames": len(self.video_frames),
+            "fps": self.fps,
+            "dimensions": self.video_frames[0].shape[:2],
+            "video_path": self.video_path,
+            "prompts": self.prompts,
         }
 
     def get_supported_formats(self) -> list[str]:
@@ -208,7 +214,7 @@ class BaseVideoTracker(ABC):
         Returns:
             list: Supported file extensions
         """
-        return ['.mp4', '.avi', '.mov', '.mkv']
+        return [".mp4", ".avi", ".mov", ".mkv"]
 
     def validate_video_file(self, video_path: str) -> bool:
         """
@@ -221,6 +227,7 @@ class BaseVideoTracker(ABC):
             bool: True if supported
         """
         from pathlib import Path
+
         return Path(video_path).suffix.lower() in self.get_supported_formats()
 
 
@@ -228,6 +235,7 @@ class ModelCapabilities:
     """
     Enum-like class defining model capabilities
     """
+
     CLICK_PROMPTS = "click_prompts"
     BBOX_PROMPTS = "bbox_prompts"
     MULTI_OBJECT = "multi_object"
@@ -240,8 +248,9 @@ class ModelMetadata:
     Metadata container for model information
     """
 
-    def __init__(self, name: str, display_name: str, description: str,
-                 capabilities: list[str], requirements: list[str] = None):
+    def __init__(
+        self, name: str, display_name: str, description: str, capabilities: list[str], requirements: list[str] = None
+    ):
         """
         Initialize model metadata
 
@@ -265,9 +274,9 @@ class ModelMetadata:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization"""
         return {
-            'name': self.name,
-            'display_name': self.display_name,
-            'description': self.description,
-            'capabilities': self.capabilities,
-            'requirements': self.requirements
+            "name": self.name,
+            "display_name": self.display_name,
+            "description": self.description,
+            "capabilities": self.capabilities,
+            "requirements": self.requirements,
         }

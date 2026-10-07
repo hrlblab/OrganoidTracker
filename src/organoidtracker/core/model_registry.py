@@ -28,13 +28,13 @@ class ModelRegistry:
         # Register SAM2 first (as default)
         try:
             from .sam2_tracker import SAM2Tracker
+
             if SAM2Tracker.is_available():
                 self.register_model(SAM2Tracker)
             else:
                 print("⚠️  SAM2 not available - package not installed")
         except ImportError as e:
             print(f"⚠️  SAM2 not available: {e}")
-
 
     def register_model(self, model_class: type[BaseVideoTracker]) -> bool:
         """
@@ -154,10 +154,7 @@ class ModelRegistry:
         Returns:
             list: List of models with the capability
         """
-        return [
-            metadata for metadata in self._metadata.values()
-            if metadata.has_capability(capability)
-        ]
+        return [metadata for metadata in self._metadata.values() if metadata.has_capability(capability)]
 
     def clear_instances(self):
         """Clear all cached model instances"""
@@ -172,14 +169,14 @@ class ModelRegistry:
             dict: Registry information
         """
         return {
-            'total_models': len(self._models),
-            'available_models': [m.display_name for m in self._metadata.values()],
-            'cached_instances': list(self._instances.keys()),
-            'models_by_capability': {
-                'click_prompts': len(self.get_models_by_capability('click_prompts')),
-                'bbox_prompts': len(self.get_models_by_capability('bbox_prompts')),
-                'multi_object': len(self.get_models_by_capability('multi_object'))
-            }
+            "total_models": len(self._models),
+            "available_models": [m.display_name for m in self._metadata.values()],
+            "cached_instances": list(self._instances.keys()),
+            "models_by_capability": {
+                "click_prompts": len(self.get_models_by_capability("click_prompts")),
+                "bbox_prompts": len(self.get_models_by_capability("bbox_prompts")),
+                "multi_object": len(self.get_models_by_capability("multi_object")),
+            },
         }
 
 
@@ -243,12 +240,12 @@ class ModelFactory:
     """
 
     @staticmethod
-    def create_sam2(device='cuda', **kwargs) -> BaseVideoTracker | None:
+    def create_sam2(device="cuda", **kwargs) -> BaseVideoTracker | None:
         """Create SAM2 instance with default config"""
-        return create_model('sam2', device=device, **kwargs)
+        return create_model("sam2", device=device, **kwargs)
 
     @staticmethod
-    def create_best_available_model(device='cuda', **kwargs) -> BaseVideoTracker | None:
+    def create_best_available_model(device="cuda", **kwargs) -> BaseVideoTracker | None:
         """
         Create the first available model
 
@@ -271,7 +268,7 @@ class ModelFactory:
         return create_model(model_name, device=device, **kwargs)
 
     @staticmethod
-    def get_recommended_model_for_task(task_type: str = 'general') -> str | None:
+    def get_recommended_model_for_task(task_type: str = "general") -> str | None:
         """
         Get recommended model name for a specific task
 
@@ -283,15 +280,15 @@ class ModelFactory:
         """
         registry = get_model_registry()
 
-        if task_type == 'general':
+        if task_type == "general":
             available = registry.get_available_models()
             # Prefer SAM2 for general use
             for model in available:
-                if model.name == 'sam2':
+                if model.name == "sam2":
                     return model.name
             return available[0].name if available else None
 
-        elif task_type == 'research':
+        elif task_type == "research":
             # Return all available for research
             available = registry.get_available_models()
             return available[0].name if available else None
