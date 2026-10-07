@@ -1416,14 +1416,22 @@ class VideoTrackerApp:
         if not output_dir:
             return
 
+        # The chooser is modal and runs the event loop: a model reload may have completed meanwhile
+        # and discarded the results, so the readiness is checked again before any control changes.
+        if not self._ready_for_export("video generation"):
+            return
+
         start_time = time.time()
 
         self.generate_btn.config(state="disabled")
         self.set_status("Generating videos... This may take a while.")
 
+        # The worker exports this snapshot; a later reload cannot pull the results from under it
+        result = self.video_segments
+
         # Count objects for logging
         active_objects = self.tracking.active_object_ids()
-        num_frames = len(self.video_segments)
+        num_frames = len(result)
         video_types = ["overlay", "mask", "side_by_side"]
 
         # DETAILED DEBUG OUTPUT
@@ -1444,13 +1452,13 @@ class VideoTrackerApp:
         self.log_event(f"   • Frame Dimensions: {frames[0].shape if frames else 'N/A'}")
 
         # Tracking data analysis
-        frame_indices = list(self.video_segments.keys())
+        frame_indices = list(result.keys())
         self.log_event(
             f"   • Tracking Frame Indices: {sorted(frame_indices)[:5]}{'...' if len(frame_indices) > 5 else ''}"
         )
         sample_frame = frame_indices[0] if frame_indices else None
         if sample_frame is not None:
-            self.log_event(f"   • Sample Frame Objects: {list(self.video_segments[sample_frame].keys())}")
+            self.log_event(f"   • Sample Frame Objects: {list(result[sample_frame].keys())}")
 
         # Organoid-cyst mapping
         total_organoids = len(self.organoid_data)
@@ -1482,7 +1490,7 @@ class VideoTrackerApp:
                 # The export service writes the three videos straight into the chosen directory
                 created_videos = ExportService(output_dir_path).write_videos(
                     frames,
-                    self.video_segments,
+                    result,
                     quality=quality,
                     progress=progress_callback,
                     debug=debug,
@@ -1706,6 +1714,10 @@ class VideoTrackerApp:
         if not output_dir:
             return
 
+        # The chooser is modal and runs the event loop: re-check after it returns (see generate_videos)
+        if not self._ready_for_export("the analysis report"):
+            return
+
         start_time = time.time()
 
         self.analysis_btn.config(state="disabled")
@@ -1720,13 +1732,14 @@ class VideoTrackerApp:
             oid: {"point": info["point"], "cysts": list(info["cysts"])} for oid, info in self.organoid_data.items()
         }
         frames = self.tracking.frames
+        result = self.video_segments  # the worker measures this snapshot
 
         def analysis_thread():
             try:
                 # The same measurements and files as a headless run of this session
                 annotations = AnnotationSet.from_organoid_data(organoid_data)
                 analysis = AnalysisService().analyze(
-                    self.video_segments,
+                    result,
                     annotations,
                     Calibration(conversion_factor),
                     Timing(time_lapse_days=time_lapse_days),

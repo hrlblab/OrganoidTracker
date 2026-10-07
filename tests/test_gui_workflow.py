@@ -360,3 +360,74 @@ def test_reloading_the_model_discards_stale_results_and_recovers(app, monkeypatc
     assert app.video_segments.object_ids() == [1]
     assert all((videos_dir / f"multi_object_{t}.mp4").is_file() for t in ("overlay", "mask", "side_by_side"))
     assert str(app.generate_btn["state"]) == "normal" and "❌ Video generation failed" not in log_of(app)
+
+
+def test_reload_completing_inside_the_folder_chooser_is_refused(app, monkeypatch, small_disc, small_video, tmp_path):
+    """The folder chooser is modal and runs the event loop, so a model reload can complete while it is open and
+    discard the results the readiness check had just approved. Both export paths must notice when the chooser
+    returns, before changing any control, and refuse the request without getting stuck."""
+    from organoidtracker.gui_tk import main_window
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    out = tmp_path / "out"
+    out.mkdir()
+
+    def load_model():
+        app.device_var.set("cpu")
+        app.model_config_var.set("sam2_hiera_s")
+        app.load_selected_model()
+
+    def model_loaded():
+        return app.current_model is not None and str(app.load_model_btn["state"]) == "normal"
+
+    def load_video():
+        monkeypatch.setattr(main_window.filedialog, "askopenfilename", lambda *a, **k: str(small_video))
+        app.load_video()
+
+    def video_loaded():
+        return app.current_video_path is not None and str(app.track_btn["state"]) == "normal"
+
+    def annotate_and_track():
+        app.on_canvas_click(cx - 30, cy - 30)
+        app.on_canvas_bbox(*box)
+        app.start_tracking()
+
+    def tracked():
+        return (
+            not app.tracking_in_progress and app.video_segments is not None and str(app.track_btn["state"]) == "normal"
+        )
+
+    def chooser_during_which_a_reload_completes(*args, **kwargs):
+        # what the main loop does while the real chooser is open: it drains the queue and installs the new backend
+        app.on_model_loaded_success(TrackingService(FakeTracker(small_disc)), 0.0)
+        return str(out)
+
+    def interleaved(request):
+        def run():
+            assert str(app.generate_btn["state"]) == "normal" and str(app.analysis_btn["state"]) == "normal"
+            monkeypatch.setattr(main_window.filedialog, "askdirectory", chooser_during_which_a_reload_completes)
+            request()
+            # refused after the chooser: no control changed by the request itself, nothing written
+            assert "Generating" not in app.status_label["text"]
+            assert "No tracking results available" in app.status_label["text"]
+            assert app.video_segments is None and not list(out.iterdir())
+
+        return run
+
+    (
+        TkDriver(app.root)
+        .step("model loaded", load_model, model_loaded, 30)
+        .step("video loaded", load_video, video_loaded, 30)
+        .step("tracked", annotate_and_track, tracked, 60)
+        .step("videos refused after the chooser", interleaved(app.generate_videos), None, 5)
+        .step("video loaded again", load_video, video_loaded, 30)
+        .step("tracked again", annotate_and_track, tracked, 60)
+        .step("report refused after the chooser", interleaved(app.generate_analysis_report), None, 5)
+        .step("video loaded once more", load_video, video_loaded, 30)
+        .step("tracked once more", annotate_and_track, tracked, 60)
+        .run()
+    )
+    # the window is still fully usable after both refusals
+    assert str(app.generate_btn["state"]) == "normal" and str(app.analysis_btn["state"]) == "normal"
+    assert app.video_segments.object_ids() == [1]
