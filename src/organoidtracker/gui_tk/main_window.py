@@ -5,6 +5,7 @@ Built with Tkinter for beginner-friendly GUI development
 """
 
 import logging
+import queue
 import sys
 import threading
 import time
@@ -19,10 +20,13 @@ from ..config import (
     GUI_LOG_LEVEL,
     SAM2_CHECKPOINT_FAMILY,
 )
-from ..core.base_model import BaseVideoTracker
 from ..core.model_registry import get_model_registry
 from ..core.sam2_tracker import checkpoint_filename
-from ..io.video_output import VideoOutputGenerator
+from ..services.analysis_service import AnalysisService
+from ..services.annotations import AnnotationError, AnnotationSet, CystAnnotation
+from ..services.export_service import ExportError, ExportService
+from ..services.session import Calibration, SessionError, Timing, TrackingSpec
+from ..services.tracking_service import TrackingError, TrackingService
 from .progress_dialog import ProgressDialog
 from .video_canvas import VideoCanvas
 
@@ -39,8 +43,7 @@ class LogPanelHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            message = self.format(record)
-            self.app.root.after(0, self.app.log_event, message)
+            self.app.post(self.app.log_event, self.format(record))
         except Exception:  # the Tk main loop has gone away
             pass
 
@@ -72,8 +75,8 @@ class VideoTrackerApp:
         # Enable window resizing
         self.root.resizable(True, True)
 
-        # Application state
-        self.current_model: BaseVideoTracker | None = None
+        # Application state: one tracking service owns the backend (model, video, prompts, run)
+        self.tracking: TrackingService | None = None
         self.current_video_path: str | None = None
         self.video_segments: dict | None = None
         self.tracking_in_progress = False
@@ -98,6 +101,11 @@ class VideoTrackerApp:
         self.time_lapse_var.set(DEFAULT_TIME_LAPSE_DAYS)
         self.conversion_factor_var.set(DEFAULT_CONVERSION_FACTOR)
 
+        # Worker threads never touch Tk: they post callbacks here and the main loop drains the queue.
+        self._ui_queue: queue.Queue = queue.Queue()
+        self._ui_after_id = self.root.after(self.UI_POLL_MS, self._drain_ui_queue)
+        self.root.bind("<Destroy>", self._on_destroy, add="+")
+
         # GUI setup
         self.setup_styles()
         self.create_widgets()
@@ -114,6 +122,38 @@ class VideoTrackerApp:
 
         # Status
         self.set_status("Select a model and load it to begin.")
+
+    UI_POLL_MS = 50
+
+    def post(self, callback, *args) -> None:
+        """Run ``callback(*args)`` on the GUI thread; safe to call from any thread."""
+        self._ui_queue.put((callback, args))
+
+    def _drain_ui_queue(self) -> None:
+        while True:
+            try:
+                callback, args = self._ui_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                callback(*args)
+            except Exception as error:  # a failing callback must not stop the loop
+                logger.error(f"GUI callback {getattr(callback, '__name__', callback)} failed: {error}")
+        self._ui_after_id = self.root.after(self.UI_POLL_MS, self._drain_ui_queue)
+
+    def _on_destroy(self, event) -> None:
+        """Stop the queue poll when the window goes away (a pending ``after`` on a destroyed root errors)."""
+        if event.widget is self.root and self._ui_after_id is not None:
+            try:
+                self.root.after_cancel(self._ui_after_id)
+            except tk.TclError:
+                pass
+            self._ui_after_id = None
+
+    @property
+    def current_model(self):
+        """The loaded backend, or None (read-only view; the window acts through ``self.tracking``)."""
+        return self.tracking.tracker if self.tracking is not None else None
 
     def setup_styles(self):
         """Setup custom styles for the GUI"""
@@ -580,8 +620,6 @@ class VideoTrackerApp:
             self.log_event("❌ No model selected")
             return
 
-        model_name = selected.split("(")[-1].rstrip(")")
-
         # Get user configuration
         device = self.device_var.get()
         model_config = self.model_config_var.get()
@@ -603,27 +641,23 @@ class VideoTrackerApp:
             # Use threading to prevent GUI freeze
             def load_model_thread():
                 try:
-                    registry = get_model_registry()
-
-                    model = registry.create_model_instance(
-                        model_name,
-                        device=device,
+                    spec = TrackingSpec(
+                        direction="reverse" if enable_reverse else "forward",
                         model_config=model_config,
                         checkpoint_path=checkpoint_path,
-                        enable_reverse_tracking=enable_reverse,
+                        device=device,
                     )
+                    service = TrackingService.create(spec)
+                    service.load_model()
+                    load_time = time.time() - start_time
+                    self.post(self.on_model_loaded_success, service, load_time)
 
-                    if model and model.load_model():
-                        load_time = time.time() - start_time
-                        self.current_model = model
-                        self.root.after(0, self.on_model_loaded_success, load_time)
-                    else:
-                        load_time = time.time() - start_time
-                        self.root.after(0, self.on_model_loaded_error, "Failed to load model", load_time)
-
+                except (TrackingError, SessionError) as e:
+                    load_time = time.time() - start_time
+                    self.post(self.on_model_loaded_error, str(e), load_time)
                 except Exception as e:
                     load_time = time.time() - start_time
-                    self.root.after(0, self.on_model_loaded_error, str(e), load_time)
+                    self.post(self.on_model_loaded_error, str(e), load_time)
 
             threading.Thread(target=load_model_thread, daemon=True).start()
 
@@ -631,8 +665,12 @@ class VideoTrackerApp:
             load_time = time.time() - start_time
             self.on_model_loaded_error(str(e), load_time)
 
-    def on_model_loaded_success(self, load_time):
-        """Handle successful model loading"""
+    def on_model_loaded_success(self, service, load_time):
+        """Install the loaded backend (GUI thread) and discard whatever the previous one produced."""
+        previous = self.tracking
+        self.tracking = service
+        if previous is not None:
+            self._discard_downstream_state("a new model replaced the previous one")
         self.load_model_btn.config(state="normal")
         self.load_video_btn.config(state="normal")
 
@@ -650,6 +688,49 @@ class VideoTrackerApp:
         self.log_event(
             f"✅ {model_name} loaded successfully in {load_time:.2f}s ({direction_icon} {direction_status} tracking)"
         )
+
+    def _discard_downstream_state(self, reason: str) -> None:
+        """Forget the video, annotations and results of the previous backend; disable what depends on them.
+
+        A new backend holds no video, so results and prompts of the old one must not look usable.
+        """
+        had_results = self.video_segments is not None or self.current_video_path is not None or bool(self.organoid_data)
+        self.current_video_path = None
+        self.video_segments = None
+        self.tracking_in_progress = False
+        self.video_canvas.clear_markers()
+        self.video_canvas.show_placeholder()
+        self.organoid_data.clear()
+        self.active_object_ids.clear()
+        self.action_history.clear()
+        self.next_organoid_id = 1
+        self.next_cyst_id = 1
+        self.current_organoid_id = None
+        self.organoid_mode = True
+        for button in (self.track_btn, self.clear_prompts_btn, self.revert_btn, self.generate_btn, self.analysis_btn):
+            button.config(state="disabled")
+        self.video_info_label.config(text="No video loaded")
+        self.update_active_objects_display()
+        self.update_organoid_count_display()
+        self.update_workflow_status()
+        if had_results:
+            self.log_event(
+                f"🔁 {reason}: the previous video, annotations and results were discarded; load a video to continue"
+            )
+
+    def _ready_for_export(self, what: str) -> bool:
+        """A loaded video and tracking results from this backend are needed before anything is exported."""
+        if self.video_segments is None or not self.video_segments:
+            self.set_status("No tracking results available. Please run tracking first")
+            self.log_event(f"❌ No tracking results available for {what}")
+            return False
+        if self.tracking is None or self.tracking.video is None:
+            self.set_status("Load a video and run tracking first")
+            self.log_event(
+                f"❌ Cannot start {what}: the loaded model holds no video (results are from a previous model)"
+            )
+            return False
+        return True
 
     def on_model_loaded_error(self, error_msg, load_time):
         """Handle model loading error"""
@@ -670,7 +751,7 @@ class VideoTrackerApp:
 
     def load_video(self):
         """Load a video file"""
-        if not self.current_model:
+        if not self.tracking:
             self.set_status("Please load a model first")
             self.log_event("❌ No model loaded")
             return
@@ -697,12 +778,20 @@ class VideoTrackerApp:
             # Load video in thread to prevent GUI freeze
             def load_video_thread():
                 try:
-                    video_info = self.current_model.load_video(file_path)
+                    source = self.tracking.open_video(file_path)
+                    video_info = {
+                        "num_frames": source.n_frames,
+                        "decoded_frames": source.decoded_frames,
+                        "duplicate_frames_removed": source.duplicate_frames_removed,
+                        "fps": source.nominal_fps,
+                        "dimensions": (source.height, source.width),
+                        "direction": source.direction,
+                    }
                     load_time = time.time() - start_time
-                    self.root.after(0, self.on_video_loaded_success, file_path, video_info, load_time)
+                    self.post(self.on_video_loaded_success, file_path, video_info, load_time)
                 except Exception as e:
                     load_time = time.time() - start_time
-                    self.root.after(0, self.on_video_loaded_error, str(e), load_time)
+                    self.post(self.on_video_loaded_error, str(e), load_time)
 
             threading.Thread(target=load_video_thread, daemon=True).start()
 
@@ -716,7 +805,7 @@ class VideoTrackerApp:
         self.current_video_path = file_path
 
         # Clear all objects from previous video (if model is loaded)
-        if hasattr(self, "current_model") and self.current_model:
+        if self.tracking:
             self.clear_prompts()
             self.log_event("🧹 Cleared all objects from previous video")
         else:
@@ -747,8 +836,8 @@ class VideoTrackerApp:
             self.video_info_label.config(text=info_text)
 
         # Display the annotation frame (the last chronological frame in reverse mode)
-        if hasattr(self.current_model, "video_frames") and self.current_model.video_frames:
-            self.video_canvas.display_frame(self.current_model.get_first_frame())
+        if self.tracking and self.tracking.video is not None:
+            self.video_canvas.display_frame(self.tracking.annotation_frame())
             if video_info.get("direction") == "reverse":
                 self.log_event("🖼️ Showing the last frame of the video for annotation (reverse tracking)")
 
@@ -814,11 +903,10 @@ class VideoTrackerApp:
 
     def on_canvas_click(self, x, y):
         """Handle click events for organoid placement"""
-        if not self.current_model or not self.current_video_path:
+        if not self.tracking or not self.current_video_path:
             return
 
-        # Set debug mode on current model
-        self.current_model.debug_mode = self.debug_var.get()
+        self.tracking.set_debug(self.debug_var.get())
 
         try:
             # Create new organoid entry at click location
@@ -854,11 +942,10 @@ class VideoTrackerApp:
 
     def on_canvas_bbox(self, x1, y1, x2, y2):
         """Handle bounding box creation for cyst addition"""
-        if not self.current_model or not self.current_video_path:
+        if not self.tracking or not self.current_video_path:
             return
 
-        # Set debug mode on current model
-        self.current_model.debug_mode = self.debug_var.get()
+        self.tracking.set_debug(self.debug_var.get())
 
         try:
             # Cyst addition mode - send bounding box to SAM2 for tracking
@@ -868,8 +955,13 @@ class VideoTrackerApp:
 
             cyst_id = self.next_cyst_id
 
-            # Add cyst bounding box to SAM2 for tracking
-            success = self.current_model.add_bbox_prompt(x1, y1, x2, y2, obj_id=cyst_id)
+            # Add the cyst box as a prompt on the annotation frame (object id = cyst id)
+            try:
+                self.tracking.add_cyst(CystAnnotation(cyst_id=cyst_id, bbox=(x1, y1, x2, y2)))
+                success = True
+            except (AnnotationError, TrackingError) as error:
+                success = False
+                self.log_event(f"❌ Cyst box rejected: {error}")
 
             if success:
                 # Store cyst information
@@ -962,11 +1054,12 @@ class VideoTrackerApp:
                 organoid_id = last_action["organoid_id"]
                 cyst_id = last_action["cyst_id"]
 
-                # Clear cyst prompts from the model
-                if self.current_model:
-                    success = self.current_model.clear_prompts(cyst_id)
-                    if not success:
-                        logger.warning(f"Failed to clear cyst {cyst_id}")
+                # Drop the cyst's prompts from the backend
+                if self.tracking:
+                    try:
+                        self.tracking.remove_cyst(cyst_id)
+                    except TrackingError as error:
+                        logger.warning(f"Failed to clear cyst {cyst_id}: {error}")
 
                 # Remove from active objects
                 self.active_object_ids.discard(cyst_id)
@@ -1028,8 +1121,11 @@ class VideoTrackerApp:
                 if organoid_id in self.organoid_data:
                     for cyst in self.organoid_data[organoid_id]["cysts"]:
                         cyst_id = cyst["cyst_id"]
-                        if self.current_model:
-                            self.current_model.clear_prompts(cyst_id)
+                        if self.tracking:
+                            try:
+                                self.tracking.remove_cyst(cyst_id)
+                            except TrackingError as error:
+                                logger.warning(f"Failed to clear cyst {cyst_id}: {error}")
                         self.active_object_ids.discard(cyst_id)
                         self.video_canvas.clear_markers(cyst_id)
 
@@ -1100,7 +1196,7 @@ class VideoTrackerApp:
 
     def update_active_objects_display(self):
         """Update the display showing active objects - simplified for sequential numbering"""
-        if not self.current_model:
+        if not self.tracking:
             self.active_objects_label.config(text="Active Objects: None")
             self.object_list_text.config(state="normal")
             self.object_list_text.delete(1.0, tk.END)
@@ -1143,12 +1239,12 @@ class VideoTrackerApp:
 
     def clear_prompts(self):
         """Clear all organoids and cysts - reset to initial state"""
-        if not self.current_model:
+        if not self.tracking:
             return
 
         try:
-            # Clear all prompts from model
-            self.current_model.clear_prompts()
+            # Clear all prompts from the backend
+            self.tracking.clear_prompts()
 
             # Clear all visual markers (including organoid markers)
             self.video_canvas.clear_markers()
@@ -1182,7 +1278,7 @@ class VideoTrackerApp:
 
     def start_tracking(self):
         """Start multi-object tracking with timing"""
-        if not self.current_model or not self.current_model.video_frames:
+        if not self.tracking or self.tracking.video is None:
             self.set_status("Error: Please load a video first")
             self.log_event("❌ Cannot start tracking - no video loaded")
             return
@@ -1193,7 +1289,7 @@ class VideoTrackerApp:
             self.log_event("❌ Cannot start tracking - no cysts added")
             return
 
-        if not self.current_model.prompts:
+        if self.tracking.prompt_count() == 0:
             self.set_status("Error: No tracking prompts available")
             self.log_event("❌ Cannot start tracking - no prompts in model")
             return
@@ -1205,8 +1301,8 @@ class VideoTrackerApp:
         self.set_status("Running tracking... Please wait.")
 
         # Count total prompts
-        total_prompts = sum(len(prompts) for prompts in self.current_model.prompts.values())
-        active_objects = list(self.current_model.get_active_objects())
+        total_prompts = self.tracking.prompt_count()
+        active_objects = self.tracking.active_object_ids()
         self.log_event(f"🎯 Starting tracking for {len(active_objects)} objects ({total_prompts} prompts)")
         self._write_prompt_record()
 
@@ -1218,20 +1314,20 @@ class VideoTrackerApp:
                 # Progress callback
                 def progress_callback(current, total, message):
                     progress = (current / total) * 100 if total > 0 else 0
-                    self.root.after(0, self.tracking_dialog.update_progress, progress, message)
+                    self.post(self.tracking_dialog.update_progress, progress, message)
 
                 # Run tracking
-                self.video_segments = self.current_model.run_tracking(progress_callback)
+                self.video_segments = self.tracking.run(progress_callback)
 
                 # Ensure completion progress is shown
-                self.root.after(0, self.tracking_dialog.update_progress, 100, "Tracking completed!")
+                self.post(self.tracking_dialog.update_progress, 100, "Tracking completed!")
 
                 tracking_time = time.time() - start_time
-                self.root.after(0, self.on_tracking_complete_success, tracking_time)
+                self.post(self.on_tracking_complete_success, tracking_time)
 
             except Exception as e:
                 tracking_time = time.time() - start_time
-                self.root.after(0, self.on_tracking_complete_error, str(e), tracking_time)
+                self.post(self.on_tracking_complete_error, str(e), tracking_time)
 
         # Start tracking in background thread
         threading.Thread(target=tracking_thread, daemon=True).start()
@@ -1249,7 +1345,7 @@ class VideoTrackerApp:
                     return None
 
             record = build_prompt_record(
-                self.current_model,
+                self.tracking.tracker,
                 str(self.current_video_path),
                 self.organoid_data,
                 tk_value(self.time_lapse_var),
@@ -1278,7 +1374,7 @@ class VideoTrackerApp:
         # Update results info
         if self.video_segments:
             num_frames = len(self.video_segments)
-            active_objects = list(self.current_model.get_active_objects())
+            active_objects = self.tracking.active_object_ids()
 
             status = getattr(self.video_segments, "status", "completed")
             if status == "partial":
@@ -1311,9 +1407,7 @@ class VideoTrackerApp:
 
     def generate_videos(self):
         """Generate output videos with timing"""
-        if not self.video_segments:
-            self.set_status("No tracking results available. Please run tracking first")
-            self.log_event("❌ No tracking results available")
+        if not self._ready_for_export("video generation"):
             return
 
         # Ask for output directory
@@ -1322,14 +1416,22 @@ class VideoTrackerApp:
         if not output_dir:
             return
 
+        # The chooser is modal and runs the event loop: a model reload may have completed meanwhile
+        # and discarded the results, so the readiness is checked again before any control changes.
+        if not self._ready_for_export("video generation"):
+            return
+
         start_time = time.time()
 
         self.generate_btn.config(state="disabled")
         self.set_status("Generating videos... This may take a while.")
 
+        # The worker exports this snapshot; a later reload cannot pull the results from under it
+        result = self.video_segments
+
         # Count objects for logging
-        active_objects = self.current_model.get_active_objects()
-        num_frames = len(self.video_segments)
+        active_objects = self.tracking.active_object_ids()
+        num_frames = len(result)
         video_types = ["overlay", "mask", "side_by_side"]
 
         # DETAILED DEBUG OUTPUT
@@ -1345,27 +1447,18 @@ class VideoTrackerApp:
         self.log_event(f"   • Output Directory: {output_dir}")
 
         # Video frames analysis
-        if hasattr(self.current_model, "video_frames") and self.current_model.video_frames:
-            frame_count = len(self.current_model.video_frames)
-            first_frame_shape = self.current_model.video_frames[0].shape if frame_count > 0 else "N/A"
-            self.log_event(f"   • Source Frames: {frame_count} frames")
-            self.log_event(f"   • Frame Dimensions: {first_frame_shape}")
-        else:
-            self.log_event("   • Source Frames: MISSING - check video loading")
+        frames = self.tracking.frames
+        self.log_event(f"   • Source Frames: {len(frames)} frames")
+        self.log_event(f"   • Frame Dimensions: {frames[0].shape if frames else 'N/A'}")
 
         # Tracking data analysis
-        if self.video_segments:
-            frame_indices = list(self.video_segments.keys())
-            self.log_event(
-                f"   • Tracking Frame Indices: {sorted(frame_indices)[:5]}{'...' if len(frame_indices) > 5 else ''}"
-            )
-
-            sample_frame = frame_indices[0] if frame_indices else None
-            if sample_frame is not None and sample_frame in self.video_segments:
-                sample_objects = list(self.video_segments[sample_frame].keys())
-                self.log_event(f"   • Sample Frame Objects: {sample_objects}")
-        else:
-            self.log_event("   • Tracking Data: MISSING")
+        frame_indices = list(result.keys())
+        self.log_event(
+            f"   • Tracking Frame Indices: {sorted(frame_indices)[:5]}{'...' if len(frame_indices) > 5 else ''}"
+        )
+        sample_frame = frame_indices[0] if frame_indices else None
+        if sample_frame is not None:
+            self.log_event(f"   • Sample Frame Objects: {list(result[sample_frame].keys())}")
 
         # Organoid-cyst mapping
         total_organoids = len(self.organoid_data)
@@ -1381,153 +1474,37 @@ class VideoTrackerApp:
         self.log_event(f"🎬 Starting video generation for {len(active_objects)} objects")
         self.log_event(f"📹 Creating {len(video_types)} video types ({num_frames} frames each)")
 
+        # Read the Tk variables on the GUI thread before starting the worker
+        quality = self.quality_var.get()
+        debug = self.debug_var.get()
+        objects_text = f"Objects: {', '.join(map(str, sorted(active_objects)))}"
+        output_dir_path = Path(output_dir)
+
         def generation_thread():
             try:
-                generator = VideoOutputGenerator()
-                output_dir_path = Path(output_dir)
 
-                # Get active objects for display
-                objects_text = f"Objects: {', '.join(map(str, sorted(active_objects)))}"
-
-                # Set debug mode on generator
-                generator.debug_mode = self.debug_var.get()
-
-                # Determine quality scale factor
-                quality = self.quality_var.get()
-                quality_scale = {"original": 1.0, "mid": 0.5, "low": 0.25}[quality]
-
-                # 🚀 USE OPTIMIZED APPROACH - single mask processing pass!
-                self.log_event("🚀 Using optimized video generation (2-6x faster)")
-
-                def optimized_progress_callback(current, total, message):
-                    # Calculate overall progress
+                def progress_callback(current, total, message):
                     progress = (current / total) * 100 if total > 0 else 0
-                    self.root.after(0, self.generation_dialog.update_progress, progress, f"{message} ({objects_text})")
+                    self.post(self.generation_dialog.update_progress, progress, f"{message} ({objects_text})")
 
-                created_videos = generator.create_optimized_multi_object_videos(
-                    frames=self.current_model.video_frames,
-                    video_segments=self.video_segments,
-                    output_dir=str(output_dir_path),
-                    fps=5.0,  # Slower for easier viewing
-                    alpha=0.4,  # Good visibility
-                    progress_callback=optimized_progress_callback,
-                    quality_scale=quality_scale,
-                    tracker=self.current_model,  # Pass tracker for reverse state
+                # The export service writes the three videos straight into the chosen directory
+                created_videos = ExportService(output_dir_path).write_videos(
+                    frames,
+                    result,
+                    quality=quality,
+                    progress=progress_callback,
+                    debug=debug,
+                    directory=output_dir_path,
                 )
-
-                # ✅ FIX: Explicitly set progress to 100% when optimization completes
-                self.root.after(0, self.generation_dialog.update_progress, 100, "Video generation completed!")
-
-                # ✅ CRITICAL FIX: Always re-enable button, even if completion callback fails
-                self.root.after(0, lambda: self.generate_btn.config(state="normal"))
-
-                # Log results
-                successful_videos = [v for v in created_videos.values() if v is not None]
-                for video_type, path in created_videos.items():
-                    if path:
-                        self.root.after(0, lambda vt=video_type: self.log_event(f"✅ {vt} video created (optimized)"))
-                    else:
-                        self.root.after(0, lambda vt=video_type: self.log_event(f"❌ {vt} video failed"))
-
-                # FALLBACK TO ORIGINAL METHOD if optimization fails
-                if not successful_videos:
-                    self.root.after(0, lambda: self.log_event("⚠️ Optimization failed, falling back to original method"))
-
-                    created_videos = {}
-                    total_videos = len(video_types)
-
-                    for i, video_type in enumerate(video_types):
-                        video_start_time = time.time()
-
-                        # Base progress for this video type
-                        base_progress = (i / total_videos) * 100
-                        video_progress_range = 100 / total_videos  # e.g., 33.33% per video
-
-                        # Create a closure that captures the current values
-                        def make_progress_callback(base_prog, prog_range, vid_type):
-                            def report_video_progress(current_frame, total_frames, frame_message):
-                                # Calculate progress within this video (0-33.33% for first video, etc.)
-                                if total_frames > 0:
-                                    video_completion = (current_frame / total_frames) * prog_range
-                                    overall_progress = base_prog + video_completion
-                                else:
-                                    overall_progress = base_prog
-
-                                message = f"Creating {vid_type} video: {frame_message} ({objects_text})"
-                                self.root.after(0, self.generation_dialog.update_progress, overall_progress, message)
-
-                            return report_video_progress
-
-                        video_progress_callback = make_progress_callback(
-                            base_progress, video_progress_range, video_type
-                        )
-
-                        output_path = output_dir_path / f"multi_object_{video_type}.mp4"
-                        try:
-                            # Set debug mode on generator
-                            generator.debug_mode = self.debug_var.get()
-
-                            # Determine quality scale factor
-                            quality = self.quality_var.get()
-                            quality_scale = {"original": 1.0, "mid": 0.5, "low": 0.25}[quality]
-
-                            result_path = generator.create_multi_object_video(
-                                frames=self.current_model.video_frames,
-                                video_segments=self.video_segments,
-                                output_path=str(output_path),
-                                fps=5.0,  # Slower for easier viewing
-                                video_type=video_type,
-                                alpha=0.4,  # Good visibility
-                                progress_callback=video_progress_callback,
-                                quality_scale=quality_scale,
-                                tracker=self.current_model,  # Pass tracker for reverse state
-                            )
-                            created_videos[video_type] = result_path
-
-                            video_time = time.time() - video_start_time
-                            # Log individual video completion in main thread
-                            self.root.after(
-                                0,
-                                lambda vt=video_type, t=video_time: self.log_event(
-                                    f"✅ {vt} video created in {t:.2f}s"
-                                ),
-                            )
-
-                        except Exception as e:
-                            logger.error(f"Error creating {video_type} video: {str(e)}")
-                            created_videos[video_type] = None
-
-                            video_time = time.time() - video_start_time
-                            self.root.after(
-                                0,
-                                lambda vt=video_type, t=video_time, err=str(e): self.log_event(
-                                    f"❌ {vt} video failed after {t:.2f}s: {err}"
-                                ),
-                            )
-
-                    total_time = time.time() - start_time
-
-                    # Ensure completion progress is shown
-                    self.root.after(0, self.generation_dialog.update_progress, 100, "Video generation completed!")
-
-                    # ✅ CRITICAL FIX: Always re-enable button, even if completion callback fails
-                    self.root.after(0, lambda: self.generate_btn.config(state="normal"))
-
-                    # Add delay before callback to allow cleanup and reduce memory pressure
-                    self.root.after(100, self.on_generation_complete_success, created_videos, output_dir, total_time)
+                total_time = time.time() - start_time
+                self.post(self.generation_dialog.update_progress, 100, "Video generation completed!")
+                self.post(self.on_generation_complete_success, created_videos, output_dir, total_time)
 
             except Exception as e:
                 total_time = time.time() - start_time
-                # ✅ CRITICAL FIX: Always re-enable button, even on exceptions
-                self.root.after(0, lambda: self.generate_btn.config(state="normal"))
-                self.root.after(0, self.on_generation_complete_error, str(e), total_time)
-
-        # ✅ FIX: Ensure button is disabled during generation and dialog can be restarted
-        self.generate_btn.config(state="disabled")
+                self.post(self.on_generation_complete_error, str(e), total_time)
 
         # Show progress dialog
-        from .progress_dialog import ProgressDialog
-
         self.generation_dialog = ProgressDialog(self.root, "Generating Multi-Object Videos")
 
         # Start generation in background
@@ -1576,7 +1553,6 @@ class VideoTrackerApp:
                 self.log_event(f"⚠️ Failed videos: {', '.join(failed_videos)}")
 
             # Performance metrics
-            self.current_model.get_active_objects() if self.current_model else []
             num_frames = len(self.video_segments) if self.video_segments else 0
             if num_frames > 0 and total_time > 0:
                 frames_per_second = num_frames / total_time
@@ -1629,14 +1605,14 @@ class VideoTrackerApp:
 
     def view_results(self):
         """View tracking results"""
-        if not self.video_segments or not self.current_model:
+        if not self.video_segments or not self.tracking:
             return
 
         # Show a simple results viewer
         from .results_viewer import ResultsViewer
 
         try:
-            viewer = ResultsViewer(self.root, self.current_model.video_frames, self.video_segments, obj_id=1)
+            viewer = ResultsViewer(self.root, self.tracking.frames, self.video_segments, obj_id=1)
             viewer.show()
 
         except Exception as e:
@@ -1660,9 +1636,7 @@ class VideoTrackerApp:
 
     def generate_analysis_report(self):
         """Generate comprehensive organoid-cyst analysis report using new workflow"""
-        if not self.video_segments:
-            self.set_status("No tracking results available. Please run tracking first")
-            self.log_event("❌ No tracking results available for analysis")
+        if not self._ready_for_export("the analysis report"):
             return
 
         if not self.organoid_data:
@@ -1719,14 +1693,9 @@ class VideoTrackerApp:
                 self.log_event(f"   • Sample Tracked Objects: {sample_objects}")
 
             # Model verification
-            if self.current_model:
-                self.log_event(f"   • Current Model: {type(self.current_model).__name__}")
-                if hasattr(self.current_model, "original_frames"):
-                    self.log_event(
-                        f"   • Original Frames Available: {len(self.current_model.original_frames) if self.current_model.original_frames else 0}"
-                    )
-                else:
-                    self.log_event("   • Original Frames Available: No")
+            if self.tracking:
+                self.log_event(f"   • Current Model: {type(self.tracking.tracker).__name__}")
+                self.log_event(f"   • Original Frames Available: {len(self.tracking.frames)}")
             else:
                 self.log_event("   • Current Model: MISSING")
 
@@ -1745,6 +1714,10 @@ class VideoTrackerApp:
         if not output_dir:
             return
 
+        # The chooser is modal and runs the event loop: re-check after it returns (see generate_videos)
+        if not self._ready_for_export("the analysis report"):
+            return
+
         start_time = time.time()
 
         self.analysis_btn.config(state="disabled")
@@ -1753,40 +1726,40 @@ class VideoTrackerApp:
         # Log analysis start
         self.log_event(f"🧬 Starting organoid-cyst analysis for {total_organoids} organoids with {total_cysts} cysts")
 
+        # Read the Tk variables and the annotations on the GUI thread before starting the worker
+        debug = self.debug_var.get()
+        organoid_data = {
+            oid: {"point": info["point"], "cysts": list(info["cysts"])} for oid, info in self.organoid_data.items()
+        }
+        frames = self.tracking.frames
+        result = self.video_segments  # the worker measures this snapshot
+
         def analysis_thread():
             try:
-                from ..analysis import OrganoidAnalysisReportGenerator
-
-                # Create new analysis report generator
-                report_generator = OrganoidAnalysisReportGenerator()
-
-                # Get original frames from current model if available
-                original_frames = None
-                if hasattr(self.current_model, "original_frames") and self.current_model.original_frames:
-                    original_frames = self.current_model.original_frames
-                    self.log_event(f"   📸 Using {len(original_frames)} original frames for PDF comparison")
-                else:
-                    self.log_event("   ⚠️ Original frames not available from current model")
-
-                # Generate complete analysis report
-                analysis_summary = report_generator.generate_complete_analysis_report(
-                    tracking_results=self.video_segments,
-                    organoid_data=self.organoid_data,
-                    time_lapse_days=time_lapse_days,
-                    conversion_factor=conversion_factor,
-                    output_dir=output_dir,
-                    debug_mode=self.debug_var.get(),
-                    original_frames=original_frames,
+                # The same measurements and files as a headless run of this session
+                annotations = AnnotationSet.from_organoid_data(organoid_data)
+                analysis = AnalysisService().analyze(
+                    result,
+                    annotations,
+                    Calibration(conversion_factor),
+                    Timing(time_lapse_days=time_lapse_days),
+                    debug_mode=debug,
+                )
+                analysis_summary = ExportService(output_dir).write_report(
+                    analysis, debug_mode=debug, original_frames=frames
                 )
 
                 analysis_time = time.time() - start_time
 
                 # Update GUI in main thread with results for display
-                self.root.after(0, self.on_organoid_analysis_complete_success, analysis_summary, analysis_time)
+                self.post(self.on_organoid_analysis_complete_success, analysis_summary, analysis_time)
 
+            except (AnnotationError, SessionError, ExportError) as e:
+                analysis_time = time.time() - start_time
+                self.post(self.on_organoid_analysis_complete_error, str(e), analysis_time)
             except Exception as e:
                 analysis_time = time.time() - start_time
-                self.root.after(0, self.on_organoid_analysis_complete_error, str(e), analysis_time)
+                self.post(self.on_organoid_analysis_complete_error, str(e), analysis_time)
 
         # Run analysis in background thread
         import threading

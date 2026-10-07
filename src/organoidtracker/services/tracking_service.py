@@ -20,7 +20,7 @@ import numpy as np
 
 from ..core.base_model import BaseVideoTracker
 from ..core.tracking_result import TrackingResult
-from .annotations import AnnotationError, AnnotationSet
+from .annotations import AnnotationError, AnnotationSet, CystAnnotation
 from .session import TrackingSpec
 from .video_source import VideoSource
 
@@ -110,20 +110,61 @@ class TrackingService:
         if not annotations.cysts:
             raise AnnotationError("at least one cyst box is required to track")
         annotations.check_inside(self.video.width, self.video.height)
+        if self.prompt_count():
+            self.clear_prompts()
         for cyst in annotations.cysts:
-            x1, y1, x2, y2 = cyst.bbox
-            # frame_idx is a display index for the backend; 0 is the annotation frame
-            if not self.tracker.add_bbox_prompt(x1, y1, x2, y2, obj_id=cyst.cyst_id, frame_idx=0):
-                raise TrackingError(f"the backend rejected the box of cyst {cyst.cyst_id}: {list(cyst.bbox)}")
+            self.add_cyst(cyst)
         self.annotations = annotations
         logger.info(
             f"Run {self.run_id}: {len(annotations.cysts)} cyst prompts for {len(annotations.organoids)} organoids"
         )
 
+    # ------------------------------------------------------------------ interactive annotation
+    def add_cyst(self, cyst: CystAnnotation) -> None:
+        """One cyst box as a prompt on the annotation frame (object id = cyst id), as the window draws them."""
+        if self.video is None:
+            raise TrackingError("open a video before adding annotations")
+        cyst.check_inside(self.video.width, self.video.height)
+        x1, y1, x2, y2 = cyst.bbox
+        # frame_idx is a display index for the backend; 0 is the annotation frame
+        if not self.tracker.add_bbox_prompt(x1, y1, x2, y2, obj_id=cyst.cyst_id, frame_idx=0):
+            raise TrackingError(f"the backend rejected the box of cyst {cyst.cyst_id}: {list(cyst.bbox)}")
+        self.annotations = None  # the set is no longer what annotate() received
+
+    def remove_cyst(self, cyst_id: int) -> None:
+        """Drop one cyst's prompts; the backend re-applies the others."""
+        if not self.tracker.clear_prompts(cyst_id):
+            raise TrackingError(f"the backend could not remove cyst {cyst_id}")
+        self.annotations = None
+
+    def clear_prompts(self) -> None:
+        """Drop every prompt (the video stays loaded)."""
+        if not self.tracker.clear_prompts():
+            raise TrackingError("the backend could not clear its prompts")
+        self.annotations = None
+
+    def prompt_count(self) -> int:
+        return int(self.tracker.get_prompt_count())
+
+    def active_object_ids(self) -> list[int]:
+        """Object ids (cyst ids) that currently have prompts."""
+        return sorted(int(obj) for obj in self.tracker.get_active_objects())
+
+    def annotation_frame(self) -> np.ndarray:
+        """The frame the user annotates (the last chronological frame in reverse mode)."""
+        return self.tracker.get_first_frame()
+
+    def set_debug(self, enabled: bool) -> None:
+        """Verbose backend logging, where the backend supports it."""
+        if hasattr(self.tracker, "debug_mode"):
+            self.tracker.debug_mode = bool(enabled)
+
     def run(self, progress: ProgressCallback | None = None) -> TrackingResult:
         """Propagate the prompts; the result says whether the run completed or stopped early."""
-        if self.annotations is None:
-            raise TrackingError("add annotations before tracking")
+        if self.video is None:
+            raise TrackingError("open a video before tracking")
+        if self.prompt_count() == 0:
+            raise TrackingError("add at least one cyst box before tracking")
         self.state = "running"
         try:
             result = self.tracker.run_tracking(progress)

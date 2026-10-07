@@ -100,6 +100,11 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   tiny checkpoint and skip when it is absent.
 
 ### Changed
+- The Tk application runs its workflow through the shared services: the backend is created, loaded
+  and prompted through the tracking service, the videos and the analysis report are written by the
+  export service with the same measurements and files as a headless run of the same session, and a
+  report that cannot be completed (for example a PDF that cannot be written) is reported as a failure
+  in the window instead of as a success.
 - The Tk application writes its prompt record through the shared services module. The record now
   stores the video and checkpoint paths as absolute paths (and, for headless runs, the explicit frame
   times), so it replays from any directory.
@@ -139,6 +144,10 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   with this repository's Apache-2.0 license. SAM2 is the only backend.
 
 ### Fixed
+- Worker threads updated the window with `after()` calls, which Tcl/Tk 9 (bundled with the
+  uv-managed interpreters) never delivers from another thread: the window never learned that the
+  model had loaded or that tracking had finished. Workers now post their updates to a queue that the
+  main loop drains, so the window works on Tcl/Tk 8.6 and 9 alike.
 - Re-plotting from the exported CSV (`scripts/csv_visualizer.py`) used frame indices as timestamps,
   which changed the day labels and the growth rates, and dropped organoids without cysts, which
   inflated the population statistics; it now rebuilds the experiment through

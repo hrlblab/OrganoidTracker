@@ -169,6 +169,21 @@ class FakeTracker:
         )
         return True
 
+    def clear_prompts(self, obj_id=None):
+        if obj_id is None:
+            self.prompts.clear()
+        else:
+            self.prompts.pop(obj_id, None)
+        return True
+
+    def get_prompt_count(self, obj_id=None):
+        if obj_id is None:
+            return sum(len(p) for p in self.prompts.values())
+        return len(self.prompts.get(obj_id, []))
+
+    def get_active_objects(self):
+        return list(self.prompts.keys())
+
     def mask(self, k: int, obj_id: int) -> np.ndarray:
         yy, xx = np.mgrid[0 : self.disc.size, 0 : self.disc.size]
         cx, cy = self.disc.centers[k]
@@ -239,3 +254,69 @@ def expected_growth_per_day(areas_by_frame: dict, timestamps: list, conversion: 
         dt = timestamps[b] - timestamps[a]
         rates.append((areas_by_frame[b] - areas_by_frame[a]) * conversion**2 / dt)
     return float(np.mean(rates)) if rates else 0.0
+
+
+class TkDriver:
+    """Drives a Tk application through its real main loop, the way a user would.
+
+    Each step performs one GUI action on the main thread (a button command, a canvas callback) and then
+    waits, polling with ``after``, until its condition holds; ``run()`` enters ``mainloop()`` and leaves
+    it when every step is done or a step timed out. Callbacks that worker threads post with ``after``
+    are only delivered inside the main loop, which is why pumping ``update()`` is not enough.
+    """
+
+    def __init__(self, root, poll_ms: int = 50):
+        self.root = root
+        self.poll_ms = poll_ms
+        self.steps: list[tuple] = []
+        self.index = 0
+        self.deadline = 0.0
+        self.error: BaseException | None = None
+
+    def step(self, name, action=None, condition=None, timeout: float = 60.0):
+        self.steps.append((name, action, condition, timeout))
+        return self
+
+    def run(self) -> None:
+        self.root.after(0, self._start_step)
+        self.root.mainloop()
+        if self.error is not None:
+            raise self.error
+
+    def _fail(self, error: BaseException) -> None:
+        self.error = error
+        self.root.quit()
+
+    def _start_step(self) -> None:
+        import time
+
+        if self.index >= len(self.steps):
+            self.root.quit()
+            return
+        name, action, _condition, timeout = self.steps[self.index]
+        try:
+            if action is not None:
+                action()
+        except BaseException as error:  # noqa: BLE001  # anything the GUI raises ends the run
+            self._fail(RuntimeError(f"GUI step {name!r} raised: {error!r}"))
+            return
+        self.deadline = time.monotonic() + timeout
+        self.root.after(self.poll_ms, self._poll)
+
+    def _poll(self) -> None:
+        import time
+
+        name, _action, condition, _timeout = self.steps[self.index]
+        try:
+            done = condition() if condition is not None else True
+        except BaseException as error:  # noqa: BLE001
+            self._fail(RuntimeError(f"GUI step {name!r} condition raised: {error!r}"))
+            return
+        if done:
+            self.index += 1
+            self.root.after(self.poll_ms, self._start_step)
+            return
+        if time.monotonic() > self.deadline:
+            self._fail(TimeoutError(f"GUI did not reach: {name}"))
+            return
+        self.root.after(self.poll_ms, self._poll)
