@@ -48,6 +48,17 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   analysis summary).
 
 ### Added
+- Every run saves its complete tracking result next to the exports, before any export is written:
+  `results.json` (schema `organoidtracker.results/1`: run id and time, results version, software,
+  environment, effective settings, the validated session including organoids without cysts, the video
+  facts, the backend provenance, the tracking status and coverage, the presence scores and an index of
+  every mask) and `masks-<digest>.npz` (every mask as packed bits, the tracker's own representation).
+  `organoidtracker export --run DIR [--out DIR2]` reopens such a run without a model and writes the CSV
+  tables, figures, PDF, summary and manifest again, and the videos when the video file is at hand, equal
+  to the original run's; in place with `--overwrite`, or into another directory which then holds a copy
+  of the result. Damaged, truncated, edited or inconsistent result files are refused with the reason; an
+  interrupted or failed save keeps the previous result usable. The manifest records which saved result a
+  directory holds and, for an export, which run it came from.
 - The `organoidtracker` command line: `organoidtracker run --session S --out O` tracks, analyzes and
   exports a *session file* (video, organoid points, cyst boxes, calibration, timing) without a window,
   and `organoidtracker validate` checks a session file and its video. The prompt record written when

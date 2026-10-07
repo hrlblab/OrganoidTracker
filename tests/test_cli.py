@@ -256,3 +256,173 @@ def test_end_to_end_run_with_the_real_model(tmp_path, disc, disc_video_path, dev
     assert (out / "videos/multi_object_overlay.mp4").is_file() and (out / "organoid_analysis_report.pdf").is_file()
     with open(out / "raw_cyst_data.csv", newline="") as handle:
         assert len(handle.read().splitlines()) == disc.n_frames + 1
+
+
+def _run_dir(tmp_path, small_disc, small_video, monkeypatch, name="run", **fake_kwargs):
+    use_fake_backend(monkeypatch, small_disc, **fake_kwargs)
+    path = session_file(tmp_path, small_disc, small_video)
+    out = tmp_path / name
+    code = cli.main(["run", "--session", str(path), "--out", str(out), "--log-level", "ERROR"])
+    return out, code
+
+
+NO_MODEL_SCRIPT = """
+import sys
+from importlib.abc import MetaPathFinder
+
+
+class NoModel(MetaPathFinder):  # any import of torch or the vendored SAM 2 raises ImportError
+    def find_spec(self, name, path=None, target=None):
+        if name.split(".")[0] in ("torch", "sam2"):
+            raise ImportError(f"{name} cannot be imported in this process")
+        return None
+
+
+sys.meta_path.insert(0, NoModel())
+from organoidtracker.cli import main
+
+code = main(sys.argv[1:])
+loaded = sorted(
+    name
+    for name in sys.modules
+    if name.split(".")[0] in ("torch", "sam2")
+    or name.startswith(("organoidtracker.core.sam2_tracker", "organoidtracker.core.model_registry"))
+)
+print("MODEL_MODULES", loaded)
+sys.exit(code)
+"""
+
+
+def test_export_reproduces_the_run_in_a_process_without_torch_or_sam2(tmp_path, small_disc, small_video, monkeypatch):
+    """run -> exit the process -> export elsewhere with model loading impossible: the same exports, bit for bit."""
+    run_dir, code = _run_dir(tmp_path, small_disc, small_video, monkeypatch, partial_after=5)
+    assert code == 3
+    out = tmp_path / "export"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            NO_MODEL_SCRIPT,
+            "export",
+            "--run",
+            str(run_dir),
+            "--out",
+            str(out),
+            "--log-level",
+            "WARNING",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 3, proc.stderr  # the saved run was partial, so is its export
+    assert "MODEL_MODULES []" in proc.stdout, proc.stdout
+    original = json.loads((run_dir / "run_manifest.json").read_text())
+    exported = json.loads((out / "run_manifest.json").read_text())
+    assert exported["produced_by"] == "export" and exported["masks"] == original["masks"]
+    assert exported["tracking"] == original["tracking"] and exported["status"] == "partial"
+    assert exported["environment"]["torch"] is None  # recorded truthfully: no torch in that process
+    for name in ("raw_cyst_data.csv", "cyst_summary.csv", "organoid_summary.csv"):
+        assert (out / name).read_bytes() == (run_dir / name).read_bytes(), name
+    for figure in (run_dir / "visualizations").glob("*.png"):
+        assert (out / "visualizations" / figure.name).read_bytes() == figure.read_bytes(), figure.name
+    for name in ("multi_object_overlay.mp4", "multi_object_mask.mp4", "multi_object_side_by_side.mp4"):
+        assert (out / "videos" / name).stat().st_size == (run_dir / "videos" / name).stat().st_size, name
+    assert (out / "results.json").read_bytes() == (run_dir / "results.json").read_bytes()
+
+
+def test_export_exit_codes(tmp_path, small_disc, small_video, monkeypatch):
+    run_dir, code = _run_dir(tmp_path, small_disc, small_video, monkeypatch)
+    assert code == 0
+    # in place needs --overwrite; then the exports are replaced and the result survives
+    assert cli.main(["export", "--run", str(run_dir), "--log-level", "ERROR"]) == 2
+    assert cli.main(["export", "--run", str(run_dir), "--overwrite", "--no-videos", "--log-level", "ERROR"]) == 0
+    assert (run_dir / "results.json").is_file() and not (run_dir / "videos").exists()
+    # another directory: fresh is fine, one holding a run is refused unless overwritten
+    out = tmp_path / "out"
+    assert cli.main(["export", "--run", str(run_dir), "--out", str(out), "--no-videos", "--log-level", "ERROR"]) == 0
+    assert cli.main(["export", "--run", str(run_dir), "--out", str(out), "--no-videos", "--log-level", "ERROR"]) == 2
+    assert (
+        cli.main(
+            [
+                "export",
+                "--run",
+                str(run_dir / "results.json"),
+                "--out",
+                str(out),
+                "--no-videos",
+                "--overwrite",
+                "--log-level",
+                "ERROR",
+            ]
+        )
+        == 0
+    )
+    # the video is needed only for the videos; a different file is refused
+    hidden = tmp_path / "hidden.mp4"
+    os.replace(small_video, hidden)
+    try:
+        assert cli.main(["export", "--run", str(run_dir), "--out", str(tmp_path / "v"), "--log-level", "ERROR"]) == 2
+        assert not (tmp_path / "v" / "run_manifest.json").exists()
+        assert (
+            cli.main(
+                ["export", "--run", str(run_dir), "--out", str(tmp_path / "t"), "--no-videos", "--log-level", "ERROR"]
+            )
+            == 0
+        )
+        other = tmp_path / "other.mp4"
+        other.write_bytes(hidden.read_bytes() + b"\0")
+        assert (
+            cli.main(
+                [
+                    "export",
+                    "--run",
+                    str(run_dir),
+                    "--out",
+                    str(tmp_path / "w"),
+                    "--video",
+                    str(other),
+                    "--log-level",
+                    "ERROR",
+                ]
+            )
+            == 2
+        )
+        assert (
+            cli.main(
+                [
+                    "export",
+                    "--run",
+                    str(run_dir),
+                    "--out",
+                    str(tmp_path / "r"),
+                    "--video",
+                    str(hidden),
+                    "--log-level",
+                    "ERROR",
+                ]
+            )
+            == 0
+        )
+        assert (tmp_path / "r" / "videos" / "multi_object_overlay.mp4").is_file()
+    finally:
+        os.replace(hidden, small_video)
+    # a directory without a saved result, and a damaged one
+    assert (
+        cli.main(["export", "--run", str(tmp_path / "nowhere"), "--out", str(tmp_path / "x"), "--log-level", "ERROR"])
+        == 2
+    )
+    masks = next(run_dir.glob("masks-*.npz"))
+    masks.write_bytes(masks.read_bytes()[:-40])
+    assert (
+        cli.main(["export", "--run", str(run_dir), "--out", str(tmp_path / "d"), "--no-videos", "--log-level", "ERROR"])
+        == 2
+    )
+    assert not (tmp_path / "d" / "run_manifest.json").exists()
+
+
+def test_export_failure_exits_1(tmp_path, small_disc, small_video, monkeypatch):
+    run_dir, _ = _run_dir(tmp_path, small_disc, small_video, monkeypatch)
+    out = tmp_path / "out"
+    (out / "organoid_analysis_report.pdf").mkdir(parents=True)
+    assert cli.main(["export", "--run", str(run_dir), "--out", str(out), "--no-videos", "--log-level", "ERROR"]) == 1
+    assert not (out / "run_manifest.json").exists() and (out / "results.json").is_file()
