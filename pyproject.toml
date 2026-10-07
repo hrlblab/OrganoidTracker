@@ -51,6 +51,11 @@ tk = []
 # support RTX 50-series GPUs and need an NVIDIA driver of the 580 series or newer.
 cpu = ["torch>=2.7", "torchvision>=0.22"]
 cuda = ["torch>=2.7", "torchvision>=0.22"]
+# Interfaces that later work packages add; declared now so that the lock file already covers
+# them. `qt`: the PySide6 desktop application. `hf`: the Hugging Face `transformers` video
+# backends (SAM 2.1, SAM 3.1 tracker, EdgeTAM) and model downloads.
+qt = ["pyside6>=6.11,<6.12"]
+hf = ["transformers>=5.19"]
 
 [dependency-groups]
 dev = [
