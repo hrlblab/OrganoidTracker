@@ -10,5 +10,6 @@ except PackageNotFoundError:  # imported from a source tree that was not install
 # Version of the scientific results (masks, measurements, time axes) that this code produces.
 # It is written into every export and bumped whenever a change alters results; the changelog
 # records each bump under "Scientific behavior". 0 is the untouched upstream code (tag
-# legacy-baseline); 1 is the corrected frame contract of WP1.
-RESULTS_VERSION = 1
+# legacy-baseline); 1 is the corrected frame contract of WP1; 2 corrects the analysis
+# bookkeeping (phantom cysts, borrowed masks, frame count, growth-rate unit).
+RESULTS_VERSION = 2

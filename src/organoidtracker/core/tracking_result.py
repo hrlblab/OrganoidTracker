@@ -28,6 +28,7 @@ class TrackingResult(dict):
         annotation_frame: int | None = None,
         frame_map: list[int] | None = None,
         presence: dict[int, dict[int, float]] | None = None,
+        tracked_frames: list[int] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -39,6 +40,8 @@ class TrackingResult(dict):
         self.annotation_frame = annotation_frame
         self.frame_map = list(frame_map) if frame_map is not None else []
         self.presence = presence if presence is not None else {}
+        # Frames the propagation visited, in order; a visited frame may have no accepted mask.
+        self.tracked_frames = list(tracked_frames) if tracked_frames is not None else []
 
     @property
     def is_complete(self) -> bool:

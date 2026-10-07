@@ -6,6 +6,7 @@ and their associated cysts across video frames.
 """
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -78,8 +79,15 @@ class CystTrajectory:
         """Get number of frames this cyst appears in"""
         return len(self.frame_data)
 
-    def get_mean_area_growth_rate(self, conversion_factor: float = 1.0) -> float:
-        """Calculate mean area growth rate (μm²/frame)"""
+    def get_mean_area_growth_rate(
+        self, conversion_factor: float = 1.0, frame_timestamps: Sequence[float] | None = None
+    ) -> float:
+        """Mean area change between consecutive observed frames.
+
+        With ``frame_timestamps`` (days per frame index) the rate is in μm² per day, the paper's
+        overall growth rate: the mean over consecutive observed time points of
+        (A[i+1] - A[i]) / (t[i+1] - t[i]). Without timestamps it is μm² per frame index.
+        """
         if len(self.frame_data) < 2:
             return 0.0
 
@@ -92,10 +100,13 @@ class CystTrajectory:
             curr_frame = frames[i]
             prev_area = self.get_area_at_frame(prev_frame, conversion_factor)
             curr_area = self.get_area_at_frame(curr_frame, conversion_factor)
+            if frame_timestamps is not None:
+                elapsed = frame_timestamps[curr_frame] - frame_timestamps[prev_frame]
+            else:
+                elapsed = curr_frame - prev_frame
 
-            if prev_area is not None and curr_area is not None:
-                growth = (curr_area - prev_area) / (curr_frame - prev_frame)
-                total_growth += growth
+            if prev_area is not None and curr_area is not None and elapsed > 0:
+                total_growth += (curr_area - prev_area) / elapsed
                 growth_periods += 1
 
         return total_growth / growth_periods if growth_periods > 0 else 0.0
@@ -148,13 +159,17 @@ class OrganoidData:
             cyst.first_appearance_frame for cyst in self.cysts.values() if cyst.first_appearance_frame is not None
         )
 
-    def get_mean_growth_rate(self, conversion_factor: float = 1.0) -> float:
-        """Calculate mean growth rate across all cysts"""
+    def get_mean_growth_rate(
+        self, conversion_factor: float = 1.0, frame_timestamps: Sequence[float] | None = None
+    ) -> float:
+        """Mean of the cysts' growth rates (μm² per day with ``frame_timestamps``, else per frame)."""
         if not self.cysts:
             return 0.0
 
-        growth_rates = [cyst.get_mean_area_growth_rate(conversion_factor) for cyst in self.cysts.values()]
-        return np.mean(growth_rates) if growth_rates else 0.0
+        growth_rates = [
+            cyst.get_mean_area_growth_rate(conversion_factor, frame_timestamps) for cyst in self.cysts.values()
+        ]
+        return float(np.mean(growth_rates)) if growth_rates else 0.0
 
 
 @dataclass
@@ -167,6 +182,7 @@ class ExperimentData:
     organoids: dict[int, OrganoidData] = field(default_factory=dict)  # organoid_id -> OrganoidData
     next_organoid_id: int = 1
     frame_timestamps: list[float] = field(default_factory=list)  # Time for each frame
+    observed_frames: list[int] | None = None  # frames the tracker visited; None means all frames
 
     def __post_init__(self):
         """Initialize frame timestamps if not provided"""
@@ -225,17 +241,30 @@ class ExperimentData:
             all_cysts.extend(organoid.cysts.values())
         return all_cysts
 
+    def frames_observed(self) -> list[int]:
+        """Frame indices that were tracked (every frame when the run did not record them)."""
+        if self.observed_frames is None:
+            return list(range(self.total_frames))
+        return sorted(f for f in self.observed_frames if 0 <= f < self.total_frames)
+
+    def is_observed(self, frame_index: int) -> bool:
+        return self.observed_frames is None or frame_index in self.observed_frames
+
     def get_time_at_frame(self, frame_index: int) -> float:
         """Get time (in days) at specific frame"""
         if 0 <= frame_index < len(self.frame_timestamps):
             return self.frame_timestamps[frame_index]
         return 0.0
 
+    def growth_rate_per_day(self, cyst: CystTrajectory) -> float:
+        """A cyst's overall growth rate in μm² per day on this experiment's time axis."""
+        return cyst.get_mean_area_growth_rate(self.conversion_factor_um_per_pixel, self.frame_timestamps)
+
     def sort_organoids_by_growth_rate(self) -> list[tuple[int, float]]:
-        """Sort organoids by their growth rate (returns list of (organoid_id, growth_rate))"""
+        """Organoids by mean cyst growth rate in μm² per day, fastest first."""
         organoid_growth_rates = []
         for organoid_id, organoid in self.organoids.items():
-            growth_rate = organoid.get_mean_growth_rate(self.conversion_factor_um_per_pixel)
+            growth_rate = organoid.get_mean_growth_rate(self.conversion_factor_um_per_pixel, self.frame_timestamps)
             organoid_growth_rates.append((organoid_id, growth_rate))
 
         # Sort by growth rate (descending - fastest first)
@@ -250,6 +279,7 @@ class ExperimentData:
             "conversion_factor_um_per_pixel": self.conversion_factor_um_per_pixel,
             "total_organoids": self.get_total_organoid_count(),
             "frame_timestamps": self.frame_timestamps,
+            "observed_frames": self.observed_frames,
             "organoid_count": len(self.organoids),
             "total_cyst_count": len(self.get_all_cysts()),
         }

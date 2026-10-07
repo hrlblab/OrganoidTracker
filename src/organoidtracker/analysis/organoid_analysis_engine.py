@@ -32,6 +32,7 @@ class OrganoidAnalysisEngine:
         organoid_data: dict[int, dict],  # From GUI: {organoid_id: {'point': (x,y), 'cysts': [...]}}
         time_lapse_days: float,
         total_frames: int,
+        observed_frames: list[int] | None = None,
     ) -> ExperimentData:
         """
         Extract complete experiment data from SAM2 tracking results
@@ -41,6 +42,7 @@ class OrganoidAnalysisEngine:
             organoid_data: Organoid-cyst relationships from GUI workflow
             time_lapse_days: Total experiment duration
             total_frames: Number of video frames
+            observed_frames: Frames the tracker visited (None: all frames)
 
         Returns:
             ExperimentData: Complete structured experiment data
@@ -52,6 +54,7 @@ class OrganoidAnalysisEngine:
             total_frames=total_frames,
             time_lapse_days=time_lapse_days,
             conversion_factor_um_per_pixel=self.conversion_factor,
+            observed_frames=observed_frames,
         )
 
         # Process each organoid and its cysts
@@ -138,26 +141,18 @@ class OrganoidAnalysisEngine:
 
     def _get_mask_for_cyst_frame(self, masks_data: Any, cyst_id: int, frame_idx: int) -> np.ndarray | None:
         """
-        Extract mask for specific cyst at specific frame from tracking results
+        The mask of ``cyst_id`` at ``frame_idx`` from ``{frame_idx: {obj_id: mask}}`` results, or None.
+
+        A frame without a mask for this object is a missing observation; nothing is substituted
+        for it (an earlier "alternative format" branch swapped object and frame indices and could
+        return another object's mask from another frame).
         """
         try:
             mask = None
-
-            # Handle different mask data formats from SAM2
             if isinstance(masks_data, dict):
-                # Format: {frame_idx: {obj_id: mask}}
-                if frame_idx in masks_data and cyst_id in masks_data[frame_idx]:
-                    mask = masks_data[frame_idx][cyst_id]
-
-                # Alternative format: {obj_id: {frame_idx: mask}}
-                elif cyst_id in masks_data and frame_idx in masks_data[cyst_id]:
-                    mask = masks_data[cyst_id][frame_idx]
-
-            elif isinstance(masks_data, list) and len(masks_data) > frame_idx:
-                # Format: [frame_data, ...] where frame_data has object masks
-                frame_data = masks_data[frame_idx]
-                if isinstance(frame_data, dict) and cyst_id in frame_data:
-                    mask = frame_data[cyst_id]
+                frame_masks = masks_data.get(frame_idx)
+                if isinstance(frame_masks, dict):
+                    mask = frame_masks.get(cyst_id)
 
             # Convert PyTorch tensor to NumPy array if needed
             if mask is not None:

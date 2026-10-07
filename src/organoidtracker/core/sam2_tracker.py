@@ -489,6 +489,7 @@ class SAM2Tracker(BaseVideoTracker):
                 result.presence[frame_idx] = self._presence_scores(frame_idx, out_obj_ids)
 
                 processed_frames.append(frame_idx)
+                result.tracked_frames.append(frame_idx)
                 if len(processed_frames) > memory_frames:
                     self._clear_old_frame_memory(processed_frames.pop(0))
 
