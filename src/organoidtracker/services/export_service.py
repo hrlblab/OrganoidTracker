@@ -45,6 +45,20 @@ RUN_ARTIFACT_FILES = (
     "experiment_data_debug.json",
 )
 RUN_ARTIFACT_DIRS = ("visualizations", VIDEO_DIR_NAME)
+# What a report must contain; a missing item fails the run instead of being logged and forgotten
+REQUIRED_CSV = (
+    ("raw_data", "raw_cyst_data.csv"),
+    ("cyst_summary", "cyst_summary.csv"),
+    ("organoid_summary", "organoid_summary.csv"),
+)
+REQUIRED_FIGURES = (
+    "organoids_with_cysts",
+    "cyst_organoid_ratio",
+    "cyst_areas_multiline",
+    "cyst_circularity_multiline",
+    "circularity_scatter",
+    "lasagna_plot",
+)
 
 ProgressCallback = Callable[[int, int, str], None]
 
@@ -200,8 +214,30 @@ class ExportService:
         """CSV tables, figures, PDF and ``analysis_summary.json`` at the output directory's root."""
         self.generator._original_frames = list(original_frames) if original_frames is not None else None
         summary = self.generator.write_report(analysis, str(self.output_dir), debug_mode=debug_mode)
-        csv_files = summary.get("output_files", {}).get("csv_files", {})
-        missing = [name for name in ("raw_data", "cyst_summary", "organoid_summary") if not csv_files.get(name)]
+        missing = self.missing_report_artifacts(summary)
         if missing:
-            raise ExportError(f"the report did not produce the CSV tables {missing}; see the log")
+            # The generator logs and swallows export errors; the directory must not look successful.
+            summary["success"] = False
+            summary["error"] = f"incomplete report, missing: {', '.join(missing)}"
+            self._write_json(self.output_dir / "analysis_summary.json", summary)
+            raise ExportError(f"the report is incomplete, missing: {', '.join(missing)}; the log names the error")
         return summary
+
+    def missing_report_artifacts(self, summary: dict[str, Any]) -> list[str]:
+        """Required report files that the summary does not name or that do not exist."""
+        outputs = summary.get("output_files", {}) or {}
+        missing = []
+        csv_files = outputs.get("csv_files", {}) or {}
+        for key, name in REQUIRED_CSV:
+            if not csv_files.get(key) or not Path(csv_files[key]).is_file():
+                missing.append(name)
+        pdf = outputs.get("pdf_report")
+        if not pdf or not Path(pdf).is_file():
+            missing.append("organoid_analysis_report.pdf")
+        figures = outputs.get("visualizations", {}) or {}
+        for key in REQUIRED_FIGURES:
+            if not figures.get(key) or not Path(figures[key]).is_file():
+                missing.append(f"figure {key}")
+        if not (self.output_dir / "analysis_summary.json").is_file():
+            missing.append("analysis_summary.json")
+        return missing

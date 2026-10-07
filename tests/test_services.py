@@ -398,3 +398,25 @@ def test_an_unfinished_run_directory_is_refused_and_stray_files_survive(small_di
     )
     assert outcome.complete and (out / "notes.txt").read_text() == "keep me"
     assert "notes.txt" in json.loads(outcome.manifest_path.read_text())["files"]  # inventoried, never deleted
+
+
+def test_a_missing_pdf_fails_the_run_and_marks_the_summary(small_disc, small_video, tmp_path, monkeypatch):
+    from organoidtracker.analysis.organoid_report_generator import OrganoidAnalysisReportGenerator
+
+    monkeypatch.setattr(OrganoidAnalysisReportGenerator, "_generate_enhanced_pdf_report", lambda self, *a, **k: None)
+    with pytest.raises(ExportError, match="organoid_analysis_report.pdf"):
+        run(make_session(small_disc, small_video), tmp_path / "run", small_disc)
+    out = tmp_path / "run"
+    assert not (out / "run_manifest.json").exists()
+    summary = json.loads((out / "analysis_summary.json").read_text())
+    assert summary["success"] is False and "organoid_analysis_report.pdf" in summary["error"]
+    assert (out / "raw_cyst_data.csv").is_file()  # what was produced stays, labelled as incomplete
+
+
+def test_a_missing_figure_fails_the_run(small_disc, small_video, tmp_path, monkeypatch):
+    from organoidtracker.analysis.organoid_visualizations import OrganoidVisualizationSuite
+
+    monkeypatch.setattr(OrganoidVisualizationSuite, "plot_lasagna_heatmap", lambda self, *a, **k: None)
+    with pytest.raises(ExportError, match="figure lasagna_plot"):
+        run(make_session(small_disc, small_video), tmp_path / "run", small_disc)
+    assert not (tmp_path / "run" / "run_manifest.json").exists()

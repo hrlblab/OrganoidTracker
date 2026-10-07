@@ -153,6 +153,16 @@ def test_backend_failure_exits_1(tmp_path, small_disc, small_video, monkeypatch)
     )
 
 
+def test_report_export_failure_exits_1(tmp_path, small_disc, small_video, monkeypatch):
+    use_fake_backend(monkeypatch, small_disc)
+    path = session_file(tmp_path, small_disc, small_video)
+    out = tmp_path / "run"
+    (out / "organoid_analysis_report.pdf").mkdir(parents=True)  # the PDF cannot be written here
+    assert cli.main(["run", "--session", str(path), "--out", str(out), "--no-videos", "--log-level", "ERROR"]) == 1
+    assert not (out / "run_manifest.json").exists()
+    assert json.loads((out / "analysis_summary.json").read_text())["success"] is False
+
+
 def test_overrides_reach_the_session(tmp_path, small_disc, small_video, monkeypatch):
     seen = {}
 
