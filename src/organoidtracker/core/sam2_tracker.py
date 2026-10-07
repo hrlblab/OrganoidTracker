@@ -15,6 +15,7 @@ directions, so the output and analysis code never reorder anything.
 """
 
 import hashlib
+import logging
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -29,6 +30,8 @@ from .base_model import BaseVideoTracker, ModelCapabilities, ModelMetadata
 from .masks import PackedMask
 from .tracking_result import TrackingResult
 
+logger = logging.getLogger(__name__)
+
 warnings.filterwarnings("ignore")
 
 # Hydra configs owned by the application (variants of the vendored SAM2 configs).
@@ -40,9 +43,9 @@ try:
     from .sam2_frames import build_frame_predictor
 
     SAM2_AVAILABLE = True
-    print("✅ SAM2 package imported")
+    logger.info("SAM2 package imported")
 except ImportError as e:  # pragma: no cover - environment dependent
-    print(f"⚠️  SAM2 not available: {e}")
+    logger.warning(f"SAM2 not available: {e}")
     SAM2_AVAILABLE = False
 
     def build_frame_predictor(*args, **kwargs):
@@ -167,14 +170,14 @@ class SAM2Tracker(BaseVideoTracker):
         # Resolve the device once; every later operation uses the same resolved device.
         requested = str(device)
         if requested.startswith("cuda") and not torch.cuda.is_available():
-            print("⚠️  CUDA not available, using CPU")
+            logger.warning("CUDA not available, using CPU")
             requested = "cpu"
         self.device = torch.device(requested)
         self.device_name = requested
 
         if checkpoint_path is None:
             checkpoint_path = str(checkpoints_dir() / checkpoint_filename(model_config, self.checkpoint_family))
-            print(f"   Auto-selected SAM2 checkpoint: {checkpoint_path}")
+            logger.debug(f"Auto-selected SAM2 checkpoint: {checkpoint_path}")
         self.checkpoint_path = checkpoint_path
         self.checkpoint_sha256: str | None = None
 
@@ -222,24 +225,28 @@ class SAM2Tracker(BaseVideoTracker):
     def load_model(self, **kwargs) -> bool:
         """Load and initialize the SAM2 model"""
         if not SAM2_AVAILABLE:
-            print("❌ SAM2 not available. Please install sam2 package.")
+            logger.error("SAM2 not available. Please install sam2 package.")
             return False
 
         try:
             from hydra.core.global_hydra import GlobalHydra
 
             if not Path(self.checkpoint_path).is_file():
-                print(f"❌ Checkpoint not found: {self.checkpoint_path}")
-                print(f"   Download it with: bash checkpoints/download_ckpts.sh {self.checkpoint_family}")
+                logger.error(
+                    f"Checkpoint not found: {self.checkpoint_path}. "
+                    f"Download it with: bash checkpoints/download_ckpts.sh {self.checkpoint_family}"
+                )
                 return False
 
             improved = bool(_app_setting("SAM2_USE_IMPROVED_CONFIG", False))
             config_file = config_filename(self.model_config, self.checkpoint_family, improved)
 
-            print("🔄 Loading SAM2 model...")
-            print(f"   Family: SAM {self.checkpoint_family}   Size: {self.model_config}   Device: {self.device_name}")
-            print(f"   Config: {config_file}")
-            print(f"   Checkpoint: {self.checkpoint_path}")
+            logger.info("Loading SAM2 model...")
+            logger.debug(
+                f"Family: SAM {self.checkpoint_family}   Size: {self.model_config}   Device: {self.device_name}"
+            )
+            logger.debug(f"Config: {config_file}")
+            logger.debug(f"Checkpoint: {self.checkpoint_path}")
 
             GlobalHydra.instance().clear()
             with hydra_search_path(config_file):
@@ -248,14 +255,13 @@ class SAM2Tracker(BaseVideoTracker):
             self.checkpoint_sha256 = _sha256_file(self.checkpoint_path)
             self.is_loaded = True
             self.is_initialized = True
-            print("✅ SAM2 model loaded successfully!")
+            logger.info("SAM2 model loaded successfully!")
             return True
         except Exception as e:
             import traceback
 
-            print(f"❌ Error loading SAM2: {str(e)}")
-            print("Full traceback:")
-            print(traceback.format_exc())
+            logger.error(f"Error loading SAM2: {str(e)}")
+            logger.debug(f"Full traceback:\n{traceback.format_exc()}")
             return False
 
     # ------------------------------------------------------------------ video
@@ -275,7 +281,7 @@ class SAM2Tracker(BaseVideoTracker):
         if not self.is_loaded:
             raise RuntimeError("Model not loaded. Call load_model() first.")
 
-        print(f"📹 Loading video: {video_path}")
+        logger.info(f"Loading video: {video_path}")
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise ValueError(f"Cannot open video file: {video_path}")
@@ -314,19 +320,19 @@ class SAM2Tracker(BaseVideoTracker):
 
         if self.duplicate_frames_removed:
             removed = [i for i in range(decoded) if i not in set(keep)]
-            print(
-                f"🧹 Collapsed {self.duplicate_frames_removed} duplicated frame(s) {removed}: {decoded} decoded -> {n} unique time points"
+            logger.info(
+                f"Collapsed {self.duplicate_frames_removed} duplicated frame(s) {removed}: {decoded} decoded -> {n} unique time points"
             )
         direction = "reverse" if self.enable_reverse_tracking else "forward"
-        print(
-            f"🔄 Tracking direction: {direction}; annotation frame = chronological frame {self.annotation_frame_index}"
+        logger.info(
+            f"Tracking direction: {direction}; annotation frame = chronological frame {self.annotation_frame_index}"
         )
 
-        print(f"🔍 Initializing inference state on device: {self.device}")
+        logger.info(f"Initializing inference state on device: {self.device}")
         self.inference_state = self.predictor.init_state_from_frames(
             self.video_frames, offload_video_to_cpu=False, offload_state_to_cpu=False
         )
-        print(f"✅ Loaded {n} unique frames ({decoded} decoded) at nominal {self.fps} FPS")
+        logger.info(f"Loaded {n} unique frames ({decoded} decoded) at nominal {self.fps} FPS")
 
         return {
             "num_frames": n,
@@ -363,7 +369,7 @@ class SAM2Tracker(BaseVideoTracker):
         """Add a click prompt (frame_idx is a display index; 0 is the annotation frame)."""
         try:
             chronological = self._to_chronological(frame_idx)
-            print(f"🎯 Adding click prompt at ({x}, {y}) with label {label} on chronological frame {chronological}")
+            logger.info(f"Adding click prompt at ({x}, {y}) with label {label} on chronological frame {chronological}")
             self.predictor.add_new_points_or_box(
                 inference_state=self.inference_state,
                 frame_idx=chronological,
@@ -384,19 +390,19 @@ class SAM2Tracker(BaseVideoTracker):
             )
             return True
         except Exception as e:
-            print(f"❌ Error adding click prompt: {str(e)}")
+            logger.error(f"Error adding click prompt: {str(e)}")
             return False
 
     def add_bbox_prompt(self, x1: int, y1: int, x2: int, y2: int, obj_id: int = 1, frame_idx: int = 0) -> bool:
         """Add a bounding box prompt (frame_idx is a display index; 0 is the annotation frame)."""
         if self.predictor is None or self.inference_state is None:
-            print("⚠️  No model or video loaded yet")
+            logger.warning("No model or video loaded yet")
             return False
         try:
             chronological = self._to_chronological(frame_idx)
             if self.debug_mode:
-                print(
-                    f"📦 Adding bbox prompt ({x1}, {y1})-({x2}, {y2}) for object {obj_id} on chronological frame {chronological}"
+                logger.info(
+                    f"Adding bbox prompt ({x1}, {y1})-({x2}, {y2}) for object {obj_id} on chronological frame {chronological}"
                 )
             self.predictor.add_new_points_or_box(
                 inference_state=self.inference_state,
@@ -418,13 +424,13 @@ class SAM2Tracker(BaseVideoTracker):
             )
             return True
         except Exception as e:
-            print(f"❌ Error adding bbox prompt: {str(e)}")
+            logger.error(f"Error adding bbox prompt: {str(e)}")
             return False
 
     # ------------------------------------------------------------------ tracking
     def run_tracking(self, progress_callback: Callable[..., None] | None = None) -> TrackingResult:
         """Propagate the prompts through the video and return masks keyed by chronological frame."""
-        print("🔄 Running object tracking...")
+        logger.info("Running object tracking...")
         if not self.prompts:
             raise ValueError("No prompts added. Add click or bbox prompts first.")
         if self.inference_state is None or not self.video_frames:
@@ -445,13 +451,13 @@ class SAM2Tracker(BaseVideoTracker):
         min_confidence = float(_app_setting("SAM2_MIN_CONFIDENCE", 0.3))
         memory_frames = int(_app_setting("SAM2_MEMORY_FRAMES", 2))
 
-        print(f"   🔍 Quality filtering: {'enabled' if enable_quality_filtering else 'disabled'}")
+        logger.debug(f"Quality filtering: {'enabled' if enable_quality_filtering else 'disabled'}")
         if enable_quality_filtering:
-            print(f"   🔍 Thresholds: min_area={min_mask_area}px, min_confidence={min_confidence:.1f}")
+            logger.debug(f"Thresholds: min_area={min_mask_area}px, min_confidence={min_confidence:.1f}")
         if memory_frames >= 1000:
-            print("   🧠 Memory dependence: ALL previous frames (unlimited)")
+            logger.debug("Memory dependence: ALL previous frames (unlimited)")
         else:
-            print(f"   🧠 Memory dependence: {memory_frames} previous frames")
+            logger.debug(f"Memory dependence: {memory_frames} previous frames")
 
         processed_frames: list[int] = []
         try:
@@ -471,7 +477,7 @@ class SAM2Tracker(BaseVideoTracker):
                         ):
                             frame_masks[out_obj_id] = PackedMask.from_logits(cleaned)
                         else:
-                            print(f"   🔍 Frame {frame_idx}, Object {out_obj_id}: Low quality mask filtered out")
+                            logger.debug(f"Frame {frame_idx}, Object {out_obj_id}: Low quality mask filtered out")
                     else:
                         frame_masks[out_obj_id] = PackedMask.from_logits(mask_logits)
 
@@ -491,14 +497,14 @@ class SAM2Tracker(BaseVideoTracker):
         except Exception as e:
             result.status = TrackingResult.PARTIAL
             result.error = f"{type(e).__name__}: {e}"
-            print(f"⚠️  Tracking stopped after {result.frames_done}/{total_frames} frames: {result.error}")
+            logger.warning(f"Tracking stopped after {result.frames_done}/{total_frames} frames: {result.error}")
 
         if not result:
             if result.error:
                 raise RuntimeError(f"Tracking failed before producing any masks: {result.error}")
             raise RuntimeError("No tracking results obtained. Check model compatibility.")
 
-        print(f"✅ Tracking {result.summary()}")
+        logger.info(f"Tracking {result.summary()}")
         return result
 
     def _presence_scores(self, frame_idx: int, obj_ids) -> dict[int, float]:
@@ -547,13 +553,13 @@ class SAM2Tracker(BaseVideoTracker):
             if removed_components > 0:
                 original_area = int(np.count_nonzero(binary_mask))
                 cleaned_area = int(np.count_nonzero(largest_component_mask))
-                print(
-                    f"      🧹 Cleaned mask: kept largest component ({cleaned_area}px), "
+                logger.debug(
+                    f"Cleaned mask: kept largest component ({cleaned_area}px), "
                     f"removed {removed_components} smaller components ({original_area - cleaned_area}px)"
                 )
             return cleaned
         except Exception as e:
-            print(f"      Warning: Error cleaning mask: {e}")
+            logger.warning(f"Error cleaning mask: {e}")
             if isinstance(mask_logits, torch.Tensor):
                 return mask_logits.detach().float().cpu().numpy().squeeze()
             return np.asarray(mask_logits, dtype=np.float32).squeeze()
@@ -569,9 +575,9 @@ class SAM2Tracker(BaseVideoTracker):
                     temp_output_dict_per_obj = self.inference_state.get("temp_output_dict_per_obj", {})
                     if obj_idx in temp_output_dict_per_obj:
                         temp_output_dict_per_obj[obj_idx]["non_cond_frame_outputs"].pop(frame_idx, None)
-                print(f"      🧠 Cleared memory for frame {frame_idx} (reducing memory dependence)")
+                logger.debug(f"Cleared memory for frame {frame_idx} (reducing memory dependence)")
         except Exception as e:
-            print(f"      Warning: Error clearing frame memory for frame {frame_idx}: {e}")
+            logger.warning(f"Error clearing frame memory for frame {frame_idx}: {e}")
 
     def _is_mask_quality_acceptable(self, mask_logits, min_area: int = 50, min_confidence: float = 0.3) -> bool:
         """Area, confidence and compactness checks on a logits array (or tensor)."""
@@ -617,13 +623,13 @@ class SAM2Tracker(BaseVideoTracker):
             result = area_ok and confidence_ok and structure_ok
             if not result:
                 detail = f", compactness={compactness:.3f}>0.15? {structure_ok}" if compactness is not None else ""
-                print(
-                    f"      Quality check: area={mask_area}>={min_area}? {area_ok}, "
+                logger.debug(
+                    f"Quality check: area={mask_area}>={min_area}? {area_ok}, "
                     f"confidence={max_confidence:.3f}>={min_confidence}? {confidence_ok}{detail}"
                 )
             return result
         except Exception as e:
-            print(f"      Warning: Error in mask quality check: {e}")
+            logger.warning(f"Error in mask quality check: {e}")
             return True
 
     # ------------------------------------------------------------------ results access
@@ -667,7 +673,7 @@ class SAM2Tracker(BaseVideoTracker):
             if obj_id is None:
                 self.prompts.clear()
                 self._reset_inference_state()
-                print("🧹 All prompts cleared")
+                logger.info("All prompts cleared")
                 return True
 
             self.prompts.pop(obj_id, None)
@@ -691,10 +697,10 @@ class SAM2Tracker(BaseVideoTracker):
                             labels=np.array([prompt.get("label", 1)], dtype=np.int32),
                             clear_old_points=False,
                         )
-            print(f"🧹 Prompts cleared for object {obj_id}")
+            logger.info(f"Prompts cleared for object {obj_id}")
             return True
         except Exception as e:
-            print(f"Error clearing prompts: {e}")
+            logger.error(f"Error clearing prompts: {e}")
             return False
 
     def get_prompt_count(self, obj_id: int | None = None) -> int:

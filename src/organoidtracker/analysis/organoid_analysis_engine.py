@@ -6,12 +6,15 @@ and converts it into the structured organoid-cyst data format for analysis.
 """
 
 import json
+import logging
 from typing import Any
 
 import cv2
 import numpy as np
 
 from .organoid_cyst_data import CystFrameData, CystTrajectory, ExperimentData, OrganoidData
+
+logger = logging.getLogger(__name__)
 
 
 class OrganoidAnalysisEngine:
@@ -42,7 +45,7 @@ class OrganoidAnalysisEngine:
         Returns:
             ExperimentData: Complete structured experiment data
         """
-        print(f"🔬 Extracting experiment data from {total_frames} frames...")
+        logger.info(f"Extracting experiment data from {total_frames} frames...")
 
         # Create experiment container
         experiment = ExperimentData(
@@ -53,7 +56,7 @@ class OrganoidAnalysisEngine:
 
         # Process each organoid and its cysts
         for organoid_id, organoid_info in organoid_data.items():
-            print(f"📍 Processing organoid {organoid_id} with {len(organoid_info['cysts'])} cysts...")
+            logger.info(f"Processing organoid {organoid_id} with {len(organoid_info['cysts'])} cysts...")
 
             # Create organoid data structure
             organoid = OrganoidData(organoid_id=organoid_id, marker_point=organoid_info["point"])
@@ -61,22 +64,22 @@ class OrganoidAnalysisEngine:
             # Process each cyst for this organoid
             for cyst_info in organoid_info["cysts"]:
                 cyst_id = cyst_info["cyst_id"]
-                print(f"  🔵 Processing cyst {cyst_id}...")
+                logger.debug(f"Processing cyst {cyst_id}...")
 
                 # Extract cyst trajectory from tracking results
                 cyst_trajectory = self._extract_cyst_trajectory(cyst_id, organoid_id, tracking_results, total_frames)
 
                 if cyst_trajectory and len(cyst_trajectory.frame_data) > 0:
                     organoid.add_cyst(cyst_trajectory)
-                    print(f"    ✅ Added trajectory with {len(cyst_trajectory.frame_data)} frames")
+                    logger.debug(f"Added trajectory with {len(cyst_trajectory.frame_data)} frames")
                 else:
-                    print(f"    ⚠️ No valid trajectory data for cyst {cyst_id}")
+                    logger.warning(f"No valid trajectory data for cyst {cyst_id}")
 
             # Add organoid to experiment
             experiment.add_organoid(organoid)
 
-        print(
-            f"✅ Experiment extraction complete: {len(experiment.organoids)} organoids, {len(experiment.get_all_cysts())} cysts"
+        logger.info(
+            f"Experiment extraction complete: {len(experiment.organoids)} organoids, {len(experiment.get_all_cysts())} cysts"
         )
         return experiment
 
@@ -100,13 +103,13 @@ class OrganoidAnalysisEngine:
                 # Direct SAM2 format: {frame_idx: {obj_id: mask}}
                 masks_data = tracking_results
                 if self.debug_mode:
-                    print(f"✅ Using direct SAM2 format for cyst {cyst_id}")
+                    logger.info(f"Using direct SAM2 format for cyst {cyst_id}")
             else:
-                print(f"⚠️ Unknown tracking results format for cyst {cyst_id}")
+                logger.warning(f"Unknown tracking results format for cyst {cyst_id}")
                 if self.debug_mode:
-                    print("   Expected 'video_segments' or 'masks' keys, or direct SAM2 format")
+                    logger.debug("Expected 'video_segments' or 'masks' keys, or direct SAM2 format")
                     if isinstance(tracking_results, dict):
-                        print(f"   Available keys: {list(tracking_results.keys())}")
+                        logger.debug(f"Available keys: {list(tracking_results.keys())}")
                 return None
 
             # Process each frame
@@ -124,13 +127,13 @@ class OrganoidAnalysisEngine:
 
                 except Exception as e:
                     if self.debug_mode:
-                        print(f"    Warning: Error processing frame {frame_idx} for cyst {cyst_id}: {e}")
+                        logger.warning(f"Error processing frame {frame_idx} for cyst {cyst_id}: {e}")
                     continue
 
             return trajectory if len(trajectory.frame_data) > 0 else None
 
         except Exception as e:
-            print(f"❌ Error extracting trajectory for cyst {cyst_id}: {e}")
+            logger.error(f"Error extracting trajectory for cyst {cyst_id}: {e}")
             return None
 
     def _get_mask_for_cyst_frame(self, masks_data: Any, cyst_id: int, frame_idx: int) -> np.ndarray | None:
@@ -180,7 +183,7 @@ class OrganoidAnalysisEngine:
 
         except Exception as e:
             if self.debug_mode:
-                print(f"Error getting mask for cyst {cyst_id}, frame {frame_idx}: {e}")
+                logger.error(f"Error getting mask for cyst {cyst_id}, frame {frame_idx}: {e}")
             return None
 
     def _calculate_cyst_metrics_from_mask(self, mask: np.ndarray, frame_idx: int) -> CystFrameData | None:
@@ -191,32 +194,32 @@ class OrganoidAnalysisEngine:
             # Validate mask dimensions - must be 2D
             if mask.ndim != 2:
                 if self.debug_mode:
-                    print(f"Invalid mask at frame {frame_idx}: Expected 2D array, got {mask.ndim}D")
+                    logger.info(f"Invalid mask at frame {frame_idx}: Expected 2D array, got {mask.ndim}D")
                 return None
 
             # Validate mask size - must have reasonable dimensions
             if mask.shape[0] < 1 or mask.shape[1] < 1:
                 if self.debug_mode:
-                    print(f"Invalid mask at frame {frame_idx}: Empty dimensions {mask.shape}")
+                    logger.info(f"Invalid mask at frame {frame_idx}: Empty dimensions {mask.shape}")
                 return None
 
             # Validate mask size - reject degenerate cases
             if mask.shape[0] == 1 and mask.shape[1] == 1:
                 if self.debug_mode:
-                    print(f"Invalid mask at frame {frame_idx}: Single pixel mask rejected")
+                    logger.info(f"Invalid mask at frame {frame_idx}: Single pixel mask rejected")
                 return None
 
             # Reject linear masks (lines that are essentially 1-dimensional)
             if mask.shape[0] == 1 or mask.shape[1] == 1:
                 if self.debug_mode:
-                    print(f"Invalid mask at frame {frame_idx}: Linear mask rejected {mask.shape}")
+                    logger.info(f"Invalid mask at frame {frame_idx}: Linear mask rejected {mask.shape}")
                 return None
 
             # Reject very thin masks (aspect ratio too extreme)
             aspect_ratio = max(mask.shape[0], mask.shape[1]) / min(mask.shape[0], mask.shape[1])
             if aspect_ratio > 10:  # More than 10:1 aspect ratio
                 if self.debug_mode:
-                    print(f"Invalid mask at frame {frame_idx}: Extreme aspect ratio {aspect_ratio:.1f}")
+                    logger.info(f"Invalid mask at frame {frame_idx}: Extreme aspect ratio {aspect_ratio:.1f}")
                 return None
 
             # Ensure mask is binary
@@ -235,7 +238,7 @@ class OrganoidAnalysisEngine:
             # Reject very small areas (likely noise or artifacts)
             if area_pixels < 9:  # Less than 3x3 pixels minimum
                 if self.debug_mode:
-                    print(f"Mask at frame {frame_idx}: Area too small ({area_pixels} pixels)")
+                    logger.info(f"Mask at frame {frame_idx}: Area too small ({area_pixels} pixels)")
                 return None
 
             # Calculate centroid
@@ -246,7 +249,7 @@ class OrganoidAnalysisEngine:
             # Validate centroid is within mask bounds
             if centroid_x < 0 or centroid_x >= mask.shape[1] or centroid_y < 0 or centroid_y >= mask.shape[0]:
                 if self.debug_mode:
-                    print(f"Invalid mask at frame {frame_idx}: Centroid outside bounds")
+                    logger.info(f"Invalid mask at frame {frame_idx}: Centroid outside bounds")
                 return None
 
             # Calculate circularity using contour
@@ -255,7 +258,7 @@ class OrganoidAnalysisEngine:
             # Validate circularity bounds
             if circularity < 0 or circularity > 1.0001:  # Allow small floating point error
                 if self.debug_mode:
-                    print(f"Invalid circularity at frame {frame_idx}: {circularity}")
+                    logger.info(f"Invalid circularity at frame {frame_idx}: {circularity}")
                 # Clamp to valid range
                 circularity = max(0.0, min(1.0, circularity))
 
@@ -272,7 +275,7 @@ class OrganoidAnalysisEngine:
 
         except Exception as e:
             if self.debug_mode:
-                print(f"Error calculating metrics from mask at frame {frame_idx}: {e}")
+                logger.error(f"Error calculating metrics from mask at frame {frame_idx}: {e}")
             return None
 
     def _calculate_circularity(self, mask: np.ndarray) -> float:
@@ -283,7 +286,7 @@ class OrganoidAnalysisEngine:
             # Validate input mask
             if mask.ndim != 2:
                 if self.debug_mode:
-                    print(f"Circularity: Invalid mask dimensions: {mask.ndim}D")
+                    logger.info(f"Circularity: Invalid mask dimensions: {mask.ndim}D")
                 return 0.0
 
             # Find contours
@@ -291,7 +294,7 @@ class OrganoidAnalysisEngine:
 
             if not contours:
                 if self.debug_mode:
-                    print("Circularity: No contours found")
+                    logger.info("Circularity: No contours found")
                 return 0.0
 
             # Use largest contour
@@ -300,7 +303,7 @@ class OrganoidAnalysisEngine:
             # Validate contour has sufficient points
             if len(largest_contour) < 3:
                 if self.debug_mode:
-                    print(f"Circularity: Insufficient contour points: {len(largest_contour)}")
+                    logger.info(f"Circularity: Insufficient contour points: {len(largest_contour)}")
                 return 0.0
 
             # Calculate area and perimeter
@@ -310,7 +313,7 @@ class OrganoidAnalysisEngine:
             # Validate measurements
             if perimeter <= 0 or area <= 0:
                 if self.debug_mode:
-                    print(f"Circularity: Invalid measurements - area: {area}, perimeter: {perimeter}")
+                    logger.info(f"Circularity: Invalid measurements - area: {area}, perimeter: {perimeter}")
                 return 0.0
 
             # Additional validation for degenerate shapes
@@ -326,7 +329,7 @@ class OrganoidAnalysisEngine:
             # Validate result
             if np.isnan(circularity) or np.isinf(circularity):
                 if self.debug_mode:
-                    print(f"Circularity: Invalid result: {circularity}")
+                    logger.info(f"Circularity: Invalid result: {circularity}")
                 return 0.0
 
             # Clamp to [0, 1] (perfect circle = 1)
@@ -334,7 +337,7 @@ class OrganoidAnalysisEngine:
 
         except Exception as e:
             if self.debug_mode:
-                print(f"Error calculating circularity: {e}")
+                logger.error(f"Error calculating circularity: {e}")
             return 0.0
 
     def save_experiment_data(self, experiment: ExperimentData, output_path: str):
@@ -379,10 +382,10 @@ class OrganoidAnalysisEngine:
             with open(output_path, "w") as f:
                 json.dump(summary, f, indent=2)
 
-            print(f"💾 Experiment data summary saved to: {output_path}")
+            logger.info(f"Experiment data summary saved to: {output_path}")
 
         except Exception as e:
-            print(f"❌ Error saving experiment data: {e}")
+            logger.error(f"Error saving experiment data: {e}")
 
 
 class OrganoidAnalysisValidator:

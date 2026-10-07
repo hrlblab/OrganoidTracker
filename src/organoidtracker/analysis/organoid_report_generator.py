@@ -5,6 +5,7 @@ Integrates the new organoid-cyst analysis system with comprehensive reporting.
 """
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,8 @@ from .organoid_cyst_data import ExperimentData
 from .organoid_visualizations import OrganoidVisualizationSuite
 
 # Optional imports for enhanced reporting
+logger = logging.getLogger(__name__)
+
 try:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -26,7 +29,7 @@ try:
     HAS_REPORTLAB = True
 except ImportError:
     HAS_REPORTLAB = False
-    print("⚠️ ReportLab not available. PDF reports will be basic.")
+    logger.warning("ReportLab not available. PDF reports will be basic.")
 
 
 class OrganoidAnalysisReportGenerator:
@@ -57,19 +60,19 @@ class OrganoidAnalysisReportGenerator:
         Returns:
             Dictionary with paths to all generated files and analysis summary
         """
-        print("🧬 Starting comprehensive organoid analysis...")
-        print(f"   📁 Output directory: {output_dir}")
-        print(f"   🕐 Time lapse: {time_lapse_days} days")
-        print(f"   📏 Conversion factor: {conversion_factor} μm/pixel")
-        print(f"   🔍 Debug mode: {debug_mode}")
+        logger.info("Starting comprehensive organoid analysis...")
+        logger.debug(f"Output directory: {output_dir}")
+        logger.debug(f"Time lapse: {time_lapse_days} days")
+        logger.debug(f"Conversion factor: {conversion_factor} μm/pixel")
+        logger.debug(f"Debug mode: {debug_mode}")
 
         # Store data for frame comparison section
         self._original_frames = original_frames
         self._tracking_results = tracking_results
         if original_frames:
-            print(f"   📸 Frame comparison: {len(original_frames)} original frames available")
+            logger.debug(f"Frame comparison: {len(original_frames)} original frames available")
         else:
-            print("   📸 Frame comparison: Original frames not available")
+            logger.debug("Frame comparison: Original frames not available")
 
         # Create output directory
         output_path = Path(output_dir)
@@ -81,11 +84,11 @@ class OrganoidAnalysisReportGenerator:
 
         try:
             # Step 1: Check for data reconstruction needs
-            print("\n🔍 Step 1: Checking data integrity...")
+            logger.info("Step 1: Checking data integrity...")
 
             # Determine total frames from tracking results
             total_frames = self._determine_total_frames(tracking_results)
-            print(f"   📊 Total frames detected: {total_frames}")
+            logger.debug(f"Total frames detected: {total_frames}")
 
             # Set debug mode for reconstruction engine
             self.reconstruction_engine.debug_mode = debug_mode
@@ -100,9 +103,9 @@ class OrganoidAnalysisReportGenerator:
             reconstruction_performed = False
 
             if mismatch_info["has_mismatch"] and mismatch_info["reconstruction_possible"]:
-                print("\n🛠️ Step 1b: Reconstructing missing cyst data...")
-                print(
-                    f"   ⚠️ Detected {mismatch_info['missing_cysts']} missing cysts from {mismatch_info['tracked_objects']} tracked objects"
+                logger.info("Step 1b: Reconstructing missing cyst data...")
+                logger.warning(
+                    f"Detected {mismatch_info['missing_cysts']} missing cysts from {mismatch_info['tracked_objects']} tracked objects"
                 )
 
                 final_organoid_data = self.reconstruction_engine.reconstruct_organoid_data(
@@ -116,16 +119,16 @@ class OrganoidAnalysisReportGenerator:
                     self.reconstruction_engine.save_reconstruction_report(
                         mismatch_info, final_organoid_data, str(reconstruction_report_path)
                     )
-                    print(f"   📄 Reconstruction report saved: {reconstruction_report_path}")
+                    logger.debug(f"Reconstruction report saved: {reconstruction_report_path}")
 
             elif mismatch_info["has_mismatch"]:
-                print("\n⚠️ Warning: Data mismatch detected but reconstruction not possible")
-                print(f"   • Tracked objects: {mismatch_info['tracked_objects']}")
-                print(f"   • Expected objects: {mismatch_info['expected_total']}")
-                print("   • Proceeding with available data...")
+                logger.warning("Data mismatch detected but reconstruction not possible")
+                logger.debug(f"• Tracked objects: {mismatch_info['tracked_objects']}")
+                logger.debug(f"• Expected objects: {mismatch_info['expected_total']}")
+                logger.debug("• Proceeding with available data...")
 
             # Step 2: Extract experiment data from tracking results
-            print("\n🔬 Step 2: Extracting experiment data...")
+            logger.info("Step 2: Extracting experiment data...")
 
             experiment = self.analysis_engine.extract_experiment_data_from_tracking(
                 tracking_results=tracking_results,
@@ -140,17 +143,17 @@ class OrganoidAnalysisReportGenerator:
                 self.analysis_engine.save_experiment_data(experiment, str(experiment_json_path))
 
             # Step 3: Validate data quality
-            print("\n✅ Step 3: Validating data quality...")
+            logger.info("Step 3: Validating data quality...")
             validation_results = self.validator.validate_experiment_data(experiment)
 
-            print("   📊 Validation summary:")
-            print(f"      • Total organoids: {validation_results['total_organoids']}")
-            print(f"      • Total cysts: {validation_results['total_cysts']}")
-            print(f"      • Frames analyzed: {validation_results['frames_analyzed']}")
+            logger.debug("Validation summary:")
+            logger.debug(f"• Total organoids: {validation_results['total_organoids']}")
+            logger.debug(f"• Total cysts: {validation_results['total_cysts']}")
+            logger.debug(f"• Frames analyzed: {validation_results['frames_analyzed']}")
 
             if validation_results.get("warnings"):
                 for warning in validation_results["warnings"]:
-                    print(f"   ⚠️ {warning}")
+                    logger.warning(f"{warning}")
 
             # Add reconstruction info to validation results
             if reconstruction_performed:
@@ -161,16 +164,16 @@ class OrganoidAnalysisReportGenerator:
                 )
 
             # Step 4: Export CSV data
-            print("\n📊 Step 4: Exporting CSV data...")
+            logger.info("Step 4: Exporting CSV data...")
             csv_paths = self._export_csv_data(experiment, output_path)
 
             # Step 5: Generate visualizations
-            print("\n🎨 Step 5: Creating visualizations...")
+            logger.info("Step 5: Creating visualizations...")
             viz_paths = self.visualizer.create_all_visualizations(experiment, str(output_path / "visualizations"))
 
             # Step 5.1: Generate frame comparison visualization (TEMPORARILY DISABLED)
-            print("\n📸 Step 5.1: Frame comparison visualization temporarily disabled")
-            print("   ⏸️ Frame comparison generation has been temporarily disabled per user request")
+            logger.info("Step 5.1: Frame comparison visualization temporarily disabled")
+            logger.debug("Frame comparison generation has been temporarily disabled per user request")
             # if self._original_frames and self._tracking_results:
             #     frame_comparison_path = self.visualizer.create_frame_comparison_visualization(
             #         self._original_frames,
@@ -191,13 +194,13 @@ class OrganoidAnalysisReportGenerator:
             #     print(f"   ⚠️ Skipping frame comparison - missing: {', '.join(missing)}")
 
             # Step 6: Generate enhanced PDF report
-            print("\n📄 Step 6: Generating PDF report...")
+            logger.info("Step 6: Generating PDF report...")
             pdf_path = self._generate_enhanced_pdf_report(
                 experiment, validation_results, csv_paths, viz_paths, output_path
             )
 
             # Step 7: Create analysis summary
-            print("\n📋 Step 7: Creating analysis summary...")
+            logger.info("Step 7: Creating analysis summary...")
             summary = self._create_analysis_summary(experiment, validation_results, csv_paths, viz_paths, pdf_path)
 
             # Save summary as JSON
@@ -205,13 +208,13 @@ class OrganoidAnalysisReportGenerator:
             with open(summary_json_path, "w") as f:
                 json.dump(summary, f, indent=2, default=str)
 
-            print("\n✅ Complete analysis finished successfully!")
-            print(f"📁 All files saved to: {output_dir}")
+            logger.info("Complete analysis finished successfully!")
+            logger.info(f"All files saved to: {output_dir}")
 
             return summary
 
         except Exception as e:
-            print(f"\n❌ Analysis failed: {e}")
+            logger.error(f"Analysis failed: {e}")
             import traceback
 
             traceback.print_exc()
@@ -251,15 +254,15 @@ class OrganoidAnalysisReportGenerator:
             elif isinstance(tracking_results, dict) and all(isinstance(k, int) for k in tracking_results.keys()):
                 # Direct SAM2 format: {frame_idx: {obj_id: mask}}
                 frame_count = len(tracking_results)
-                print(f"✅ Detected frame count from direct SAM2 format: {frame_count}")
+                logger.info(f"Detected frame count from direct SAM2 format: {frame_count}")
                 return frame_count
 
             # Default fallback
-            print("⚠️ Could not determine frame count from tracking results, using default: 100")
+            logger.warning("Could not determine frame count from tracking results, using default: 100")
             return 100
 
         except Exception as e:
-            print(f"⚠️ Error determining frame count: {e}, using default: 100")
+            logger.warning(f"Error determining frame count: {e}, using default: 100")
             return 100
 
     def _export_csv_data(self, experiment: ExperimentData, output_path: Path) -> dict[str, str]:
@@ -283,10 +286,10 @@ class OrganoidAnalysisReportGenerator:
                 experiment, str(organoid_csv_path)
             )
 
-            print(f"   ✅ CSV files exported: {len(csv_paths)}")
+            logger.debug(f"CSV files exported: {len(csv_paths)}")
 
         except Exception as e:
-            print(f"   ❌ CSV export error: {e}")
+            logger.error(f"CSV export error: {e}")
 
         return csv_paths
 
@@ -302,7 +305,7 @@ class OrganoidAnalysisReportGenerator:
         Generate enhanced PDF report with visualizations
         """
         if not HAS_REPORTLAB:
-            print("   ⚠️ ReportLab not available, skipping PDF generation")
+            logger.warning("ReportLab not available, skipping PDF generation")
             return None
 
         try:
@@ -389,7 +392,7 @@ class OrganoidAnalysisReportGenerator:
                         story.append(Spacer(1, 12))
 
                     except Exception as e:
-                        print(f"   ⚠️ Could not add visualization {viz_name}: {e}")
+                        logger.warning(f"Could not add visualization {viz_name}: {e}")
 
             # Add data files information
             story.append(Paragraph("Generated Data Files", styles["Heading2"]))
@@ -431,11 +434,11 @@ class OrganoidAnalysisReportGenerator:
             # Build PDF
             doc.build(story)
 
-            print(f"   ✅ Enhanced PDF report generated: {pdf_path}")
+            logger.debug(f"Enhanced PDF report generated: {pdf_path}")
             return str(pdf_path)
 
         except Exception as e:
-            print(f"   ❌ PDF generation error: {e}")
+            logger.error(f"PDF generation error: {e}")
             return None
 
     def _create_analysis_summary(

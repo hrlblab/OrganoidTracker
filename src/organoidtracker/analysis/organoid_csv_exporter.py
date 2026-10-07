@@ -5,11 +5,14 @@ Exports detailed frame-by-frame data for organoid-cyst analysis in clear tabular
 """
 
 import csv
+import logging
 
 import numpy as np
 import pandas as pd
 
 from .organoid_cyst_data import ExperimentData
+
+logger = logging.getLogger(__name__)
 
 
 class OrganoidCSVExporter:
@@ -26,7 +29,7 @@ class OrganoidCSVExporter:
 
         Format: [Organoid_ID, Cyst_ID, Frame, Time_Days, Area_um2, Circularity, Centroid_X, Centroid_Y]
         """
-        print(f"📊 Exporting raw data table to: {output_path}")
+        logger.info(f"Exporting raw data table to: {output_path}")
 
         # Collect all data rows
         data_rows = []
@@ -65,16 +68,16 @@ class OrganoidCSVExporter:
                 df = pd.DataFrame(data_rows)
                 df.to_csv(output_path, index=False, encoding=self.encoding, float_format="%.4f")
 
-                print(f"✅ Raw data exported: {len(data_rows)} rows")
+                logger.info(f"Raw data exported: {len(data_rows)} rows")
                 return output_path
 
             except ImportError:
                 # Fallback to standard CSV if pandas not available
-                print("⚠️ Pandas not available, using standard CSV writer")
+                logger.warning("Pandas not available, using standard CSV writer")
                 return self._export_csv_fallback(data_rows, output_path)
 
         else:
-            print("⚠️ No data to export")
+            logger.warning("No data to export")
             # Create empty file with headers
             self._create_empty_csv(output_path)
             return output_path
@@ -83,7 +86,7 @@ class OrganoidCSVExporter:
         """
         Export summary table with aggregate metrics per cyst
         """
-        print(f"📋 Exporting summary table to: {output_path}")
+        logger.info(f"Exporting summary table to: {output_path}")
 
         summary_rows = []
 
@@ -129,7 +132,7 @@ class OrganoidCSVExporter:
                 df = pd.DataFrame(summary_rows)
                 df.to_csv(output_path, index=False, encoding=self.encoding, float_format="%.4f")
 
-                print(f"✅ Summary exported: {len(summary_rows)} cysts")
+                logger.info(f"Summary exported: {len(summary_rows)} cysts")
                 return output_path
 
             except ImportError:
@@ -142,7 +145,7 @@ class OrganoidCSVExporter:
         """
         Export organoid-level summary table
         """
-        print(f"🔴 Exporting organoid summary to: {output_path}")
+        logger.info(f"Exporting organoid summary to: {output_path}")
 
         organoid_rows = []
 
@@ -206,7 +209,7 @@ class OrganoidCSVExporter:
                 df = pd.DataFrame(organoid_rows)
                 df.to_csv(output_path, index=False, encoding=self.encoding, float_format="%.4f")
 
-                print(f"✅ Organoid summary exported: {len(organoid_rows)} organoids")
+                logger.info(f"Organoid summary exported: {len(organoid_rows)} organoids")
                 return output_path
 
             except ImportError:
@@ -226,11 +229,11 @@ class OrganoidCSVExporter:
                     writer.writeheader()
                     writer.writerows(data_rows)
 
-            print(f"✅ CSV exported (fallback): {len(data_rows)} rows")
+            logger.info(f"CSV exported (fallback): {len(data_rows)} rows")
             return output_path
 
         except Exception as e:
-            print(f"❌ CSV export failed: {e}")
+            logger.error(f"CSV export failed: {e}")
             return None
 
     def _create_empty_csv(self, output_path: str, summary_headers: bool = False, organoid_headers: bool = False):
@@ -281,10 +284,10 @@ class OrganoidCSVExporter:
                 writer = csv.writer(f)
                 writer.writerow(headers)
 
-            print(f"📄 Empty CSV created with headers: {output_path}")
+            logger.info(f"Empty CSV created with headers: {output_path}")
 
         except Exception as e:
-            print(f"❌ Failed to create empty CSV: {e}")
+            logger.error(f"Failed to create empty CSV: {e}")
 
     def _sanitize_for_csv(self, text: str) -> str:
         """

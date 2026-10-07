@@ -4,8 +4,11 @@ Progress Dialog Widget
 Shows progress during long-running operations like tracking
 """
 
+import logging
 import tkinter as tk
 from tkinter import ttk
+
+logger = logging.getLogger(__name__)
 
 
 class ProgressDialog:
@@ -57,7 +60,7 @@ class ProgressDialog:
         try:
             self.dialog.grab_set()
         except tk.TclError as e:
-            print(f"⚠️ Warning: Could not grab dialog focus: {e}")
+            logger.warning(f"Could not grab dialog focus: {e}")
             # Continue without modal behavior
 
         # Start with 0 progress

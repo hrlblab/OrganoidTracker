@@ -5,7 +5,11 @@ Configuration settings for the Kidney Organoid Video Tracker
 Modify these settings to customize the application behavior.
 """
 
+import logging
+
 # GUI Configuration
+logger = logging.getLogger(__name__)
+
 AUTO_OPEN_OUTPUT_DIRECTORY = False  # Set to False to disable automatic file manager opening
 # This prevents GTK warnings on some Linux systems
 
@@ -82,13 +86,15 @@ SAM2_MEMORY_FRAMES = (
 )
 
 # Logging Configuration
-LOG_LEVEL = "INFO"  # "DEBUG", "INFO", "WARNING", "ERROR"
+LOG_LEVEL = "INFO"  # "DEBUG", "INFO", "WARNING", "ERROR"; console and log file
+GUI_LOG_LEVEL = "WARNING"  # records at this level and above also appear in the GUI log panel
 ENABLE_PERFORMANCE_LOGGING = False  # Log performance metrics
 LOG_ANALYSIS_DETAILS = True  # Log detailed analysis information
 
 # Load user-specific configuration overrides from a user_config.py (see user_config_example.py).
 # The file is located by organoidtracker.paths.user_config_path(): an explicit
 # ORGANOIDTRACKER_USER_CONFIG path, then the working directory, then the source checkout.
+LOADED_USER_CONFIG = None  # path of the user_config.py that was applied, if any
 try:
     import importlib.util
 
@@ -105,7 +111,8 @@ try:
             if not attr.startswith("_") and attr.isupper():
                 globals()[attr] = getattr(user_config, attr)
 
-        print(f"✅ User configuration loaded from {_user_config_file}")
+        LOADED_USER_CONFIG = _user_config_file
+
+        logger.info(f"User configuration loaded from {_user_config_file}")
 except Exception as e:
-    print(f"⚠️ Warning: Error loading user config: {e}")
-    print("   Using default configuration")
+    logger.warning(f"Error loading user config: {e}; using the default configuration")

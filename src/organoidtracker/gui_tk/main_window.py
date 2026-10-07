@@ -4,6 +4,7 @@ Main GUI Window for Multi-Model Video Object Tracking
 Built with Tkinter for beginner-friendly GUI development
 """
 
+import logging
 import sys
 import threading
 import time
@@ -15,6 +16,7 @@ from ..config import (
     AUTO_OPEN_OUTPUT_DIRECTORY,
     DEFAULT_CONVERSION_FACTOR,
     DEFAULT_TIME_LAPSE_DAYS,
+    GUI_LOG_LEVEL,
     SAM2_CHECKPOINT_FAMILY,
 )
 from ..core.base_model import BaseVideoTracker
@@ -23,6 +25,24 @@ from ..core.sam2_tracker import checkpoint_filename
 from ..io.video_output import VideoOutputGenerator
 from .progress_dialog import ProgressDialog
 from .video_canvas import VideoCanvas
+
+logger = logging.getLogger(__name__)
+
+
+class LogPanelHandler(logging.Handler):
+    """Shows application log records in the GUI log panel; safe to call from worker threads."""
+
+    def __init__(self, app: "VideoTrackerApp", level: str = GUI_LOG_LEVEL):
+        super().__init__(level=logging.getLevelNamesMapping().get(str(level).upper(), logging.WARNING))
+        self.app = app
+        self.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = self.format(record)
+            self.app.root.after(0, self.app.log_event, message)
+        except Exception:  # the Tk main loop has gone away
+            pass
 
 
 class VideoTrackerApp:
@@ -87,6 +107,10 @@ class VideoTrackerApp:
         # Initialize model list and set initial checkpoint display
         self.update_model_list()
         self.on_model_size_changed()  # Set initial checkpoint display
+
+        # Application log records (warnings and errors by default) also go to the log panel
+        self.log_handler = LogPanelHandler(self)
+        logging.getLogger("organoidtracker").addHandler(self.log_handler)
 
         # Status
         self.set_status("Select a model and load it to begin.")
@@ -826,7 +850,7 @@ class VideoTrackerApp:
             error_msg = f"Error placing organoid: {str(e)}"
             self.set_status(error_msg)
             self.log_event(f"❌ {error_msg}")
-            print(f"❌ DEBUG: Error in on_canvas_click: {e}")
+            logger.error(f"DEBUG: Error in on_canvas_click: {e}")
 
     def on_canvas_bbox(self, x1, y1, x2, y2):
         """Handle bounding box creation for cyst addition"""
@@ -897,7 +921,7 @@ class VideoTrackerApp:
             error_msg = f"Error adding cyst: {str(e)}"
             self.set_status(error_msg)
             self.log_event(f"❌ {error_msg}")
-            print(f"❌ DEBUG: Error in on_canvas_bbox: {e}")
+            logger.error(f"DEBUG: Error in on_canvas_bbox: {e}")
             import traceback
 
             traceback.print_exc()
@@ -942,7 +966,7 @@ class VideoTrackerApp:
                 if self.current_model:
                     success = self.current_model.clear_prompts(cyst_id)
                     if not success:
-                        print(f"⚠️ Warning: Failed to clear cyst {cyst_id}")
+                        logger.warning(f"Failed to clear cyst {cyst_id}")
 
                 # Remove from active objects
                 self.active_object_ids.discard(cyst_id)
@@ -1051,14 +1075,14 @@ class VideoTrackerApp:
 
     def debug_button_states(self):
         """Debug method to check button states - simplified for new interface"""
-        print("🔍 DEBUG: Button States Check:")
-        print(f"  - Clear All Objects: {self.clear_prompts_btn['state']}")
-        print(f"  - Revert Last: {self.revert_btn['state']}")
-        print(f"  - Track: {self.track_btn['state']}")
-        print(f"  - Active Objects: {self.active_object_ids}")
-        print(f"  - Action History: {len(self.action_history)} actions")
-        print(f"  - Background Mode: {self.background_mode}")
-        print(f"  - Next Object ID: {self.next_object_id}")
+        logger.debug("DEBUG: Button States Check:")
+        logger.debug(f"- Clear All Objects: {self.clear_prompts_btn['state']}")
+        logger.debug(f"- Revert Last: {self.revert_btn['state']}")
+        logger.debug(f"- Track: {self.track_btn['state']}")
+        logger.debug(f"- Active Objects: {self.active_object_ids}")
+        logger.debug(f"- Action History: {len(self.action_history)} actions")
+        logger.debug(f"- Background Mode: {self.background_mode}")
+        logger.debug(f"- Next Object ID: {self.next_object_id}")
 
     def add_new_object(self):
         """Legacy method - objects now added by clicking on canvas"""
@@ -1111,7 +1135,7 @@ class VideoTrackerApp:
             self.object_list_text.config(state="disabled")
 
         except Exception as e:
-            print(f"❌ DEBUG: Error in update_active_objects_display: {e}")
+            logger.error(f"DEBUG: Error in update_active_objects_display: {e}")
             self.active_objects_label.config(text="Active Objects: None")
             self.object_list_text.config(state="normal")
             self.object_list_text.delete(1.0, tk.END)
@@ -1501,7 +1525,7 @@ class VideoTrackerApp:
                             )
 
                         except Exception as e:
-                            print(f"❌ Error creating {video_type} video: {str(e)}")
+                            logger.error(f"Error creating {video_type} video: {str(e)}")
                             created_videos[video_type] = None
 
                             video_time = time.time() - video_start_time
@@ -1662,6 +1686,8 @@ class VideoTrackerApp:
             self.root.mainloop()
         except KeyboardInterrupt:
             self.root.quit()
+        finally:
+            logging.getLogger("organoidtracker").removeHandler(self.log_handler)
 
     def generate_analysis_report(self):
         """Generate comprehensive organoid-cyst analysis report using new workflow"""

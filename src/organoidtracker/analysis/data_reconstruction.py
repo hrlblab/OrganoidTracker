@@ -6,9 +6,12 @@ when there's a mismatch between SAM2 tracking results and the GUI workflow data.
 """
 
 import json
+import logging
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class DataReconstructionEngine:
@@ -83,15 +86,15 @@ class DataReconstructionEngine:
                 mismatch_info["reconstruction_possible"] = True
 
         if self.debug_mode:
-            print("🔍 Data Mismatch Analysis:")
-            print(f"   • Tracked objects: {mismatch_info['tracked_objects']}")
-            print(f"   • Workflow organoids: {mismatch_info['workflow_organoids']}")
-            print(f"   • Workflow cysts: {mismatch_info['workflow_cysts']}")
-            print(f"   • Mismatch detected: {mismatch_info['has_mismatch']}")
+            logger.info("Data Mismatch Analysis:")
+            logger.debug(f"• Tracked objects: {mismatch_info['tracked_objects']}")
+            logger.debug(f"• Workflow organoids: {mismatch_info['workflow_organoids']}")
+            logger.debug(f"• Workflow cysts: {mismatch_info['workflow_cysts']}")
+            logger.debug(f"• Mismatch detected: {mismatch_info['has_mismatch']}")
             if mismatch_info["has_mismatch"]:
-                print(f"   • Missing cysts: {mismatch_info['missing_cysts']}")
-                print(f"   • Orphaned object IDs: {mismatch_info['orphaned_object_ids']}")
-                print(f"   • Reconstruction possible: {mismatch_info['reconstruction_possible']}")
+                logger.debug(f"• Missing cysts: {mismatch_info['missing_cysts']}")
+                logger.debug(f"• Orphaned object IDs: {mismatch_info['orphaned_object_ids']}")
+                logger.debug(f"• Reconstruction possible: {mismatch_info['reconstruction_possible']}")
 
         return mismatch_info
 
@@ -103,11 +106,10 @@ class DataReconstructionEngine:
         """
         if not mismatch_info["reconstruction_possible"]:
             if self.debug_mode:
-                print("❌ Reconstruction not possible - insufficient data")
+                logger.error("Reconstruction not possible - insufficient data")
             return organoid_data
 
-        print("🔧 RECONSTRUCTING MISSING CYST DATA")
-        print("=" * 50)
+        logger.info("RECONSTRUCTING MISSING CYST DATA")
 
         # Create a copy of organoid_data to modify
         reconstructed_data = {k: dict(v) for k, v in organoid_data.items()}
@@ -134,14 +136,14 @@ class DataReconstructionEngine:
             reconstructed_data[organoid_id]["cysts"].append(cyst_entry)
 
             if self.debug_mode:
-                print(f"   ✅ Assigned cyst {cyst_id} to organoid {organoid_id}")
+                logger.debug(f"Assigned cyst {cyst_id} to organoid {organoid_id}")
 
         # Validate reconstruction
         total_cysts_after = sum(len(org["cysts"]) for org in reconstructed_data.values())
-        print("🎯 Reconstruction complete:")
-        print(f"   • Cysts before: {mismatch_info['workflow_cysts']}")
-        print(f"   • Cysts after: {total_cysts_after}")
-        print(f"   • Missing cysts recovered: {total_cysts_after - mismatch_info['workflow_cysts']}")
+        logger.info("Reconstruction complete:")
+        logger.debug(f"• Cysts before: {mismatch_info['workflow_cysts']}")
+        logger.debug(f"• Cysts after: {total_cysts_after}")
+        logger.debug(f"• Missing cysts recovered: {total_cysts_after - mismatch_info['workflow_cysts']}")
 
         return reconstructed_data
 
@@ -182,11 +184,11 @@ class DataReconstructionEngine:
             object_ids = sorted(list(set(object_ids)))
 
             if self.debug_mode:
-                print(f"   🔍 Extracted object IDs: {object_ids}")
+                logger.debug(f"Extracted object IDs: {object_ids}")
 
         except Exception as e:
             if self.debug_mode:
-                print(f"⚠️ Error extracting object IDs: {e}")
+                logger.warning(f"Error extracting object IDs: {e}")
             # Fallback: assume sequential IDs based on debug session
             object_ids = list(range(1, 11))
 
@@ -241,4 +243,4 @@ class DataReconstructionEngine:
         with open(output_file, "w") as f:
             json.dump(report, f, indent=2)
 
-        print(f"📄 Reconstruction report saved: {output_file}")
+        logger.info(f"Reconstruction report saved: {output_file}")

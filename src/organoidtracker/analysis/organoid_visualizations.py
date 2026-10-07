@@ -4,6 +4,7 @@ Advanced Organoid-Cyst Visualizations
 Scientific visualization suite for organoid cyst analysis with publication-quality plots.
 """
 
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -18,13 +19,15 @@ from ..config import (
 from .organoid_cyst_data import ExperimentData
 
 # Optional imports with graceful fallbacks
+logger = logging.getLogger(__name__)
+
 try:
     import seaborn as sns
 
     HAS_SEABORN = True
 except ImportError:
     HAS_SEABORN = False
-    print("⚠️ Seaborn not available. Using matplotlib styling.")
+    logger.warning("Seaborn not available. Using matplotlib styling.")
 
 
 class OrganoidVisualizationSuite:
@@ -152,7 +155,7 @@ class OrganoidVisualizationSuite:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        print(f"🎨 Creating advanced visualizations in: {output_dir}")
+        logger.info(f"Creating advanced visualizations in: {output_dir}")
 
         viz_paths = {}
 
@@ -187,11 +190,11 @@ class OrganoidVisualizationSuite:
                 experiment, str(output_path / f"f_lasagna_plot.{VISUALIZATION_FORMAT}")
             )
 
-            print("✅ All visualizations created successfully")
+            logger.info("All visualizations created successfully")
             return viz_paths
 
         except Exception as e:
-            print(f"❌ Error creating visualizations: {e}")
+            logger.error(f"Error creating visualizations: {e}")
             import traceback
 
             traceback.print_exc()
@@ -201,7 +204,7 @@ class OrganoidVisualizationSuite:
         """
         A. Time vs % of organoids having at least one cyst
         """
-        print("📊 Creating plot A: % organoids with cysts vs time")
+        logger.info("Creating plot A: % organoids with cysts vs time")
 
         try:
             # Calculate percentage for each frame
@@ -253,18 +256,18 @@ class OrganoidVisualizationSuite:
             plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
             plt.close()
 
-            print(f"✅ Plot A saved: {output_path}")
+            logger.info(f"Plot A saved: {output_path}")
             return output_path
 
         except Exception as e:
-            print(f"❌ Error creating plot A: {e}")
+            logger.error(f"Error creating plot A: {e}")
             return None
 
     def plot_cyst_organoid_ratio_over_time(self, experiment: ExperimentData, output_path: str) -> str:
         """
         B. Time vs cyst count/organoid count ratio
         """
-        print("📊 Creating plot B: cyst/organoid ratio vs time")
+        logger.info("Creating plot B: cyst/organoid ratio vs time")
 
         try:
             # Calculate ratio for each frame
@@ -317,18 +320,18 @@ class OrganoidVisualizationSuite:
             plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
             plt.close()
 
-            print(f"✅ Plot B saved: {output_path}")
+            logger.info(f"Plot B saved: {output_path}")
             return output_path
 
         except Exception as e:
-            print(f"❌ Error creating plot B: {e}")
+            logger.error(f"Error creating plot B: {e}")
             return None
 
     def plot_cyst_areas_multiline(self, experiment: ExperimentData, output_path: str) -> str:
         """
         C. Time vs areas of all cysts (multiple lines, different start frames)
         """
-        print("📊 Creating plot C: cyst areas vs time (multi-line)")
+        logger.info("Creating plot C: cyst areas vs time (multi-line)")
 
         try:
             fig, ax = plt.subplots(figsize=self.figure_size)
@@ -410,18 +413,18 @@ class OrganoidVisualizationSuite:
             plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
             plt.close()
 
-            print(f"✅ Plot C saved: {output_path}")
+            logger.info(f"Plot C saved: {output_path}")
             return output_path
 
         except Exception as e:
-            print(f"❌ Error creating plot C: {e}")
+            logger.error(f"Error creating plot C: {e}")
             return None
 
     def plot_cyst_circularity_multiline(self, experiment: ExperimentData, output_path: str) -> str:
         """
         D. Time vs circularity of all cysts (multiple lines like C)
         """
-        print("📊 Creating plot D: cyst circularity vs time (multi-line)")
+        logger.info("Creating plot D: cyst circularity vs time (multi-line)")
 
         try:
             fig, ax = plt.subplots(figsize=self.figure_size)
@@ -508,18 +511,18 @@ class OrganoidVisualizationSuite:
             plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
             plt.close()
 
-            print(f"✅ Plot D saved: {output_path}")
+            logger.info(f"Plot D saved: {output_path}")
             return output_path
 
         except Exception as e:
-            print(f"❌ Error creating plot D: {e}")
+            logger.error(f"Error creating plot D: {e}")
             return None
 
     def plot_circularity_scatter(self, experiment: ExperimentData, output_path: str) -> str:
         """
         E. Time vs circularity scatter plot (dot size = area, color = area intensity)
         """
-        print("📊 Creating plot E: circularity scatter (sized by area)")
+        logger.info("Creating plot E: circularity scatter (sized by area)")
 
         try:
             # Collect all data points
@@ -641,18 +644,18 @@ class OrganoidVisualizationSuite:
             plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
             plt.close()
 
-            print(f"✅ Plot E saved: {output_path}")
+            logger.info(f"Plot E saved: {output_path}")
             return output_path
 
         except Exception as e:
-            print(f"❌ Error creating plot E: {e}")
+            logger.error(f"Error creating plot E: {e}")
             return None
 
     def plot_lasagna_heatmap(self, experiment: ExperimentData, output_path: str) -> str:
         """
         F. Lasagna plot: individual cyst area heatmap sorted by growth rate
         """
-        print("📊 Creating plot F: cyst lasagna heatmap")
+        logger.info("Creating plot F: cyst lasagna heatmap")
 
         try:
             # Get all individual cysts and calculate their growth rates
@@ -882,11 +885,11 @@ class OrganoidVisualizationSuite:
             plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
             plt.close()
 
-            print(f"✅ Plot F saved: {output_path}")
+            logger.info(f"Plot F saved: {output_path}")
             return output_path
 
         except Exception as e:
-            print(f"❌ Error creating plot F: {e}")
+            logger.error(f"Error creating plot F: {e}")
             import traceback
 
             traceback.print_exc()
@@ -903,8 +906,8 @@ class OrganoidVisualizationSuite:
         """
         try:
             total_frames = len(original_frames)
-            print(f"🎨 Creating frame comparison visualization for {total_frames} frames")
-            print("🔧 Using actual VideoOutputGenerator to eliminate implementation differences")
+            logger.info(f"Creating frame comparison visualization for {total_frames} frames")
+            logger.info("Using actual VideoOutputGenerator to eliminate implementation differences")
 
             # Object colors - EXACTLY match video generation (same as VideoOutputGenerator)
             object_colors = {
@@ -941,7 +944,7 @@ class OrganoidVisualizationSuite:
             video_generator = VideoOutputGenerator()
 
             for frame_idx in range(total_frames):
-                print(f"🎨 Processing frame {frame_idx}/{total_frames - 1} with video generation code")
+                logger.info(f"Processing frame {frame_idx}/{total_frames - 1} with video generation code")
 
                 # Get original frame
                 original_frame = original_frames[frame_idx].copy()
@@ -1044,11 +1047,11 @@ class OrganoidVisualizationSuite:
             plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight", facecolor="white", edgecolor="none")
             plt.close()
 
-            print(f"✅ Frame comparison visualization saved: {output_path}")
+            logger.info(f"Frame comparison visualization saved: {output_path}")
             return output_path
 
         except Exception as e:
-            print(f"❌ Error creating frame comparison visualization: {e}")
+            logger.error(f"Error creating frame comparison visualization: {e}")
             import traceback
 
             traceback.print_exc()

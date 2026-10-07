@@ -4,11 +4,14 @@ Video Canvas Widget
 Custom Tkinter canvas for displaying video frames and handling click interactions
 """
 
+import logging
 from collections.abc import Callable
 from tkinter import Canvas
 
 import numpy as np
 from PIL import Image, ImageTk
+
+logger = logging.getLogger(__name__)
 
 
 class VideoCanvas:
@@ -162,7 +165,7 @@ class VideoCanvas:
             self.redraw_markers()
 
         except Exception as e:
-            print(f"Error displaying frame: {e}")
+            logger.error(f"Error displaying frame: {e}")
             self.show_error_message(f"Error displaying frame: {e}")
 
     def show_error_message(self, message: str):

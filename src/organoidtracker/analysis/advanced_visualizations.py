@@ -14,6 +14,7 @@ This module implements state-of-the-art visualizations for organoid research:
 - Spatial point pattern analysis
 """
 
+import logging
 import warnings
 from pathlib import Path
 from typing import Any
@@ -24,13 +25,15 @@ import numpy as np
 from ..config import DISABLE_VISUALIZATION_TEXT, FONT_SCALE_FACTOR, VISUALIZATION_FORMAT
 
 # Optional imports with graceful fallback
+logger = logging.getLogger(__name__)
+
 try:
     import seaborn as sns
 
     SEABORN_AVAILABLE = True
 except ImportError:
     SEABORN_AVAILABLE = False
-    print("⚠️ Seaborn not available. Using matplotlib styling.")
+    logger.warning("Seaborn not available. Using matplotlib styling.")
 
 # Suppress matplotlib warnings for cleaner output
 warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
@@ -1003,6 +1006,6 @@ class AdvancedOrganoidVisualizer:
             )
 
         except Exception as e:
-            print(f"Warning: Error creating some visualizations: {e}")
+            logger.warning(f"Error creating some visualizations: {e}")
 
         return plots_created

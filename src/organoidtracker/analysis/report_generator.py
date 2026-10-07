@@ -5,18 +5,21 @@ Generates CSV and PDF reports from metrics calculations
 """
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 # Optional imports for enhanced functionality
+logger = logging.getLogger(__name__)
+
 try:
     import pandas as pd
 
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
-    print("⚠️ Pandas not available. CSV functionality may be limited.")
+    logger.warning("Pandas not available. CSV functionality may be limited.")
 
 try:
     import matplotlib.pyplot as plt
@@ -24,7 +27,7 @@ try:
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
-    print("⚠️ Matplotlib not available. Plot generation disabled.")
+    logger.warning("Matplotlib not available. Plot generation disabled.")
 
 # Publication-style plot settings. This legacy module tried to read them from config.py
 # through a relative import that never resolved, so these values are the ones it has always
@@ -44,7 +47,7 @@ try:
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
-    print("⚠️ ReportLab not available. Install with: pip install reportlab")
+    logger.warning("ReportLab not available. Install with: pip install reportlab")
 
 
 class ReportGenerator:
@@ -300,7 +303,7 @@ class ReportGenerator:
     def _generate_plots(self, results: dict[str, Any], output_dir: str) -> str:
         """Generate visualization plots for the report"""
         if not MATPLOTLIB_AVAILABLE:
-            print("⚠️ Matplotlib not available. Skipping plot generation.")
+            logger.warning("Matplotlib not available. Skipping plot generation.")
             return None
 
         try:
@@ -380,7 +383,7 @@ class ReportGenerator:
             return str(plot_path)
 
         except Exception as e:
-            print(f"Warning: Could not generate plots: {e}")
+            logger.warning(f"Could not generate plots: {e}")
             return None
 
     def generate_reports(self, results: dict[str, Any], output_dir: str) -> dict[str, str]:
@@ -403,18 +406,18 @@ class ReportGenerator:
             # Generate CSV report
             csv_path = self.generate_csv_report(results, output_dir)
             report_paths["csv"] = csv_path
-            print(f"✅ CSV report generated: {csv_path}")
+            logger.info(f"CSV report generated: {csv_path}")
         except Exception as e:
-            print(f"❌ Error generating CSV report: {e}")
+            logger.error(f"Error generating CSV report: {e}")
             report_paths["csv_error"] = str(e)
 
         try:
             # Generate PDF report
             pdf_path = self.generate_pdf_report(results, output_dir)
             report_paths["pdf"] = pdf_path
-            print(f"✅ PDF report generated: {pdf_path}")
+            logger.info(f"PDF report generated: {pdf_path}")
         except Exception as e:
-            print(f"❌ Error generating PDF report: {e}")
+            logger.error(f"Error generating PDF report: {e}")
             report_paths["pdf_error"] = str(e)
 
         # Save analysis data as JSON for future reference
@@ -423,9 +426,9 @@ class ReportGenerator:
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(results, f, indent=2, default=str, ensure_ascii=False)
             report_paths["json"] = str(json_path)
-            print(f"✅ Analysis data saved: {json_path}")
+            logger.info(f"Analysis data saved: {json_path}")
         except Exception as e:
-            print(f"❌ Error saving analysis data: {e}")
+            logger.error(f"Error saving analysis data: {e}")
 
         return report_paths
 
@@ -462,7 +465,7 @@ class ReportGenerator:
             viz_dir = output_dir_path / "advanced_visualizations"
             viz_dir.mkdir(exist_ok=True)
 
-            print("🎨 Generating advanced visualizations...")
+            logger.info("Generating advanced visualizations...")
 
             # Generate comprehensive dashboard
             dashboard_plots = visualizer.create_comprehensive_analysis_dashboard(results, str(viz_dir), time_points)
@@ -471,7 +474,7 @@ class ReportGenerator:
             for plot_name, plot_path in dashboard_plots.items():
                 report_paths[f"viz_{plot_name}"] = plot_path
 
-            print(f"✅ Advanced visualizations generated: {len(dashboard_plots)} plots")
+            logger.info(f"Advanced visualizations generated: {len(dashboard_plots)} plots")
 
             # Create visualization summary
             viz_summary = {
@@ -488,7 +491,7 @@ class ReportGenerator:
             report_paths["visualization_summary"] = str(summary_path)
 
         except Exception as e:
-            print(f"❌ Error generating advanced visualizations: {e}")
+            logger.error(f"Error generating advanced visualizations: {e}")
             report_paths["visualization_error"] = str(e)
 
         # Generate enhanced PDF report with visualizations
@@ -496,9 +499,9 @@ class ReportGenerator:
             enhanced_pdf_path = self._generate_enhanced_pdf_report(results, output_dir, report_paths)
             if enhanced_pdf_path:
                 report_paths["enhanced_pdf"] = enhanced_pdf_path
-                print(f"✅ Enhanced PDF report generated: {enhanced_pdf_path}")
+                logger.info(f"Enhanced PDF report generated: {enhanced_pdf_path}")
         except Exception as e:
-            print(f"❌ Error generating enhanced PDF report: {e}")
+            logger.error(f"Error generating enhanced PDF report: {e}")
             report_paths["enhanced_pdf_error"] = str(e)
 
         return report_paths
@@ -518,7 +521,7 @@ class ReportGenerator:
             Path to enhanced PDF report
         """
         if not REPORTLAB_AVAILABLE:
-            print("❌ ReportLab not available for enhanced PDF generation")
+            logger.error("ReportLab not available for enhanced PDF generation")
             return None
 
         output_dir_path = Path(output_dir)
@@ -580,7 +583,7 @@ class ReportGenerator:
                     story.append(img)
                     story.append(Spacer(1, 12))
                 except Exception as e:
-                    print(f"Warning: Could not include {viz_title} in PDF: {e}")
+                    logger.warning(f"Could not include {viz_title} in PDF: {e}")
 
         # Section 2: De Novo Cyst Formation
         story.append(Paragraph("🌱 Section 2: De Novo Cyst Formation Dynamics", styles["Heading2"]))
@@ -598,7 +601,7 @@ class ReportGenerator:
                     story.append(img)
                     story.append(Spacer(1, 12))
                 except Exception as e:
-                    print(f"Warning: Could not include {viz_title} in PDF: {e}")
+                    logger.warning(f"Could not include {viz_title} in PDF: {e}")
 
         # Section 3: Radial Expansion Heterogeneity
         story.append(Paragraph("📏 Section 3: Radial Expansion Heterogeneity", styles["Heading2"]))
@@ -616,7 +619,7 @@ class ReportGenerator:
                     story.append(img)
                     story.append(Spacer(1, 12))
                 except Exception as e:
-                    print(f"Warning: Could not include {viz_title} in PDF: {e}")
+                    logger.warning(f"Could not include {viz_title} in PDF: {e}")
 
         # Section 4: Morphological and Spatial Analysis
         story.append(Paragraph("🔬 Section 4: Morphological & Spatial Analysis", styles["Heading2"]))
@@ -634,7 +637,7 @@ class ReportGenerator:
                     story.append(img)
                     story.append(Spacer(1, 12))
                 except Exception as e:
-                    print(f"Warning: Could not include {viz_title} in PDF: {e}")
+                    logger.warning(f"Could not include {viz_title} in PDF: {e}")
 
         # Detailed metrics results
         story.append(Paragraph("📋 Detailed Metrics Results", styles["Heading2"]))

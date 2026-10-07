@@ -4,9 +4,12 @@ Model Registry for Video Object Tracking
 Centralized system for registering and managing multiple tracking models
 """
 
+import logging
 from typing import Any
 
 from .base_model import BaseVideoTracker, ModelMetadata
+
+logger = logging.getLogger(__name__)
 
 
 class ModelRegistry:
@@ -32,9 +35,9 @@ class ModelRegistry:
             if SAM2Tracker.is_available():
                 self.register_model(SAM2Tracker)
             else:
-                print("⚠️  SAM2 not available - package not installed")
+                logger.warning("SAM2 not available - package not installed")
         except ImportError as e:
-            print(f"⚠️  SAM2 not available: {e}")
+            logger.warning(f"SAM2 not available: {e}")
 
     def register_model(self, model_class: type[BaseVideoTracker]) -> bool:
         """
@@ -54,11 +57,11 @@ class ModelRegistry:
             self._models[metadata.name] = model_class
             self._metadata[metadata.name] = metadata
 
-            print(f"✅ Registered model: {metadata.display_name}")
+            logger.info(f"Registered model: {metadata.display_name}")
             return True
 
         except Exception as e:
-            print(f"❌ Error registering model {model_class.__name__}: {str(e)}")
+            logger.error(f"Error registering model {model_class.__name__}: {str(e)}")
             return False
 
     def get_available_models(self) -> list[ModelMetadata]:
@@ -103,7 +106,7 @@ class ModelRegistry:
             BaseVideoTracker instance or None if failed
         """
         if model_name not in self._models:
-            print(f"❌ Model '{model_name}' not found in registry")
+            logger.error(f"Model '{model_name}' not found in registry")
             return None
 
         try:
@@ -113,11 +116,11 @@ class ModelRegistry:
             # Cache the instance
             self._instances[model_name] = instance
 
-            print(f"✅ Created {model_name} instance")
+            logger.info(f"Created {model_name} instance")
             return instance
 
         except Exception as e:
-            print(f"❌ Error creating {model_name} instance: {str(e)}")
+            logger.error(f"Error creating {model_name} instance: {str(e)}")
             return None
 
     def get_model_instance(self, model_name: str) -> BaseVideoTracker | None:
@@ -159,7 +162,7 @@ class ModelRegistry:
     def clear_instances(self):
         """Clear all cached model instances"""
         self._instances.clear()
-        print("🧹 Cleared all model instances")
+        logger.info("Cleared all model instances")
 
     def get_registry_info(self) -> dict[str, Any]:
         """
@@ -260,7 +263,7 @@ class ModelFactory:
         available_models = registry.get_available_models()
 
         if not available_models:
-            print("❌ No models available")
+            logger.error("No models available")
             return None
 
         # Use the first available model

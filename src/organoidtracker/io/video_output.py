@@ -4,10 +4,13 @@ Video Output Utilities for SAM2
 Handles creation of different video output types with robust codec support
 """
 
+import logging
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class VideoOutputGenerator:
@@ -30,7 +33,7 @@ class VideoOutputGenerator:
         if self._system_codecs_tested:
             return
 
-        print("🔍 Detecting available video codecs...")
+        logger.info("Detecting available video codecs...")
         test_codecs = [
             ("mp4v", cv2.VideoWriter_fourcc(*"mp4v")),
             ("MJPG", cv2.VideoWriter_fourcc(*"MJPG")),
@@ -46,10 +49,10 @@ class VideoOutputGenerator:
                 writer = cv2.VideoWriter(test_path, fourcc, 30, (100, 100))
                 if writer.isOpened():
                     self._codec_cache[codec_name] = fourcc
-                    print(f"   ✅ {codec_name} codec available")
+                    logger.debug(f"{codec_name} codec available")
                 writer.release()
             except Exception:
-                print(f"   ❌ {codec_name} codec not available")
+                logger.debug(f"{codec_name} codec not available")
 
         # Clean up test file
         try:
@@ -77,7 +80,7 @@ class VideoOutputGenerator:
             optimized_fps = fps  # Keep original FPS for smaller videos
 
         if optimized_fps < fps:
-            print(f"   Optimizing FPS: {fps:.1f} → {optimized_fps:.1f} for {width}x{height} video")
+            logger.debug(f"Optimizing FPS: {fps:.1f} → {optimized_fps:.1f} for {width}x{height} video")
 
         return optimized_fps
 
@@ -103,7 +106,7 @@ class VideoOutputGenerator:
         if video_type not in self.supported_types:
             raise ValueError(f"Unsupported video type: {video_type}. Use one of {self.supported_types}")
 
-        print(f"🎬 Creating {video_type} video...")
+        logger.info(f"Creating {video_type} video...")
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,7 +154,7 @@ class VideoOutputGenerator:
                 video_writer.write(output_frame_bgr)
 
             video_writer.release()
-            print(f"✅ Video saved: {output_path}")
+            logger.info(f"Video saved: {output_path}")
             return str(output_path)
 
         except Exception as e:
@@ -191,9 +194,9 @@ class VideoOutputGenerator:
         if hasattr(self, "debug_mode") and self.debug_mode:
             self.reset_debug_session()
 
-        print(f"🎬 Creating multi-object {video_type} video...")
-        print(
-            f"🔍 ENTRY DEBUG: frames={len(frames)}, video_segments={len(video_segments) if video_segments else 0}, tracker={tracker}"
+        logger.info(f"Creating multi-object {video_type} video...")
+        logger.debug(
+            f"ENTRY DEBUG: frames={len(frames)}, video_segments={len(video_segments) if video_segments else 0}, tracker={tracker}"
         )
 
         output_path = Path(output_path)
@@ -201,11 +204,11 @@ class VideoOutputGenerator:
 
         # CRITICAL: Check if we have any data to work with
         if not frames:
-            print("❌ CRITICAL ERROR: No frames provided!")
+            logger.error("CRITICAL ERROR: No frames provided!")
             return None
 
         if not video_segments:
-            print("❌ CRITICAL ERROR: No video_segments provided!")
+            logger.error("CRITICAL ERROR: No video_segments provided!")
             return None
 
         # Object colors (RGB format) - expanded palette for 20+ objects
@@ -240,16 +243,16 @@ class VideoOutputGenerator:
         frame_size_mb = (height * width * 3) / (1024 * 1024)  # RGB frame size in MB
         total_memory_mb = frame_size_mb * len(frames)
 
-        print(
-            f"📊 Video dimensions: {width}x{height}, Frame size: {frame_size_mb:.1f}MB, Total: {total_memory_mb:.1f}MB"
+        logger.info(
+            f"Video dimensions: {width}x{height}, Frame size: {frame_size_mb:.1f}MB, Total: {total_memory_mb:.1f}MB"
         )
 
         if frame_size_mb > 50:  # Frames larger than 50MB each
-            print(f"⚠️ Large frame size detected ({frame_size_mb:.1f}MB). Using aggressive scaling.")
+            logger.warning(f"Large frame size detected ({frame_size_mb:.1f}MB). Using aggressive scaling.")
 
         if total_memory_mb > 1000:  # Total video memory > 1GB
-            print(
-                f"⚠️ Large video memory footprint ({total_memory_mb:.1f}MB). Consider using fewer frames or lower resolution."
+            logger.warning(
+                f"Large video memory footprint ({total_memory_mb:.1f}MB). Consider using fewer frames or lower resolution."
             )
 
         # Detect available codecs on first use
@@ -265,8 +268,8 @@ class VideoOutputGenerator:
 
         try:
             # Frames and tracking results share chronological indices.
-            print(f"🎬 Processing {len(frames)} frames")
-            print(f"🔍 DEBUG: video_segments keys = {list(video_segments.keys()) if video_segments else 'None'}")
+            logger.info(f"Processing {len(frames)} frames")
+            logger.debug(f"DEBUG: video_segments keys = {list(video_segments.keys()) if video_segments else 'None'}")
 
             # CRITICAL DEBUG: Check if video_segments has any actual mask data
             total_objects = 0
@@ -275,8 +278,8 @@ class VideoOutputGenerator:
                 if frame_objects:
                     frames_with_masks += 1
                     total_objects += len(frame_objects)
-            print(
-                f"🔍 CRITICAL: {frames_with_masks}/{len(video_segments)} frames have masks, {total_objects} total objects"
+            logger.info(
+                f"CRITICAL: {frames_with_masks}/{len(video_segments)} frames have masks, {total_objects} total objects"
             )
 
             processed_frames = []
@@ -291,7 +294,7 @@ class VideoOutputGenerator:
                 frame_objects = list(video_segments[mask_idx].keys()) if mask_idx in video_segments else []
                 # Conditional debug output based on debug_mode parameter
                 if hasattr(self, "debug_mode") and self.debug_mode:
-                    print(f"🔍 DEBUG: Frame {frame_idx} using mask {mask_idx}, has objects: {frame_objects}")
+                    logger.debug(f"DEBUG: Frame {frame_idx} using mask {mask_idx}, has objects: {frame_objects}")
 
                     # ENHANCED DEBUG: Save debug frames for ALL objects
                     if mask_idx in video_segments and len(frame_objects) > 0:
@@ -308,15 +311,15 @@ class VideoOutputGenerator:
                         if hasattr(mask_data, "cpu"):
                             mask_np = mask_data.cpu().numpy().squeeze()
                             non_zero_count = np.count_nonzero(mask_np > 0.5)
-                            print(
-                                f"🔍 DEEP DEBUG: Frame {frame_idx} (mask {mask_idx}) obj {first_obj} mask shape: {mask_data.shape}, non-zero: {non_zero_count}"
+                            logger.debug(
+                                f"DEEP DEBUG: Frame {frame_idx} (mask {mask_idx}) obj {first_obj} mask shape: {mask_data.shape}, non-zero: {non_zero_count}"
                             )
                         elif hasattr(mask_data, "shape"):
-                            print(
-                                f"🔍 DEEP DEBUG: Frame {frame_idx} (mask {mask_idx}) obj {first_obj} mask shape: {mask_data.shape}"
+                            logger.debug(
+                                f"DEEP DEBUG: Frame {frame_idx} (mask {mask_idx}) obj {first_obj} mask shape: {mask_data.shape}"
                             )
-                        print(
-                            f"🔍 DEEP DEBUG: Frame {frame_idx} (mask {mask_idx}) obj {first_obj} mask type: {type(mask_data)}"
+                        logger.debug(
+                            f"DEEP DEBUG: Frame {frame_idx} (mask {mask_idx}) obj {first_obj} mask type: {type(mask_data)}"
                         )
 
                 # Create custom video_segments dict with correct mask index
@@ -375,7 +378,7 @@ class VideoOutputGenerator:
 
             gc.collect()
 
-            print(f"✅ Multi-object video saved: {output_path}")
+            logger.info(f"Multi-object video saved: {output_path}")
             return str(output_path)
 
         except Exception as e:
@@ -427,18 +430,18 @@ class VideoOutputGenerator:
         output_dir.mkdir(parents=True, exist_ok=True)
         start_time = time.time()
 
-        print(f"🚀 OPTIMIZATION: Single-pass mask processing for {len(frames)} frames")
-        print(
-            f"🔍 OPTIMIZED ENTRY DEBUG: frames={len(frames)}, video_segments={len(video_segments) if video_segments else 0}, tracker={tracker}"
+        logger.info(f"OPTIMIZATION: Single-pass mask processing for {len(frames)} frames")
+        logger.info(
+            f"OPTIMIZED ENTRY DEBUG: frames={len(frames)}, video_segments={len(video_segments) if video_segments else 0}, tracker={tracker}"
         )
 
         # CRITICAL: Check if we have any data to work with
         if not frames:
-            print("❌ OPTIMIZED CRITICAL ERROR: No frames provided!")
+            logger.error("OPTIMIZED CRITICAL ERROR: No frames provided!")
             return {}
 
         if not video_segments:
-            print("❌ OPTIMIZED CRITICAL ERROR: No video_segments provided!")
+            logger.error("OPTIMIZED CRITICAL ERROR: No video_segments provided!")
             return {}
 
         # Object colors (same as original)
@@ -479,8 +482,8 @@ class VideoOutputGenerator:
             if frame_objects:
                 frames_with_masks += 1
                 total_objects += len(frame_objects)
-        print(
-            f"🔍 OPTIMIZED CRITICAL: {frames_with_masks}/{len(video_segments)} frames have masks, {total_objects} total objects"
+        logger.info(
+            f"OPTIMIZED CRITICAL: {frames_with_masks}/{len(video_segments)} frames have masks, {total_objects} total objects"
         )
         processed_frames = self._process_all_frames_optimized(
             frames, video_segments, object_colors, alpha, quality_scale, progress_callback
@@ -499,15 +502,15 @@ class VideoOutputGenerator:
                 progress_callback(base_progress, total_frames * 4, f"🎬 Creating {video_type} video (optimized)")
 
             try:
-                print(f"🔍 CREATING {video_type} video from processed frames...")
+                logger.info(f"CREATING {video_type} video from processed frames...")
                 video_path = self._create_video_from_processed_frames(
                     processed_frames, video_type, str(output_path), fps, progress_callback, base_progress
                 )
                 created_videos[video_type] = video_path
-                print(f"✅ {video_type} video created (optimized)")
+                logger.info(f"{video_type} video created (optimized)")
 
             except Exception as e:
-                print(f"❌ Error creating {video_type} video: {e}")
+                logger.error(f"Error creating {video_type} video: {e}")
                 import traceback
 
                 traceback.print_exc()
@@ -516,7 +519,7 @@ class VideoOutputGenerator:
         optimization_time = time.time() - start_time
 
         if hasattr(self, "debug_mode") and self.debug_mode:
-            print(f"🎉 OPTIMIZATION COMPLETE: All videos generated in {optimization_time:.2f}s")
+            logger.info(f"OPTIMIZATION COMPLETE: All videos generated in {optimization_time:.2f}s")
 
         return created_videos
 
@@ -571,12 +574,12 @@ class VideoOutputGenerator:
                             overlay_frame = overlay_frame * (1 - mask_3d * alpha) + color * mask_3d * alpha
                         else:
                             if frame_idx == 0:  # Only debug first frame
-                                print(f"🔍 MASK DEBUG: Frame {frame_idx} obj {obj_id} has empty mask")
+                                logger.debug(f"MASK DEBUG: Frame {frame_idx} obj {obj_id} has empty mask")
 
             # CRITICAL DEBUG: Report object processing for first few frames
             if frame_idx < 3:
-                print(
-                    f"🔍 PROCESS DEBUG: Frame {frame_idx} -> mask_idx {mask_idx}, processed {objects_processed_this_frame} objects"
+                logger.info(
+                    f"PROCESS DEBUG: Frame {frame_idx} -> mask_idx {mask_idx}, processed {objects_processed_this_frame} objects"
                 )
 
             # Finalize frame variants
@@ -616,7 +619,7 @@ class VideoOutputGenerator:
         # The _create_video_writer method stores the scaled dimensions in instance variables
         actual_width = getattr(self, "_target_width", width)
         actual_height = getattr(self, "_target_height", height)
-        print(f"🔧 Video writer created with actual dimensions: {actual_width}x{actual_height}")
+        logger.info(f"Video writer created with actual dimensions: {actual_width}x{actual_height}")
 
         frames_to_write = frames  # already in chronological order
 
@@ -628,24 +631,24 @@ class VideoOutputGenerator:
             # CRITICAL FIX: Ensure frame matches video writer dimensions
             current_height, current_width = frame.shape[:2]
             if current_width != actual_width or current_height != actual_height:
-                print(f"🔧 SCALING FRAME: {current_width}x{current_height} -> {actual_width}x{actual_height}")
+                logger.info(f"SCALING FRAME: {current_width}x{current_height} -> {actual_width}x{actual_height}")
                 frame = cv2.resize(frame.astype(np.uint8), (actual_width, actual_height), interpolation=cv2.INTER_AREA)
 
             # CRITICAL DEBUG: Check frame content before writing
             if i == 0:  # Only debug first frame to avoid spam
                 non_zero_pixels = np.count_nonzero(frame)
                 frame_mean = np.mean(frame)
-                print(
-                    f"🔍 FRAME DEBUG: First frame non-zero pixels={non_zero_pixels}, mean={frame_mean:.2f}, shape={frame.shape}"
+                logger.info(
+                    f"FRAME DEBUG: First frame non-zero pixels={non_zero_pixels}, mean={frame_mean:.2f}, shape={frame.shape}"
                 )
-                print(f"🔍 WRITER DEBUG: Video writer expects {actual_width}x{actual_height}")
+                logger.debug(f"WRITER DEBUG: Video writer expects {actual_width}x{actual_height}")
 
             # Convert RGB to BGR for OpenCV
             frame_bgr = cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_RGB2BGR)
 
             # CRITICAL DEBUG: Check if video writer is still valid
             if not video_writer.isOpened():
-                print(f"❌ CRITICAL: Video writer closed unexpectedly at frame {i}")
+                logger.error(f"CRITICAL: Video writer closed unexpectedly at frame {i}")
                 break
 
             video_writer.write(frame_bgr)
@@ -657,13 +660,13 @@ class VideoOutputGenerator:
 
         if os.path.exists(output_path):
             file_size = os.path.getsize(output_path)
-            print(f"🔍 FILE DEBUG: Created {output_path} with size {file_size} bytes")
+            logger.debug(f"FILE DEBUG: Created {output_path} with size {file_size} bytes")
             if file_size <= 500:
-                print(f"❌ CORRUPTION DETECTED: File size {file_size} bytes is suspiciously small!")
+                logger.error(f"CORRUPTION DETECTED: File size {file_size} bytes is suspiciously small!")
             else:
-                print(f"✅ FILE LOOKS HEALTHY: {file_size} bytes")
+                logger.info(f"FILE LOOKS HEALTHY: {file_size} bytes")
         else:
-            print(f"❌ CRITICAL: Output file {output_path} was not created!")
+            logger.error(f"CRITICAL: Output file {output_path} was not created!")
 
         return output_path
 
@@ -679,7 +682,7 @@ class VideoOutputGenerator:
                 scale_factor = min(max_dimension / target_width, max_dimension / target_height)
                 target_width = int(target_width * scale_factor)
                 target_height = int(target_height * scale_factor)
-                print(f"   Scaling video to {target_width}x{target_height} for codec compatibility")
+                logger.debug(f"Scaling video to {target_width}x{target_height} for codec compatibility")
         else:
             target_width = width
             target_height = height
@@ -690,7 +693,7 @@ class VideoOutputGenerator:
             target_height = int(target_height * quality_scale)
             quality_names = {1.0: "original", 0.5: "mid", 0.25: "low"}
             quality_name = quality_names.get(quality_scale, f"{quality_scale:.2f}x")
-            print(f"   Applying {quality_name} quality scaling: {width}x{height} → {target_width}x{target_height}")
+            logger.debug(f"Applying {quality_name} quality scaling: {width}x{height} → {target_width}x{target_height}")
 
         return target_width, target_height
 
@@ -716,7 +719,7 @@ class VideoOutputGenerator:
             # Ensure even dimensions for codec compatibility
             width = width if width % 2 == 0 else width - 1
             height = height if height % 2 == 0 else height - 1
-            print(f"   Scaling video to {width}x{height} for better performance (scale: {scale_factor:.2f})")
+            logger.debug(f"Scaling video to {width}x{height} for better performance (scale: {scale_factor:.2f})")
 
         # Optimized codec selection based on resolution and system capabilities
         if max_dimension <= 1080:
@@ -756,7 +759,7 @@ class VideoOutputGenerator:
                 test_writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
 
                 if test_writer.isOpened():
-                    print(f"   Using {codec_name} codec for {width}x{height} video")
+                    logger.debug(f"Using {codec_name} codec for {width}x{height} video")
 
                     # Restore original log level
                     if original_opencv_log_level:
@@ -769,11 +772,11 @@ class VideoOutputGenerator:
                     test_writer.release()
 
             except Exception as e:
-                print(f"   {codec_name} codec failed: {e}")
+                logger.debug(f"{codec_name} codec failed: {e}")
                 continue
 
         # If all optimized codecs fail, try basic fallback
-        print("   Trying basic fallback codecs...")
+        logger.debug("Trying basic fallback codecs...")
         basic_codecs = [
             ("Raw", cv2.VideoWriter_fourcc(*"RGBA")),
             ("Uncompressed", 0),  # Uncompressed
@@ -783,7 +786,7 @@ class VideoOutputGenerator:
             try:
                 writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
                 if writer.isOpened():
-                    print(f"   Using {codec_name} codec (fallback)")
+                    logger.debug(f"Using {codec_name} codec (fallback)")
                     return writer
                 else:
                     writer.release()
@@ -817,7 +820,7 @@ class VideoOutputGenerator:
 
             # Visual feedback for debugging
             if np.count_nonzero(mask) == 0:
-                print(f"⚠️  No mask detected for frame {frame_idx}")
+                logger.warning(f"No mask detected for frame {frame_idx}")
                 # Create a red tinted frame to indicate no detection
                 output_frame = frame.copy().astype(np.float32)
                 output_frame[:, :, 0] = np.minimum(output_frame[:, :, 0] + 50, 255)  # Add red tint
@@ -1062,16 +1065,16 @@ class VideoOutputGenerator:
             # Print debug info only once per session and create session summary
             if frame_idx == 0 and hasattr(self, "debug_mode") and self.debug_mode:
                 num_objects = len(frame_objects_data)
-                print(f"💾 DEBUG: Saving organized debug frames to {debug_session_dir}")
-                print(f"🔍 DEBUG: Processing {num_objects} objects with individual subfolders")
-                print("📁 DEBUG: Structure: session_dir/object_XX/frame_YYY_[original|mask|overlay].png")
+                logger.debug(f"DEBUG: Saving organized debug frames to {debug_session_dir}")
+                logger.debug(f"DEBUG: Processing {num_objects} objects with individual subfolders")
+                logger.debug("DEBUG: Structure: session_dir/object_XX/frame_YYY_[original|mask|overlay].png")
 
                 # Create session info file
                 self._create_debug_session_info(debug_session_dir, video_type, num_objects)
 
         except Exception as e:
             if frame_idx == 0:  # Only print once
-                print(f"⚠️ Warning: Could not save debug frames for frame {frame_idx}: {e}")
+                logger.warning(f"Could not save debug frames for frame {frame_idx}: {e}")
 
     def _create_debug_session_info(self, debug_session_dir, video_type, num_objects):
         """Create a session info file with metadata about the debug session"""
@@ -1129,7 +1132,7 @@ class VideoOutputGenerator:
                 f.write("- Additional objects cycle through colors\n")
 
         except Exception as e:
-            print(f"⚠️ Warning: Could not create debug session info: {e}")
+            logger.warning(f"Could not create debug session info: {e}")
 
     def _save_debug_frame_and_mask(self, frame, mask_data, frame_idx, obj_id, video_type):
         """Legacy method - kept for compatibility"""
@@ -1168,7 +1171,7 @@ class VideoOutputGenerator:
                 )
                 created_videos[video_type] = result_path
             except Exception as e:
-                print(f"❌ Error creating {video_type} video: {str(e)}")
+                logger.error(f"Error creating {video_type} video: {str(e)}")
                 created_videos[video_type] = None
 
         return created_videos
@@ -1213,7 +1216,7 @@ def save_frame_sequence(frames, video_segments, obj_id, output_dir):
         overlay_pil = Image.fromarray(overlay_frame.astype(np.uint8))
         overlay_pil.save(overlays_dir / f"overlay_{frame_idx:04d}.png")
 
-    print(f"✅ Frame sequence saved to {output_dir}")
+    logger.info(f"Frame sequence saved to {output_dir}")
 
 
 def create_summary_image(frames, video_segments, obj_id, output_path):
@@ -1235,7 +1238,7 @@ def create_summary_image(frames, video_segments, obj_id, output_path):
     key_frame_indices = [idx for idx in key_frame_indices if idx < num_frames and idx in video_segments]
 
     if not key_frame_indices:
-        print("⚠️  No frames available for summary")
+        logger.warning("No frames available for summary")
         return
 
     # Create visualization
@@ -1272,4 +1275,4 @@ def create_summary_image(frames, video_segments, obj_id, output_path):
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
-    print(f"✅ Summary saved: {output_path}")
+    logger.info(f"Summary saved: {output_path}")

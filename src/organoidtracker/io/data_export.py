@@ -7,12 +7,15 @@ generation without re-running SAM2 tracking.
 
 import gzip
 import json
+import logging
 import pickle
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import cv2
+
+logger = logging.getLogger(__name__)
 
 
 class TrackingDataExporter:
@@ -50,7 +53,7 @@ class TrackingDataExporter:
         Returns:
             Dictionary with paths to exported files
         """
-        print("💾 Exporting tracking data for standalone visualization...")
+        logger.info("Exporting tracking data for standalone visualization...")
 
         # Create output directory
         output_path = Path(output_dir)
@@ -84,14 +87,14 @@ class TrackingDataExporter:
             with open(metadata_path, "w") as f:
                 json.dump(metadata, f, indent=2, default=str)
             exported_files["metadata"] = str(metadata_path)
-            print(f"   ✅ Metadata saved: {metadata_path.name}")
+            logger.debug(f"Metadata saved: {metadata_path.name}")
 
             # 2. Save organoid data (JSON - human readable)
             organoid_path = output_path / f"organoid_data_{timestamp}.json"
             with open(organoid_path, "w") as f:
                 json.dump(organoid_data, f, indent=2)
             exported_files["organoid_data"] = str(organoid_path)
-            print(f"   ✅ Organoid data saved: {organoid_path.name}")
+            logger.debug(f"Organoid data saved: {organoid_path.name}")
 
             # 3. Save tracking results (compressed pickle - handles tensors/arrays)
             tracking_path = output_path / f"tracking_results_{timestamp}.pkl.gz"
@@ -102,16 +105,16 @@ class TrackingDataExporter:
             with gzip.open(tracking_path, "wb") as f:
                 pickle.dump(serializable_tracking, f, protocol=pickle.HIGHEST_PROTOCOL)
             exported_files["tracking_results"] = str(tracking_path)
-            print(f"   ✅ Tracking results saved: {tracking_path.name}")
+            logger.debug(f"Tracking results saved: {tracking_path.name}")
 
             # 4. Save original frames (optional - as compressed video to save space)
             if original_frames is not None:
                 frames_path = output_path / f"original_frames_{timestamp}.mp4"
                 self._save_frames_as_video(original_frames, str(frames_path))
                 exported_files["original_frames"] = str(frames_path)
-                print(f"   ✅ Original frames saved: {frames_path.name}")
+                logger.debug(f"Original frames saved: {frames_path.name}")
             else:
-                print("   ⚠️ No original frames to save")
+                logger.warning("No original frames to save")
 
             # 5. Create a combined data file for easy loading
             combined_path = output_path / f"combined_data_{timestamp}.pkl.gz"
@@ -125,7 +128,7 @@ class TrackingDataExporter:
             with gzip.open(combined_path, "wb") as f:
                 pickle.dump(combined_data, f, protocol=pickle.HIGHEST_PROTOCOL)
             exported_files["combined_data"] = str(combined_path)
-            print(f"   ✅ Combined data saved: {combined_path.name}")
+            logger.debug(f"Combined data saved: {combined_path.name}")
 
             # 6. Create usage instructions
             instructions_path = output_path / f"README_{timestamp}.txt"
@@ -157,13 +160,13 @@ Data Summary:
                 f.write(instructions)
             exported_files["instructions"] = str(instructions_path)
 
-            print(f"📁 All data exported to: {output_dir}")
-            print(f"🚀 Use: python scripts/standalone_visualizer.py {combined_path.name}")
+            logger.info(f"All data exported to: {output_dir}")
+            logger.info(f"Use: python scripts/standalone_visualizer.py {combined_path.name}")
 
             return exported_files
 
         except Exception as e:
-            print(f"❌ Export failed: {e}")
+            logger.error(f"Export failed: {e}")
             import traceback
 
             traceback.print_exc()
@@ -184,7 +187,7 @@ Data Summary:
         if not data_path.exists():
             raise FileNotFoundError(f"Data file not found: {data_file}")
 
-        print(f"📂 Loading tracking data from: {data_path.name}")
+        logger.info(f"Loading tracking data from: {data_path.name}")
 
         try:
             # Try loading as combined data file first
@@ -192,8 +195,8 @@ Data Summary:
                 with gzip.open(data_path, "rb") as f:
                     combined_data = pickle.load(f)
 
-                print(
-                    f"   ✅ Loaded combined data (version: {combined_data.get('metadata', {}).get('version', 'unknown')})"
+                logger.debug(
+                    f"Loaded combined data (version: {combined_data.get('metadata', {}).get('version', 'unknown')})"
                 )
                 return combined_data
 
@@ -227,7 +230,7 @@ Data Summary:
                 raise ValueError(f"Unsupported file format: {data_path.suffix}")
 
         except Exception as e:
-            print(f"❌ Failed to load data: {e}")
+            logger.error(f"Failed to load data: {e}")
             raise
 
     def _convert_tensors_to_numpy(self, data: Any) -> Any:
@@ -290,10 +293,10 @@ Data Summary:
                 out.write(frame_bgr)
 
             out.release()
-            print(f"   📹 Saved {len(frames)} frames as video: {Path(output_path).name}")
+            logger.debug(f"Saved {len(frames)} frames as video: {Path(output_path).name}")
 
         except Exception as e:
-            print(f"   ❌ Failed to save frames as video: {e}")
+            logger.error(f"Failed to save frames as video: {e}")
 
 
 class StandaloneVisualizationRunner:
@@ -318,9 +321,9 @@ class StandaloneVisualizationRunner:
         Returns:
             Analysis summary with visualization paths
         """
-        print("🎨 Starting standalone visualization generation...")
-        print(f"   📂 Data file: {data_file}")
-        print(f"   📁 Output directory: {output_dir}")
+        logger.info("Starting standalone visualization generation...")
+        logger.debug(f"Data file: {data_file}")
+        logger.debug(f"Output directory: {output_dir}")
 
         try:
             # Load data
@@ -331,8 +334,8 @@ class StandaloneVisualizationRunner:
             organoid_data = data["organoid_data"]
             tracking_results = data["tracking_results"]
 
-            print(
-                f"   📊 Loaded: {metadata['export_info']['total_organoids']} organoids, {metadata['export_info']['total_cysts']} cysts"
+            logger.debug(
+                f"Loaded: {metadata['export_info']['total_organoids']} organoids, {metadata['export_info']['total_cysts']} cysts"
             )
 
             # Import analysis system
@@ -352,13 +355,13 @@ class StandaloneVisualizationRunner:
                 original_frames=None,  # Skip frame comparison for faster iteration
             )
 
-            print("✅ Standalone visualization generation completed!")
-            print(f"📁 Results saved to: {output_dir}")
+            logger.info("Standalone visualization generation completed!")
+            logger.info(f"Results saved to: {output_dir}")
 
             return analysis_summary
 
         except Exception as e:
-            print(f"❌ Standalone visualization failed: {e}")
+            logger.error(f"Standalone visualization failed: {e}")
             import traceback
 
             traceback.print_exc()

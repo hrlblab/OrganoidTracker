@@ -6,6 +6,7 @@ This script generates visualizations directly from the CSV data files
 produced by the GUI analysis, ensuring exact data fidelity.
 """
 
+import logging
 import sys
 import time
 from pathlib import Path
@@ -17,6 +18,8 @@ from organoidtracker.analysis.organoid_visualizations import OrganoidVisualizati
 
 # Outputs are read from and written to data/ under the current working directory, as the
 # application does; run this script from the repository root (or the directory holding data/).
+logger = logging.getLogger(__name__)
+
 project_root = Path.cwd()
 
 
@@ -28,14 +31,14 @@ def load_csv_data():
     summary_file = data_dir / "analysis_summary.json"
 
     if not raw_data_file.exists():
-        print(f"❌ Raw data CSV not found: {raw_data_file}")
+        logger.error(f"Raw data CSV not found: {raw_data_file}")
         return None, None
 
-    print(f"📊 Loading real CSV data from: {raw_data_file}")
+    logger.info(f"Loading real CSV data from: {raw_data_file}")
 
     # Load CSV data
     df = pd.read_csv(raw_data_file)
-    print(f"   ✅ Loaded {len(df)} data points")
+    logger.debug(f"Loaded {len(df)} data points")
 
     # Load metadata
     import json
@@ -45,9 +48,9 @@ def load_csv_data():
 
     experiment_info = metadata["experiment_info"]
 
-    print(f"   📊 Experiment: {experiment_info['total_organoids']} organoids, {experiment_info['total_cysts']} cysts")
-    print(f"   🕐 Duration: {experiment_info['time_lapse_days']} days")
-    print(f"   📏 Conversion: {experiment_info['conversion_factor_um_per_pixel']} μm/pixel")
+    logger.debug(f"Experiment: {experiment_info['total_organoids']} organoids, {experiment_info['total_cysts']} cysts")
+    logger.debug(f"Duration: {experiment_info['time_lapse_days']} days")
+    logger.debug(f"Conversion: {experiment_info['conversion_factor_um_per_pixel']} μm/pixel")
 
     return df, experiment_info
 
@@ -100,8 +103,7 @@ def create_experiment_from_csv(df, experiment_info):
 def generate_visualizations_from_csv(output_dir="csv_output"):
     """Generate visualizations from CSV data"""
 
-    print("🎨 CSV-Based Visualization Generator")
-    print("=" * 50)
+    logger.info("CSV-Based Visualization Generator")
 
     # Load CSV data
     df, experiment_info = load_csv_data()
@@ -109,9 +111,9 @@ def generate_visualizations_from_csv(output_dir="csv_output"):
         return 1
 
     # Create experiment structure
-    print("🔬 Creating experiment structure from CSV...")
+    logger.info("Creating experiment structure from CSV...")
     experiment = create_experiment_from_csv(df, experiment_info)
-    print(f"   ✅ Created experiment with {experiment.get_total_organoid_count()} organoids")
+    logger.debug(f"Created experiment with {experiment.get_total_organoid_count()} organoids")
 
     # Create visualizer
     visualizer = OrganoidVisualizationSuite()
@@ -122,10 +124,10 @@ def generate_visualizations_from_csv(output_dir="csv_output"):
     viz_dir = output_path / "visualizations"
     viz_dir.mkdir(exist_ok=True)
 
-    print(f"📁 Output directory: {viz_dir}")
+    logger.info(f"Output directory: {viz_dir}")
 
     # Generate visualizations
-    print("🎨 Generating visualizations...")
+    logger.info("Generating visualizations...")
     start_time = time.time()
 
     results = visualizer.create_all_visualizations(experiment, str(viz_dir))
@@ -133,17 +135,17 @@ def generate_visualizations_from_csv(output_dir="csv_output"):
     elapsed_time = time.time() - start_time
 
     if results and isinstance(results, dict):
-        print(f"✅ Generated {len(results)} visualizations in {elapsed_time:.1f}s:")
+        logger.info(f"Generated {len(results)} visualizations in {elapsed_time:.1f}s:")
         for viz_name, file_path in results.items():
             if file_path:
-                print(f"   • {viz_name}: {Path(file_path).name}")
+                logger.debug(f"• {viz_name}: {Path(file_path).name}")
 
-        print(f"\n🎯 Your cyst heatmap: {viz_dir}/f_lasagna_plot.svg")
-        print(f"📁 All results in: {viz_dir}")
+        logger.info(f"Your cyst heatmap: {viz_dir}/f_lasagna_plot.svg")
+        logger.info(f"All results in: {viz_dir}")
 
         return 0
     else:
-        print("❌ Visualization generation failed")
+        logger.error("Visualization generation failed")
         return 1
 
 
