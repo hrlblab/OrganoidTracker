@@ -45,3 +45,17 @@ def test_legacy_consumer_surface():
 def test_rejects_non_2d():
     with pytest.raises(ValueError):
         PackedMask(np.zeros((2, 3, 4), bool))
+
+
+def test_packed_bits_round_trip():
+    rng = np.random.default_rng(7)
+    mask = rng.random((37, 53)) > 0.6
+    packed = PackedMask(mask)
+    assert np.array_equal(packed.packed_bits, np.packbits(mask.ravel()))
+    rebuilt = PackedMask.from_packed_bits(packed.packed_bits, packed.shape)
+    assert rebuilt.shape == (37, 53) and rebuilt.area == packed.area == int(mask.sum())
+    assert np.array_equal(rebuilt.numpy(), mask)
+    with pytest.raises(ValueError, match="needs"):
+        PackedMask.from_packed_bits(packed.packed_bits[:-1], packed.shape)
+    with pytest.raises(ValueError, match="positive"):
+        PackedMask.from_packed_bits(packed.packed_bits, (0, 53))
