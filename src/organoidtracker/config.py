@@ -80,14 +80,17 @@ LOG_LEVEL = "INFO"                   # "DEBUG", "INFO", "WARNING", "ERROR"
 ENABLE_PERFORMANCE_LOGGING = False   # Log performance metrics
 LOG_ANALYSIS_DETAILS = True          # Log detailed analysis information
 
-# Load user-specific configuration overrides
+# Load user-specific configuration overrides from a user_config.py (see user_config_example.py).
+# The file is located by organoidtracker.paths.user_config_path(): an explicit
+# ORGANOIDTRACKER_USER_CONFIG path, then the working directory, then the source checkout.
 try:
     import importlib.util
-    import os
 
-    user_config_path = os.path.join(os.path.dirname(__file__), 'user_config.py')
-    if os.path.exists(user_config_path):
-        spec = importlib.util.spec_from_file_location("user_config", user_config_path)
+    from .paths import user_config_path
+
+    _user_config_file = user_config_path()
+    if _user_config_file is not None:
+        spec = importlib.util.spec_from_file_location("user_config", _user_config_file)
         user_config = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(user_config)
 
@@ -96,10 +99,7 @@ try:
             if not attr.startswith('_') and attr.isupper():
                 globals()[attr] = getattr(user_config, attr)
 
-        print("✅ User configuration loaded successfully")
-except ImportError:
-    # No user config file found, use defaults
-    pass
+        print(f"✅ User configuration loaded from {_user_config_file}")
 except Exception as e:
     print(f"⚠️ Warning: Error loading user config: {e}")
     print("   Using default configuration")

@@ -13,25 +13,14 @@ from typing import Optional, Dict, Any
 import queue
 import time
 
-# Add parent directories to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-# Import modules using absolute imports after path setup
-try:
-    from src.core.model_registry import get_model_registry, ModelFactory
-    from src.core.base_model import BaseVideoTracker
-    from src.utils.video_output import VideoOutputGenerator
-    from src.analysis import MetricsCalculator, ReportGenerator, AnalysisParameters
-    from src.gui.video_canvas import VideoCanvas
-    from src.gui.progress_dialog import ProgressDialog
-except ImportError:
-    # Fallback to relative imports if absolute imports fail
-    from ..core.model_registry import get_model_registry, ModelFactory
-    from ..core.base_model import BaseVideoTracker
-    from ..utils.video_output import VideoOutputGenerator
-    from ..analysis import MetricsCalculator, ReportGenerator, AnalysisParameters
-    from .video_canvas import VideoCanvas
-    from .progress_dialog import ProgressDialog
+from ..config import AUTO_OPEN_OUTPUT_DIRECTORY, DEFAULT_TIME_LAPSE_DAYS, DEFAULT_CONVERSION_FACTOR, SAM2_CHECKPOINT_FAMILY
+from ..core.model_registry import get_model_registry, ModelFactory
+from ..core.base_model import BaseVideoTracker
+from ..core.sam2_tracker import checkpoint_filename
+from ..io.video_output import VideoOutputGenerator
+from ..analysis import MetricsCalculator, ReportGenerator, AnalysisParameters
+from .video_canvas import VideoCanvas
+from .progress_dialog import ProgressDialog
 
 
 class VideoTrackerApp:
@@ -82,18 +71,10 @@ class VideoTrackerApp:
         self.next_organoid_id = 1
         self.next_cyst_id = 1
 
-        # Configuration options (load from config file)
-        try:
-            from pathlib import Path
-            sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-            from config import AUTO_OPEN_OUTPUT_DIRECTORY, DEFAULT_TIME_LAPSE_DAYS, DEFAULT_CONVERSION_FACTOR
-            self.auto_open_directory = AUTO_OPEN_OUTPUT_DIRECTORY
-            # Update defaults from config (no more manual organoid count needed)
-            self.time_lapse_var.set(DEFAULT_TIME_LAPSE_DAYS)
-            self.conversion_factor_var.set(DEFAULT_CONVERSION_FACTOR)
-        except ImportError:
-            # Fallback to hardcoded defaults if config not available
-            self.auto_open_directory = True
+        # Configuration options (config.py, with user_config.py overrides)
+        self.auto_open_directory = AUTO_OPEN_OUTPUT_DIRECTORY
+        self.time_lapse_var.set(DEFAULT_TIME_LAPSE_DAYS)
+        self.conversion_factor_var.set(DEFAULT_CONVERSION_FACTOR)
 
         # GUI setup
         self.setup_styles()
@@ -620,12 +601,7 @@ class VideoTrackerApp:
         """Update checkpoint display when model size changes"""
         model_config = self.model_config_var.get()
         try:
-            from ..core.sam2_tracker import checkpoint_filename
-            try:
-                from config import SAM2_CHECKPOINT_FAMILY as family
-            except ImportError:
-                family = "2.1"
-            checkpoint_file = checkpoint_filename(model_config, family)
+            checkpoint_file = checkpoint_filename(model_config, SAM2_CHECKPOINT_FAMILY)
         except Exception:
             checkpoint_file = "sam2.1_hiera_small.pt"
         self.checkpoint_info.config(text=checkpoint_file)
@@ -1850,11 +1826,7 @@ class VideoTrackerApp:
 
         def analysis_thread():
             try:
-                # Import new analysis system
-                try:
-                    from src.analysis import OrganoidAnalysisReportGenerator
-                except ImportError:
-                    from analysis import OrganoidAnalysisReportGenerator
+                from ..analysis import OrganoidAnalysisReportGenerator
 
                 # Create new analysis report generator
                 report_generator = OrganoidAnalysisReportGenerator()
@@ -1880,7 +1852,7 @@ class VideoTrackerApp:
 
                 # Export data for standalone visualization (after successful analysis)
                 try:
-                    from src.utils.data_export import TrackingDataExporter
+                    from ..io.data_export import TrackingDataExporter
                     
                     exporter = TrackingDataExporter()
                     export_dir = output_dir_path / "exported_data"

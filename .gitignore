@@ -69,3 +69,8 @@ debug_frames/
 test_outputs/
 analysis_results/
 csv_output/
+# Environments and tool caches (uv, ruff, pytest, mypy)
+.venv/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/

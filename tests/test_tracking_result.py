@@ -1,4 +1,4 @@
-from src.core.tracking_result import TrackingResult
+from organoidtracker.core.tracking_result import TrackingResult
 
 
 def test_behaves_like_the_legacy_dict():

@@ -14,16 +14,7 @@ import warnings
 
 from .organoid_cyst_data import ExperimentData
 
-# Import configuration settings
-try:
-    from ...config import MATPLOTLIB_DPI, VISUALIZATION_FORMAT, FONT_SCALE_FACTOR, DISABLE_VISUALIZATION_TEXT, DISABLE_VISUALIZATION_TITLES
-except ImportError:
-    # Fallback values if config import fails
-    MATPLOTLIB_DPI = 150
-    VISUALIZATION_FORMAT = 'png'
-    FONT_SCALE_FACTOR = 1.0
-    DISABLE_VISUALIZATION_TEXT = False
-    DISABLE_VISUALIZATION_TITLES = False
+from ..config import MATPLOTLIB_DPI, VISUALIZATION_FORMAT, FONT_SCALE_FACTOR, DISABLE_VISUALIZATION_TEXT, DISABLE_VISUALIZATION_TITLES
 
 # Optional imports with graceful fallbacks
 try:

@@ -1,4 +1,4 @@
-from src.analysis.organoid_cyst_data import ExperimentData
+from organoidtracker.analysis.organoid_cyst_data import ExperimentData
 
 
 def test_days_are_numbered_from_one_as_in_the_paper():

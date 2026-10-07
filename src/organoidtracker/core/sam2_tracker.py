@@ -15,7 +15,6 @@ directions, so the output and analysis code never reorder anything.
 """
 
 import hashlib
-import sys
 import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,17 +23,15 @@ import cv2
 import numpy as np
 import torch
 
+from ..paths import checkpoints_dir
 from .base_model import BaseVideoTracker, ModelCapabilities, ModelMetadata
 from .masks import PackedMask
 from .tracking_result import TrackingResult
 
 warnings.filterwarnings("ignore")
 
-APP_ROOT = Path(__file__).resolve().parent.parent.parent
-SAM2_PATH = APP_ROOT / "models" / "sam2"
-for _path in (str(SAM2_PATH), str(APP_ROOT)):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
+# Hydra configs owned by the application (variants of the vendored SAM2 configs).
+APP_CONFIG_DIR = Path(__file__).resolve().parent.parent / "configs"
 
 try:
     from sam2.build_sam import build_sam2_video_predictor  # noqa: F401  availability probe
@@ -42,7 +39,7 @@ try:
     from .sam2_frames import build_frame_predictor
 
     SAM2_AVAILABLE = True
-    print("✅ SAM2 loaded successfully from models/sam2/")
+    print("✅ SAM2 package imported")
 except ImportError as e:  # pragma: no cover - environment dependent
     print(f"⚠️  SAM2 not available: {e}")
     SAM2_AVAILABLE = False
@@ -75,18 +72,36 @@ def checkpoint_filename(model_config: str, family: str = "2.1") -> str:
 
 
 def config_filename(model_config: str, family: str = "2.1", improved: bool = False) -> str:
-    """Hydra config path (relative to models/sam2/configs) for a model size and family."""
+    """Hydra config name for a model size and family.
+
+    Standard configs are composed from the vendored ``sam2`` package under the names upstream
+    uses (``configs/<family>/<name>.yaml``); the application's own variants are composed from
+    ``APP_CONFIG_DIR``. ``hydra_search_path`` picks the matching Hydra context.
+    """
     fam = CHECKPOINT_FAMILIES[str(family)]
     size = SIZE_NAMES.get(model_config, SIZE_NAMES[DEFAULT_MODEL_CONFIG])
     if improved and str(family) == "2.1" and model_config == "sam2_hiera_b":
-        return "sam2.1/sam2.1_hiera_b+_improved_tracking.yaml"
-    return f"{fam['config_dir']}/{fam['prefix']}_hiera_{size[0]}.yaml"
+        return "sam2.1_hiera_b+_improved_tracking.yaml"
+    return f"configs/{fam['config_dir']}/{fam['prefix']}_hiera_{size[0]}.yaml"
+
+
+def hydra_search_path(config_file: str):
+    """Hydra initialization context in which ``config_file`` can be composed.
+
+    The vendored ``sam2`` package initializes the global Hydra instance when it is imported;
+    callers clear it before entering this context.
+    """
+    from hydra import initialize_config_dir, initialize_config_module
+
+    if (APP_CONFIG_DIR / config_file).is_file():
+        return initialize_config_dir(config_dir=str(APP_CONFIG_DIR), version_base="1.2")
+    return initialize_config_module("sam2", version_base="1.2")
 
 
 def _app_setting(name: str, default):
     """Read a constant from the application's config module, falling back to a default."""
     try:
-        import config as app_config
+        from .. import config as app_config
 
         return getattr(app_config, name, default)
     except Exception:
@@ -148,7 +163,7 @@ class SAM2Tracker(BaseVideoTracker):
         self.device_name = requested
 
         if checkpoint_path is None:
-            checkpoint_path = str(APP_ROOT / "checkpoints" / checkpoint_filename(model_config, self.checkpoint_family))
+            checkpoint_path = str(checkpoints_dir() / checkpoint_filename(model_config, self.checkpoint_family))
             print(f"   Auto-selected SAM2 checkpoint: {checkpoint_path}")
         self.checkpoint_path = checkpoint_path
         self.checkpoint_sha256: Optional[str] = None
@@ -201,7 +216,6 @@ class SAM2Tracker(BaseVideoTracker):
             return False
 
         try:
-            from hydra import initialize_config_dir
             from hydra.core.global_hydra import GlobalHydra
 
             if not Path(self.checkpoint_path).is_file():
@@ -211,7 +225,6 @@ class SAM2Tracker(BaseVideoTracker):
 
             improved = bool(_app_setting("SAM2_USE_IMPROVED_CONFIG", False))
             config_file = config_filename(self.model_config, self.checkpoint_family, improved)
-            config_dir = str((SAM2_PATH / "configs").resolve())
 
             print("🔄 Loading SAM2 model...")
             print(f"   Family: SAM {self.checkpoint_family}   Size: {self.model_config}   Device: {self.device_name}")
@@ -219,7 +232,7 @@ class SAM2Tracker(BaseVideoTracker):
             print(f"   Checkpoint: {self.checkpoint_path}")
 
             GlobalHydra.instance().clear()
-            with initialize_config_dir(config_dir=config_dir, version_base=None):
+            with hydra_search_path(config_file):
                 self.predictor = build_frame_predictor(config_file, self.checkpoint_path, self.device_name)
 
             self.checkpoint_sha256 = _sha256_file(self.checkpoint_path)

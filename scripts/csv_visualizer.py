@@ -7,13 +7,17 @@ produced by the GUI analysis, ensuring exact data fidelity.
 """
 
 import sys
+
 import pandas as pd
 from pathlib import Path
 import time
 
-# Add project root to path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+from organoidtracker.analysis.organoid_cyst_data import ExperimentData, OrganoidData, CystTrajectory, CystFrameData
+from organoidtracker.analysis.organoid_visualizations import OrganoidVisualizationSuite
+
+# Outputs are read from and written to data/ under the current working directory, as the
+# application does; run this script from the repository root (or the directory holding data/).
+project_root = Path.cwd()
 
 def load_csv_data():
     """Load real data from CSV files"""
@@ -48,10 +52,6 @@ def load_csv_data():
 def create_experiment_from_csv(df, experiment_info):
     """Create ExperimentData object from CSV data"""
     
-    try:
-        from src.analysis.organoid_cyst_data import ExperimentData, OrganoidData, CystTrajectory, CystFrameData
-    except ImportError:
-        from analysis.organoid_cyst_data import ExperimentData, OrganoidData, CystTrajectory, CystFrameData
     
     # Create experiment
     experiment = ExperimentData(
@@ -109,25 +109,6 @@ def generate_visualizations_from_csv(output_dir="csv_output"):
     print(f"🔬 Creating experiment structure from CSV...")
     experiment = create_experiment_from_csv(df, experiment_info)
     print(f"   ✅ Created experiment with {experiment.get_total_organoid_count()} organoids")
-    
-    # Import config first to fix text visibility
-    import config
-    
-    # Import visualization suite
-    try:
-        from src.analysis.organoid_visualizations import OrganoidVisualizationSuite
-        # Patch the config values in the visualization module
-        import src.analysis.organoid_visualizations as viz_module
-        viz_module.FONT_SCALE_FACTOR = config.FONT_SCALE_FACTOR
-        viz_module.DISABLE_VISUALIZATION_TEXT = config.DISABLE_VISUALIZATION_TEXT
-        viz_module.DISABLE_VISUALIZATION_TITLES = config.DISABLE_VISUALIZATION_TITLES
-    except ImportError:
-        from analysis.organoid_visualizations import OrganoidVisualizationSuite
-        # Patch the config values in the visualization module
-        import analysis.organoid_visualizations as viz_module
-        viz_module.FONT_SCALE_FACTOR = config.FONT_SCALE_FACTOR
-        viz_module.DISABLE_VISUALIZATION_TEXT = config.DISABLE_VISUALIZATION_TEXT
-        viz_module.DISABLE_VISUALIZATION_TITLES = config.DISABLE_VISUALIZATION_TITLES
     
     # Create visualizer
     visualizer = OrganoidVisualizationSuite()

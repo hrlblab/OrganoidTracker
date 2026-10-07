@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.core.masks import PackedMask
+from organoidtracker.core.masks import PackedMask
 
 
 def test_round_trip_and_area():

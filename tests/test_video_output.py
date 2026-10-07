@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from helpers import read_video
-from src.core.masks import PackedMask
-from src.utils.video_output import VideoOutputGenerator
+from organoidtracker.core.masks import PackedMask
+from organoidtracker.io.video_output import VideoOutputGenerator
 
 N, H, W, SQ = 6, 64, 96, 16
 

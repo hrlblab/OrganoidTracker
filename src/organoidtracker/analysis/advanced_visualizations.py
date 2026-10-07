@@ -20,15 +20,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
 import warnings
 
-# Import configuration settings
-try:
-    from ...config import MATPLOTLIB_DPI, VISUALIZATION_FORMAT, FONT_SCALE_FACTOR, DISABLE_VISUALIZATION_TEXT
-except ImportError:
-    # Fallback values if config import fails
-    MATPLOTLIB_DPI = 150
-    VISUALIZATION_FORMAT = 'png'
-    FONT_SCALE_FACTOR = 1.0
-    DISABLE_VISUALIZATION_TEXT = False
+from ..config import MATPLOTLIB_DPI, VISUALIZATION_FORMAT, FONT_SCALE_FACTOR, DISABLE_VISUALIZATION_TEXT
 
 # Optional imports with graceful fallback
 try:
