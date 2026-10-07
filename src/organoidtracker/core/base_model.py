@@ -28,12 +28,22 @@ class BaseVideoTracker(ABC):
             **kwargs: Model-specific configuration
         """
         self.model_name = model_name
-        self.video_frames = None
-        self.video_path = None
-        self.fps = None
-        self.prompts = {}
+        self.video_frames: list[np.ndarray] | None = None
+        self.video_path: str | None = None
+        self.fps: float | None = None
+        self.prompts: dict[int, list[dict[str, Any]]] = {}
         self.is_loaded = False
         self.is_initialized = False
+
+    @classmethod
+    @abstractmethod
+    def get_metadata(cls) -> "ModelMetadata":
+        """Describe the backend for the model registry"""
+
+    @classmethod
+    def is_available(cls) -> bool:
+        """Whether the backend's dependencies are importable"""
+        return True
 
     @abstractmethod
     def load_model(self, **kwargs) -> bool:
@@ -249,7 +259,12 @@ class ModelMetadata:
     """
 
     def __init__(
-        self, name: str, display_name: str, description: str, capabilities: list[str], requirements: list[str] = None
+        self,
+        name: str,
+        display_name: str,
+        description: str,
+        capabilities: list[str],
+        requirements: list[str] | None = None,
     ):
         """
         Initialize model metadata

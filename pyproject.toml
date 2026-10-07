@@ -8,7 +8,7 @@ version = "2.0.0a0"
 description = "SAM2-powered zero-shot tracking and quantitative analysis of cysts in kidney organoid time-lapse videos"
 readme = "README.md"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
 authors = [{ name = "Organoid Tracker contributors" }]
 keywords = ["kidney organoid", "cyst", "SAM2", "video segmentation", "time-lapse microscopy"]
@@ -57,6 +57,7 @@ dev = [
   "pytest>=8.0",
   "ruff>=0.14",
   "pre-commit>=4.0",
+  "mypy>=1.14",
 ]
 
 [project.scripts]
@@ -124,3 +125,17 @@ ignore = [
   "E501", # line length is the formatter's job; long strings and comments may stay
   "B905", # zip(strict=...) only adds noise where equal-length sequences are paired
 ]
+
+[tool.mypy]
+python_version = "3.12"
+# Type-checked modules: the core package and the small infrastructure modules. The legacy
+# analysis, io and Tk modules are not checked yet.
+files = [
+  "src/organoidtracker/core",
+  "src/organoidtracker/config.py",
+  "src/organoidtracker/logging_config.py",
+  "src/organoidtracker/paths.py",
+]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true

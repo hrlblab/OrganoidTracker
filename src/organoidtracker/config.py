@@ -103,6 +103,8 @@ try:
     _user_config_file = user_config_path()
     if _user_config_file is not None:
         spec = importlib.util.spec_from_file_location("user_config", _user_config_file)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load {_user_config_file}")
         user_config = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(user_config)
 

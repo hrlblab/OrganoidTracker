@@ -48,7 +48,7 @@ except ImportError as e:  # pragma: no cover - environment dependent
     logger.warning(f"SAM2 not available: {e}")
     SAM2_AVAILABLE = False
 
-    def build_frame_predictor(*args, **kwargs):
+    def build_frame_predictor(*args, **kwargs):  # type: ignore[misc]  # import fallback
         raise ImportError("SAM2 not available")
 
 
@@ -185,9 +185,9 @@ class SAM2Tracker(BaseVideoTracker):
         self.collapse_duplicates = bool(_app_setting("COLLAPSE_DUPLICATE_FRAMES", True))
         self.duplicate_threshold = float(_app_setting("DUPLICATE_FRAME_MAD_THRESHOLD", 1.0))
 
-        # Model and video state
-        self.predictor = None
-        self.inference_state = None
+        # Model and video state (the predictor type is only importable when SAM2 is available)
+        self.predictor: Any = None
+        self.inference_state: Any = None
         self.video_frames: list[np.ndarray] | None = None  # unique frames, chronological
         self.original_frames: list[np.ndarray] | None = None  # same list; kept for consumers
         self.frame_map: list[int] = []  # unique index -> decoded index
@@ -633,11 +633,16 @@ class SAM2Tracker(BaseVideoTracker):
             return True
 
     # ------------------------------------------------------------------ results access
+    def _frames(self) -> list[np.ndarray]:
+        if self.video_frames is None:
+            raise ValueError("No video loaded. Call load_video() first.")
+        return self.video_frames
+
     def get_frame_mask(self, frame_idx: int, obj_id: int = 1, video_segments: dict | None = None) -> np.ndarray:
         """Binary mask (uint8, frame resolution) for a chronological frame and object."""
         if video_segments is None:
             raise ValueError("No tracking results provided")
-        h, w = self.video_frames[frame_idx].shape[:2]
+        h, w = self._frames()[frame_idx].shape[:2]
         if frame_idx not in video_segments or obj_id not in video_segments[frame_idx]:
             return np.zeros((h, w), dtype=np.uint8)
         mask_binary = _mask_to_binary(video_segments[frame_idx][obj_id])
@@ -654,7 +659,7 @@ class SAM2Tracker(BaseVideoTracker):
         alpha: float = 0.3,
     ) -> np.ndarray:
         """Frame with the object's mask blended in."""
-        frame = self.video_frames[frame_idx].copy()
+        frame = self._frames()[frame_idx].copy()
         mask = self.get_frame_mask(frame_idx, obj_id, video_segments)
         if np.any(mask > 0):
             frame[mask > 0] = frame[mask > 0] * (1 - alpha) + np.array(color) * alpha

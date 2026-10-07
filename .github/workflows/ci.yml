@@ -27,9 +27,10 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --extra cpu --only-group dev --no-install-project
+      - run: uv sync --extra cpu --extra tk
       - run: uv run --no-sync ruff check src/organoidtracker tests scripts video_tracker_gui.py
       - run: uv run --no-sync ruff format --check src/organoidtracker tests scripts video_tracker_gui.py
+      - run: uv run --no-sync mypy
 
   test:
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
