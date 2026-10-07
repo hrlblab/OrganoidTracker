@@ -33,7 +33,9 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   and `transformers` backends; `requirements.txt` is exported from the lock for pip users.
 - Typed settings (`organoidtracker.settings.Settings`) with the defaults of the original `config.py`,
   loaded from an optional `organoidtracker.toml` (`organoidtracker.example.toml` documents every key;
-  keys and value types are checked). `config.py` keeps exposing the values as module constants.
+  keys and value types are checked). `config.py` keeps exposing the values as module constants. An
+  invalid settings file (unknown key, wrong type, unreadable) stops the application from starting,
+  with the error in the console and in a dialog, instead of being replaced by the defaults.
 - Logging through the standard `logging` module replaces the 350 `print` calls. Entry points write
   to the console and to a rotating log file next to the outputs
   (`data/output_videos/organoidtracker.log`); warnings and errors also appear in the GUI log panel

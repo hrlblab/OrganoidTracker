@@ -82,19 +82,44 @@ def check_models():
     return True
 
 
+def _show_startup_error(message: str) -> None:
+    """Show the message in a dialog when Tk can open one; a desktop launch has no visible console."""
+    try:
+        import tkinter
+        from tkinter import messagebox
+
+        root = tkinter.Tk()
+        root.withdraw()
+        messagebox.showerror("Organoid Tracker", message)
+        root.destroy()
+    except Exception:
+        pass
+
+
 def main():
     """Main entry point"""
     # Fix OpenMP duplicate library issue on Windows (PyTorch + NumPy/SciPy conflict)
     os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
     os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")  # Suppress Tkinter warnings on macOS
 
-    from .. import config
     from ..logging_config import configure_logging
+    from ..settings import SettingsError
+
+    try:
+        from .. import config
+    except SettingsError as error:
+        # An explicitly supplied but invalid configuration must not be replaced by defaults.
+        logging.basicConfig(level=logging.ERROR, format="%(levelname)-8s %(message)s")
+        logger.error(f"Invalid settings, not starting: {error}")
+        _show_startup_error(f"Invalid settings; the application did not start.\n\n{error}")
+        return 2
 
     log_file = configure_logging()
     logger.info("Multi-Model Video Object Tracker")
     if log_file is not None:
         logger.info(f"Log file: {log_file}")
+    if config.LOADED_SETTINGS_FILE is not None:
+        logger.info(f"Settings file: {config.LOADED_SETTINGS_FILE}")
     if config.LOADED_USER_CONFIG is not None:
         logger.info(f"User configuration: {config.LOADED_USER_CONFIG}")
 

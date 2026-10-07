@@ -1,6 +1,9 @@
 """Typed settings keep the original config.py defaults and load checked overrides from organoidtracker.toml."""
 
 import json
+import os
+import subprocess
+import sys
 
 import pytest
 
@@ -130,3 +133,36 @@ def test_settings_file_lookup_order(tmp_path, monkeypatch):
     explicit = tmp_path / "elsewhere.toml"
     monkeypatch.setenv("ORGANOIDTRACKER_SETTINGS", str(explicit))
     assert settings_path() == explicit
+
+
+def test_invalid_settings_file_aborts_the_import(tmp_path):
+    """An explicitly supplied invalid file must never be replaced by the defaults."""
+    bad = tmp_path / "organoidtracker.toml"
+    bad.write_text("sam2_min_mask_areas = 3\n")
+    env = {**os.environ, "ORGANOIDTRACKER_SETTINGS": str(bad)}
+    proc = subprocess.run(
+        [sys.executable, "-c", "import organoidtracker.config"], env=env, capture_output=True, text=True
+    )
+    assert proc.returncode != 0
+    assert "SettingsError" in proc.stderr and "unknown setting 'sam2_min_mask_areas'" in proc.stderr
+
+
+def test_launcher_refuses_to_start_with_an_invalid_settings_file(tmp_path, monkeypatch):
+    import organoidtracker
+    from organoidtracker.gui_tk import launcher, main_window  # imported before the config module is evicted
+
+    bad = tmp_path / "organoidtracker.toml"
+    bad.write_text("collapse_duplicate_frames = 1\n")
+    monkeypatch.setenv("ORGANOIDTRACKER_SETTINGS", str(bad))
+    # force `from .. import config` inside main() to import the module afresh
+    monkeypatch.delitem(sys.modules, "organoidtracker.config", raising=False)
+    monkeypatch.delattr(organoidtracker, "config", raising=False)
+    shown = []
+    monkeypatch.setattr(launcher, "_show_startup_error", shown.append)
+
+    def refuse_to_open_a_window():
+        raise AssertionError("the launcher must not start the GUI with invalid settings")
+
+    monkeypatch.setattr(main_window, "VideoTrackerApp", refuse_to_open_a_window)
+    assert launcher.main() == 2
+    assert shown and "expected true or false" in shown[0]
