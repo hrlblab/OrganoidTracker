@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -49,6 +50,16 @@ DEFAULT_DEVICE = "cuda"
 
 class SessionError(ValueError):
     """An invalid session document: unreadable, unknown key, wrong type or inconsistent values."""
+
+
+def _absolute(path: Path, base_dir: Path | None) -> Path:
+    """``path`` made absolute: relative to ``base_dir`` (the session file's directory) or else to the cwd.
+
+    Saved sessions and prompt records then carry references that hold from any directory.
+    """
+    if not path.is_absolute() and base_dir is not None:
+        path = Path(base_dir) / path
+    return Path(os.path.abspath(path))
 
 
 def _positive_number(value: Any, where: str) -> float:
@@ -187,9 +198,9 @@ class Session:
     annotations: AnnotationSet
     source: Path | None = None
 
-    def with_video(self, path: Path) -> Session:
+    def with_video(self, path: Path | str) -> Session:
         """The same session for a relocated video file (the recorded hash still applies)."""
-        return replace(self, video=replace(self.video, path=Path(path)))
+        return replace(self, video=replace(self.video, path=_absolute(Path(path).expanduser(), None)))
 
     def to_document(self) -> dict[str, Any]:
         return {
@@ -263,10 +274,7 @@ def _video(section: Mapping[str, Any], base_dir: Path | None, where: str) -> Vid
     sha256 = section.get("sha256")
     if sha256 is not None and (not isinstance(sha256, str) or len(sha256) != 64):
         raise SessionError(f"{where}: video.sha256: expected a 64-character hex digest or null")
-    path = Path(raw).expanduser()
-    if not path.is_absolute() and base_dir is not None:
-        path = base_dir / path
-    return VideoReference(path, sha256.lower() if sha256 else None)
+    return VideoReference(_absolute(Path(raw).expanduser(), base_dir), sha256.lower() if sha256 else None)
 
 
 def _tracking(section: Any, base_dir: Path | None, where: str) -> TrackingSpec:
@@ -280,9 +288,7 @@ def _tracking(section: Any, base_dir: Path | None, where: str) -> TrackingSpec:
     if checkpoint is not None:
         if not isinstance(checkpoint, str):
             raise SessionError(f"{where}: tracking.checkpoint_path: expected a string or null")
-        checkpoint_path = Path(checkpoint).expanduser()
-        if not checkpoint_path.is_absolute() and base_dir is not None:
-            checkpoint_path = base_dir / checkpoint_path
+        checkpoint_path = _absolute(Path(checkpoint).expanduser(), base_dir)
     for key in ("direction", "model_config", "checkpoint_family", "device"):
         value = section.get(key)
         if value is not None and not isinstance(value, str):

@@ -98,8 +98,9 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   tiny checkpoint and skip when it is absent.
 
 ### Changed
-- The Tk application writes its prompt record through the shared services module; the record's
-  content is unchanged.
+- The Tk application writes its prompt record through the shared services module. The record now
+  stores the video and checkpoint paths as absolute paths (and, for headless runs, the explicit frame
+  times), so it replays from any directory.
 - Source layout: `src/organoidtracker/{core,analysis,io,gui_tk}`; the vendored upstream SAM 2 is the
   top-level `sam2` package under `src/sam2` (byte-identical to facebookresearch/sam2 at 2b90b9f) with
   its configs as package data and its license files alongside. All `sys.path` edits are gone.

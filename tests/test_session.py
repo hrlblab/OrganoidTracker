@@ -1,6 +1,7 @@
 """The session document: validated inputs of a run, loaded from JSON or from a prompt record."""
 
 import json
+import os
 
 import pytest
 
@@ -232,3 +233,20 @@ def test_misspelled_cysts_key_is_rejected_not_counted_as_empty(tmp_path):
     del data["organoids"][1]["cysts"]
     with pytest.raises(SessionError, match=r"organoids\[1\]: unknown key\(s\) \['cyst'\]"):
         load_session(write(tmp_path, data))
+
+
+def test_relative_paths_become_absolute_when_loaded(tmp_path, monkeypatch):
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    (inputs / "weights.pt").touch()
+    (inputs / "disc.mp4").touch()
+    data = document(tracking={"model_config": "sam2_hiera_t", "device": "cpu", "checkpoint_path": "weights.pt"})
+    write(inputs, data)
+    monkeypatch.chdir(tmp_path)
+    session = load_session("inputs/session.json")  # a cwd-relative session file with relative references
+    assert session.video.path.is_absolute() and session.video.path == inputs / "disc.mp4"
+    assert session.tracking.checkpoint_path is not None and session.tracking.checkpoint_path.is_absolute()
+    assert session.tracking.checkpoint_path == inputs / "weights.pt" and session.tracking.checkpoint_path.is_file()
+    assert session.with_video("other.mp4").video.path == tmp_path / "other.mp4"
+    saved = session.to_document()
+    assert os.path.isabs(saved["video"]["path"]) and os.path.isabs(saved["tracking"]["checkpoint_path"])

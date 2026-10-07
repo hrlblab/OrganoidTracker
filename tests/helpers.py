@@ -95,6 +95,7 @@ class FakeTracker:
         grow=2,
         fail_load=False,
         reject_prompts=False,
+        checkpoint_path="/nonexistent/fake.pt",
         **kwargs,
     ):
         import hashlib
@@ -119,7 +120,7 @@ class FakeTracker:
         self.decoded_frame_count = 0
         self.annotation_frame_index = 0
         self.video_sha256 = None
-        self.checkpoint_path = "/nonexistent/fake.pt"
+        self.checkpoint_path = checkpoint_path
         self._hashlib = hashlib
 
     def load_model(self, **kwargs):

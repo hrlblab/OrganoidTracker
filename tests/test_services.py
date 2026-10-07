@@ -5,6 +5,7 @@ timestamps, CSV round trips. Everything the exports say must come from what was 
 import csv
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,7 @@ from helpers import DiscVideo, FakeTracker, expected_growth_per_day
 from organoidtracker.analysis.csv_import import experiment_from_csv
 from organoidtracker.services.analysis_service import AnalysisService
 from organoidtracker.services.annotations import AnnotationError
-from organoidtracker.services.export_service import ExportError
+from organoidtracker.services.export_service import ExportError, ExportService
 from organoidtracker.services.pipeline import EXIT_PARTIAL, run_session
 from organoidtracker.services.prompt_record import PROMPT_RECORD_SCHEMA, build_prompt_record
 from organoidtracker.services.session import (
@@ -270,9 +271,8 @@ def test_relocated_video_with_the_same_content_runs(small_disc, small_video, tmp
     moved = tmp_path / "moved.mp4"
     moved.write_bytes(small_video.read_bytes())
     outcome = run(session.with_video(moved), tmp_path / "run", small_disc)
-    assert outcome.complete and json.loads((outcome.output_dir / "session.json").read_text())["video"]["path"] == str(
-        moved.resolve()
-    )
+    assert outcome.complete
+    assert json.loads((outcome.output_dir / "session.json").read_text())["video"]["path"] == os.path.abspath(moved)
 
 
 def test_a_previous_run_is_not_overwritten_silently(small_disc, small_video, tmp_path):
@@ -420,3 +420,42 @@ def test_a_missing_figure_fails_the_run(small_disc, small_video, tmp_path, monke
     with pytest.raises(ExportError, match="figure lasagna_plot"):
         run(make_session(small_disc, small_video), tmp_path / "run", small_disc)
     assert not (tmp_path / "run" / "run_manifest.json").exists()
+
+
+def test_saved_session_and_prompt_record_replay_from_any_directory(small_disc, small_video, tmp_path, monkeypatch):
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    (inputs / "weights.pt").touch()
+    (inputs / "disc.mp4").write_bytes(small_video.read_bytes())
+    document = make_session(small_disc, small_video).to_document()
+    document["video"] = {"path": "disc.mp4", "sha256": document["video"]["sha256"]}
+    document["tracking"]["checkpoint_path"] = "weights.pt"
+    (inputs / "session.json").write_text(json.dumps(document))
+    monkeypatch.chdir(tmp_path)
+    loaded = load_session("inputs/session.json")
+
+    # the exported session copy points at the same files although it lives elsewhere
+    exporter = ExportService(tmp_path / "copy")
+    exporter.prepare()
+    copied = load_session(exporter.write_session(loaded))
+    assert copied.video.path == inputs / "disc.mp4" and copied.tracking.checkpoint_path == inputs / "weights.pt"
+    assert copied.tracking.checkpoint_path.is_file()
+
+    # the prompt record of a run replays the same video and checkpoint from another directory
+    outcome = run_session(
+        loaded,
+        tmp_path / "run",
+        videos=False,
+        tracking_service_factory=lambda spec: TrackingService(
+            FakeTracker(small_disc, enable_reverse_tracking=spec.reverse, checkpoint_path="inputs/weights.pt")
+        ),
+    )
+    record = json.loads((outcome.output_dir / "prompts.json").read_text())
+    assert record["video"]["path"] == str(inputs / "disc.mp4")
+    assert record["model"]["checkpoint_path"] == str(inputs / "weights.pt")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    replay = load_session(outcome.output_dir / "prompts.json")
+    assert replay.video.path.is_file() and replay.tracking.checkpoint_path == inputs / "weights.pt"
+    assert replay.tracking.checkpoint_path.is_file()

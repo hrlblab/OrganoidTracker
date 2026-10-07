@@ -150,7 +150,9 @@ class ExportService:
     # ------------------------------------------------------------------ small files
     def write_session(self, session: Session, video_sha256: str | None = None) -> Path:
         document = session.to_document()
-        document["video"]["path"] = str(Path(session.video.path).resolve())
+        document["video"]["path"] = os.path.abspath(session.video.path)  # holds from any directory
+        if session.tracking.checkpoint_path is not None:
+            document["tracking"]["checkpoint_path"] = os.path.abspath(session.tracking.checkpoint_path)
         if video_sha256 and not document["video"].get("sha256"):
             document["video"]["sha256"] = video_sha256
         return self._write_json(self.output_dir / SESSION_NAME, document)

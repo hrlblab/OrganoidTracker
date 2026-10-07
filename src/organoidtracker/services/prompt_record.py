@@ -8,6 +8,7 @@ application and the command line write the same record through this module.
 from __future__ import annotations
 
 import json
+import os
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -34,12 +35,18 @@ def build_prompt_record(
     """
     frames = getattr(model, "video_frames", None)
     describe = getattr(model, "provenance", None)
+    model_block: dict[str, Any] = (
+        dict(describe()) if callable(describe) else {"name": getattr(model, "model_name", "?")}
+    )
+    for key in ("checkpoint_path", "video_path"):  # file references hold from any directory
+        if model_block.get(key):
+            model_block[key] = os.path.abspath(str(model_block[key]))
     return {
         "results_version": RESULTS_VERSION,
         "schema": PROMPT_RECORD_SCHEMA,
         "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "video": {
-            "path": str(video_path),
+            "path": os.path.abspath(str(video_path)),
             "sha256": getattr(model, "video_sha256", None),
             "decoded_frames": getattr(model, "decoded_frame_count", None),
             "unique_frames": len(frames) if frames else 0,
@@ -49,7 +56,7 @@ def build_prompt_record(
             "direction": "reverse" if getattr(model, "enable_reverse_tracking", True) else "forward",
             "annotation_frame_index": getattr(model, "annotation_frame_index", 0),
         },
-        "model": describe() if callable(describe) else {"name": getattr(model, "model_name", "?")},
+        "model": model_block,
         "organoids": [
             {
                 "organoid_id": organoid_id,
