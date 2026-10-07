@@ -59,6 +59,7 @@ def test_one_annotated_cyst_gives_one_cyst(tmp_path):
     assert [(r["Organoid_ID"], r["Cyst_ID"], r["Frames_Tracked"]) for r in rows] == [("1", "1", "8")]
     assert not any("missing" in w.lower() for w in summary["validation_results"]["warnings"])
     assert summary["tracking"]["object_ids"] == [1] and summary["tracking"]["status"] == "completed"
+    assert all(summary["output_files"]["visualizations"].values())
     assert json.loads(Path(tmp_path, "analysis_summary.json").read_text())["results_version"] >= 2
 
 
@@ -101,6 +102,8 @@ def test_a_partial_run_is_labelled_partial(tmp_path):
     assert any(w.startswith("Tracking partial: 3 of 7 frames") for w in summary["validation_results"]["warnings"])
     rows = read_csv(summary["output_files"]["csv_files"]["raw_data"])
     assert sorted(int(r["Frame"]) for r in rows) == [4, 5, 6]
+    assert summary["tracking"]["tracked_frames"] == [4, 5, 6]
+    assert all(summary["output_files"]["visualizations"].values()), "every plot must be produced for a partial run"
 
 
 def test_plain_dict_results_count_frames_up_to_the_highest_index():
@@ -131,3 +134,24 @@ def test_growth_rate_is_area_change_per_day(tmp_path, time_lapse_days, expected_
     assert float(read_csv(path)[0]["Growth_Rate_um2_per_day"]) == pytest.approx(expected_per_day)
     summary = OrganoidAnalysisReportGenerator()._create_analysis_summary(experiment, {}, {}, {}, None)
     assert summary["growth_statistics"]["mean_growth_rate_um2_per_day"] == pytest.approx(expected_per_day)
+
+
+def test_untracked_frames_are_gaps_not_zeros():
+    from organoidtracker.analysis.organoid_visualizations import heatmap_matrix, observed_series
+
+    results = results_for((4, 5, 6), frames_total=7, status="partial", tracked_frames=[4, 5, 6])
+    experiment = OrganoidAnalysisEngine().extract_experiment_data_from_tracking(
+        results, organoids(1), time_lapse_days=6.0, total_frames=7, observed_frames=[4, 5, 6]
+    )
+    times, ratios = observed_series(experiment, experiment.get_cyst_to_organoid_ratio_at_frame)
+    assert times == [float(1 + k) for k in range(7)]
+    assert np.isnan(ratios[:4]).all() and ratios[4:].tolist() == [1.0, 1.0, 1.0]
+    assert float(np.nanmean(ratios)) == 1.0  # not 3/7
+    matrix = heatmap_matrix(experiment, experiment.get_all_cysts())
+    assert matrix.shape == (1, 7) and np.isnan(matrix[0, :4]).all() and (matrix[0, 4:] > 0).all()
+
+    complete = OrganoidAnalysisEngine().extract_experiment_data_from_tracking(
+        results_for(range(1, 7), frames_total=7), organoids(1), time_lapse_days=6.0, total_frames=7
+    )
+    _, ratios = observed_series(complete, complete.get_cyst_to_organoid_ratio_at_frame)
+    assert ratios.tolist() == [0.0] + [1.0] * 6  # frame 0 was tracked and had no cyst: a real zero

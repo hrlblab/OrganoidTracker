@@ -182,6 +182,7 @@ class ExperimentData:
     organoids: dict[int, OrganoidData] = field(default_factory=dict)  # organoid_id -> OrganoidData
     next_organoid_id: int = 1
     frame_timestamps: list[float] = field(default_factory=list)  # Time for each frame
+    observed_frames: list[int] | None = None  # frames the tracker visited; None means all frames
 
     def __post_init__(self):
         """Initialize frame timestamps if not provided"""
@@ -240,6 +241,15 @@ class ExperimentData:
             all_cysts.extend(organoid.cysts.values())
         return all_cysts
 
+    def frames_observed(self) -> list[int]:
+        """Frame indices that were tracked (every frame when the run did not record them)."""
+        if self.observed_frames is None:
+            return list(range(self.total_frames))
+        return sorted(f for f in self.observed_frames if 0 <= f < self.total_frames)
+
+    def is_observed(self, frame_index: int) -> bool:
+        return self.observed_frames is None or frame_index in self.observed_frames
+
     def get_time_at_frame(self, frame_index: int) -> float:
         """Get time (in days) at specific frame"""
         if 0 <= frame_index < len(self.frame_timestamps):
@@ -269,6 +279,7 @@ class ExperimentData:
             "conversion_factor_um_per_pixel": self.conversion_factor_um_per_pixel,
             "total_organoids": self.get_total_organoid_count(),
             "frame_timestamps": self.frame_timestamps,
+            "observed_frames": self.observed_frames,
             "organoid_count": len(self.organoids),
             "total_cyst_count": len(self.get_all_cysts()),
         }

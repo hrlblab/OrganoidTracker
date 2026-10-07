@@ -40,6 +40,10 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   and the summary JSON previously multiplied the per-frame change by the days per frame instead of
   dividing, which was only correct for frames one day apart (two-day spacing reported 20 µm²/day
   for a true 5 µm²/day). The organoid-level growth rate was already per day.
+- Plots and the heatmap distinguish frames the tracker never visited (a partial run) from tracked
+  frames without cysts: untracked frames are gaps (gray in the heatmap), and the plotted statistics
+  use tracked frames only. The tracker records the frames it visited (`tracked_frames` in the
+  summary's `tracking` block).
 - These corrections are results version 2 (`results_version` in the prompt record and the
   analysis summary).
 
@@ -118,6 +122,10 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   with this repository's Apache-2.0 license. SAM2 is the only backend.
 
 ### Fixed
+- Re-plotting from the exported CSV (`scripts/csv_visualizer.py`) used frame indices as timestamps,
+  which changed the day labels and the growth rates; it now rebuilds the experiment through
+  `organoidtracker.analysis.csv_import.experiment_from_csv`, which keeps the exported `Time_Days`
+  and the tracked frames.
 - The Results Viewer module had lost its indentation and could not be imported, so the
   View Results action always failed; it opens again.
 - The Results Viewer's frame slider and display update called each other recursively.

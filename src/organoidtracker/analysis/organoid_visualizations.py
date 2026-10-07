@@ -30,6 +30,30 @@ except ImportError:
     logger.warning("Seaborn not available. Using matplotlib styling.")
 
 
+def observed_series(experiment: ExperimentData, value_at_frame) -> tuple[list[float], np.ndarray]:
+    """Per-frame values over the whole time axis, NaN where the frame was not tracked.
+
+    Plotting NaN breaks the line, so untracked frames of a partial run appear as gaps rather
+    than as measured zeros; statistics use ``numpy.nan*`` functions on the observed values.
+    """
+    times = [experiment.get_time_at_frame(i) for i in range(experiment.total_frames)]
+    values = np.full(experiment.total_frames, np.nan)
+    for frame_idx in experiment.frames_observed():
+        values[frame_idx] = value_at_frame(frame_idx)
+    return times, values
+
+
+def heatmap_matrix(experiment: ExperimentData, cysts) -> np.ndarray:
+    """Cyst areas (um^2) per frame; 0 where a cyst is absent from a tracked frame, NaN where untracked."""
+    matrix = np.full((len(cysts), experiment.total_frames), np.nan)
+    observed = experiment.frames_observed()
+    for row_idx, cyst in enumerate(cysts):
+        for frame_idx in observed:
+            area = cyst.get_area_at_frame(frame_idx, experiment.conversion_factor_um_per_pixel)
+            matrix[row_idx, frame_idx] = area if area is not None else 0.0
+    return matrix
+
+
 class OrganoidVisualizationSuite:
     """
     Comprehensive visualization suite for organoid-cyst analysis
@@ -207,16 +231,11 @@ class OrganoidVisualizationSuite:
         logger.info("Creating plot A: % organoids with cysts vs time")
 
         try:
-            # Calculate percentage for each frame
-            time_points = []
-            percentages = []
-
-            for frame_idx in range(experiment.total_frames):
-                time_days = experiment.get_time_at_frame(frame_idx)
-                percentage = experiment.get_percentage_organoids_with_cysts_at_frame(frame_idx)
-
-                time_points.append(time_days)
-                percentages.append(percentage)
+            # Percentage per tracked frame; untracked frames of a partial run are gaps
+            time_points, percentages = observed_series(
+                experiment, experiment.get_percentage_organoids_with_cysts_at_frame
+            )
+            observed = percentages[~np.isnan(percentages)]
 
             # Create plot
             fig, ax = plt.subplots(figsize=self.figure_size)
@@ -238,9 +257,9 @@ class OrganoidVisualizationSuite:
             ax.grid(True, alpha=0.3)
             ax.legend()
 
-            # Add statistics annotation
-            max_percentage = max(percentages) if percentages else 0
-            final_percentage = percentages[-1] if percentages else 0
+            # Add statistics annotation (observed frames only)
+            max_percentage = float(observed.max()) if observed.size else 0
+            final_percentage = float(observed[-1]) if observed.size else 0
 
             stats_text = f"Final: {final_percentage:.1f}%\nMax: {max_percentage:.1f}%"
             ax.text(
@@ -270,16 +289,9 @@ class OrganoidVisualizationSuite:
         logger.info("Creating plot B: cyst/organoid ratio vs time")
 
         try:
-            # Calculate ratio for each frame
-            time_points = []
-            ratios = []
-
-            for frame_idx in range(experiment.total_frames):
-                time_days = experiment.get_time_at_frame(frame_idx)
-                ratio = experiment.get_cyst_to_organoid_ratio_at_frame(frame_idx)
-
-                time_points.append(time_days)
-                ratios.append(ratio)
+            # Ratio per tracked frame; untracked frames of a partial run are gaps
+            time_points, ratios = observed_series(experiment, experiment.get_cyst_to_organoid_ratio_at_frame)
+            observed = ratios[~np.isnan(ratios)]
 
             # Create plot
             fig, ax = plt.subplots(figsize=self.figure_size)
@@ -297,14 +309,14 @@ class OrganoidVisualizationSuite:
             # Titles removed per user request
 
             # Formatting
-            ax.set_ylim(0, max(ratios) * 1.1 if ratios else 1)
+            ax.set_ylim(0, float(observed.max()) * 1.1 if observed.size and observed.max() > 0 else 1)
             ax.grid(True, alpha=0.3)
             ax.legend()
 
-            # Add statistics
-            max_ratio = max(ratios) if ratios else 0
-            final_ratio = ratios[-1] if ratios else 0
-            mean_ratio = np.mean(ratios) if ratios else 0
+            # Add statistics (observed frames only)
+            max_ratio = float(observed.max()) if observed.size else 0
+            final_ratio = float(observed[-1]) if observed.size else 0
+            mean_ratio = float(observed.mean()) if observed.size else 0
 
             stats_text = f"Final: {final_ratio:.2f}\nMax: {max_ratio:.2f}\nMean: {mean_ratio:.2f}"
             ax.text(
@@ -705,13 +717,8 @@ class OrganoidVisualizationSuite:
             n_cysts = len(sorted_cysts)
             n_frames = experiment.total_frames
 
-            heatmap_data = np.zeros((n_cysts, n_frames))
-
-            for row_idx, cyst in enumerate(sorted_cysts):
-                for frame_idx in range(n_frames):
-                    # Get individual cyst area at this frame (0 if cyst not present)
-                    area = cyst.get_area_at_frame(frame_idx, experiment.conversion_factor_um_per_pixel)
-                    heatmap_data[row_idx, frame_idx] = area if area is not None else 0
+            # 0 where a cyst is absent from a tracked frame; NaN (drawn gray) where the frame was not tracked
+            heatmap_data = heatmap_matrix(experiment, sorted_cysts)
 
             # Create time axis
             time_points = [experiment.get_time_at_frame(i) for i in range(n_frames)]
@@ -735,10 +742,11 @@ class OrganoidVisualizationSuite:
             )
 
             # Main heatmap
-            if np.max(heatmap_data) > 0:
+            if heatmap_data.size and np.nanmax(heatmap_data) > 0:
+                cmap = plt.get_cmap("YlOrRd").with_extremes(bad="lightgray")  # untracked frames are gray
                 im = ax_main.imshow(
                     heatmap_data,
-                    cmap="YlOrRd",
+                    cmap=cmap,
                     aspect="equal",  # Equal aspect ratio for perfect squares
                     interpolation="nearest",
                 )

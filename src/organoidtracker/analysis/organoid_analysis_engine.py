@@ -32,6 +32,7 @@ class OrganoidAnalysisEngine:
         organoid_data: dict[int, dict],  # From GUI: {organoid_id: {'point': (x,y), 'cysts': [...]}}
         time_lapse_days: float,
         total_frames: int,
+        observed_frames: list[int] | None = None,
     ) -> ExperimentData:
         """
         Extract complete experiment data from SAM2 tracking results
@@ -41,6 +42,7 @@ class OrganoidAnalysisEngine:
             organoid_data: Organoid-cyst relationships from GUI workflow
             time_lapse_days: Total experiment duration
             total_frames: Number of video frames
+            observed_frames: Frames the tracker visited (None: all frames)
 
         Returns:
             ExperimentData: Complete structured experiment data
@@ -52,6 +54,7 @@ class OrganoidAnalysisEngine:
             total_frames=total_frames,
             time_lapse_days=time_lapse_days,
             conversion_factor_um_per_pixel=self.conversion_factor,
+            observed_frames=observed_frames,
         )
 
         # Process each organoid and its cysts

@@ -110,6 +110,7 @@ class OrganoidAnalysisReportGenerator:
                 organoid_data=organoid_data,
                 time_lapse_days=time_lapse_days,
                 total_frames=total_frames,
+                observed_frames=run["tracked_frames"],
             )
 
             # Save experiment data for debugging
@@ -224,6 +225,7 @@ class OrganoidAnalysisReportGenerator:
                 raise ValueError("cannot determine the number of frames: the tracking results are empty")
             frames_total = max(frame_keys) + 1
         frames_done = int(getattr(tracking_results, "frames_done", 0) or 0) or len(frame_keys)
+        tracked_frames = sorted(getattr(tracking_results, "tracked_frames", None) or frame_keys)
         object_ids = sorted({int(obj) for key in frame_keys for obj in results[key]})
         return {
             "status": getattr(tracking_results, "status", "completed"),
@@ -234,6 +236,7 @@ class OrganoidAnalysisReportGenerator:
             "direction": getattr(tracking_results, "direction", None),
             "annotation_frame": getattr(tracking_results, "annotation_frame", None),
             "frame_map": frame_map,
+            "tracked_frames": tracked_frames,
             "object_ids": object_ids,
         }
 
