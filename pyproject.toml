@@ -110,3 +110,17 @@ markers = [
   "model: runs the real SAM 2.1 tiny model; skipped when checkpoints/sam2.1_hiera_tiny.pt is absent",
   "data: needs lab videos under OT_PLATES_DIR; skipped when unset and never run in CI",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+# The vendored upstream SAM 2 package is neither linted nor formatted.
+extend-exclude = ["src/sam2"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+  "E501", # line length is the formatter's job; long strings and comments may stay
+  "B905", # zip(strict=...) only adds noise where equal-length sequences are paired
+]

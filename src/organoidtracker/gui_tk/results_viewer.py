@@ -6,8 +6,10 @@ Display tracking results frame by frame
 
 import tkinter as tk
 from tkinter import ttk
+from typing import Any
+
 import numpy as np
-from typing import Dict, List, Any
+
 from .video_canvas import VideoCanvas
 
 
@@ -21,7 +23,7 @@ class ResultsViewer:
     - Frame-by-frame analysis
     """
 
-    def __init__(self, parent, frames: List[np.ndarray], video_segments: Dict[int, Dict[int, Any]], obj_id: int = 1):
+    def __init__(self, parent, frames: list[np.ndarray], video_segments: dict[int, dict[int, Any]], obj_id: int = 1):
         """
         Initialize the results viewer
 
@@ -317,11 +319,11 @@ class ResultsViewer:
             total_pixels = mask_binary.size
             coverage = (mask_area / total_pixels) * 100 if total_pixels > 0 else 0
 
-            info_text += f"Segmentation: Found\n"
+            info_text += "Segmentation: Found\n"
             info_text += f"Coverage: {coverage:.1f}% ({mask_area} pixels)"
         else:
-            info_text += f"Segmentation: Not found\n"
-            info_text += f"Coverage: 0.0%"
+            info_text += "Segmentation: Not found\n"
+            info_text += "Coverage: 0.0%"
 
         self.info_text.config(state='normal')
         self.info_text.delete(1.0, tk.END)

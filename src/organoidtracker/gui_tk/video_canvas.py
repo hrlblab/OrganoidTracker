@@ -4,11 +4,11 @@ Video Canvas Widget
 Custom Tkinter canvas for displaying video frames and handling click interactions
 """
 
-import tkinter as tk
+from collections.abc import Callable
 from tkinter import Canvas
-from PIL import Image, ImageTk
+
 import numpy as np
-from typing import Callable, Optional, Tuple
+from PIL import Image, ImageTk
 
 
 class VideoCanvas:
@@ -197,7 +197,7 @@ class VideoCanvas:
             justify='center'
         )
 
-    def canvas_to_image_coords(self, canvas_x: int, canvas_y: int) -> Optional[Tuple[int, int]]:
+    def canvas_to_image_coords(self, canvas_x: int, canvas_y: int) -> tuple[int, int] | None:
         """
         Convert canvas coordinates to original image coordinates
 
@@ -232,7 +232,7 @@ class VideoCanvas:
 
         return (orig_x, orig_y)
 
-    def image_to_canvas_coords(self, img_x: int, img_y: int) -> Tuple[int, int]:
+    def image_to_canvas_coords(self, img_x: int, img_y: int) -> tuple[int, int]:
         """
         Convert original image coordinates to canvas coordinates
 
@@ -417,7 +417,7 @@ class VideoCanvas:
 
         self.markers[marker_key].append(text_id)
 
-    def clear_markers(self, obj_id: Optional[int] = None):
+    def clear_markers(self, obj_id: int | None = None):
         """Clear bounding box markers for specific object or all markers"""
         if obj_id is not None:
             # Clear markers for specific object
@@ -434,7 +434,7 @@ class VideoCanvas:
                     self.canvas.delete(marker_id)
             self.markers.clear()
 
-    def get_marker_count(self, obj_id: Optional[int] = None) -> int:
+    def get_marker_count(self, obj_id: int | None = None) -> int:
         """Get number of markers for specific object or total"""
         if obj_id is not None:
             return len(self.markers.get(obj_id, []))
@@ -447,7 +447,7 @@ class VideoCanvas:
         # The canvas.delete("all") removes them, but they can be re-added by the GUI
         pass
 
-    def get_canvas_size(self) -> Tuple[int, int]:
+    def get_canvas_size(self) -> tuple[int, int]:
         """Get canvas dimensions"""
         return (int(self.canvas['width']), int(self.canvas['height']))
 

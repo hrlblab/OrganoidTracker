@@ -31,7 +31,7 @@ class PackedMask:
         self._bits = np.packbits(mask_bool.ravel())
 
     @classmethod
-    def from_logits(cls, logits, threshold: float = 0.0) -> "PackedMask":
+    def from_logits(cls, logits, threshold: float = 0.0) -> PackedMask:
         """Binarize SAM2 mask logits (tensor or array). Logit > 0 means probability > 0.5."""
         if hasattr(logits, "detach"):
             arr = logits.detach().to("cpu").numpy()
@@ -50,13 +50,13 @@ class PackedMask:
         return arr if dtype is None else arr.astype(dtype)
 
     # --- tensor-like surface used by legacy consumers ----------------------------------
-    def cpu(self) -> "PackedMask":
+    def cpu(self) -> PackedMask:
         return self
 
-    def detach(self) -> "PackedMask":
+    def detach(self) -> PackedMask:
         return self
 
-    def squeeze(self, *args, **kwargs) -> "PackedMask":
+    def squeeze(self, *args, **kwargs) -> PackedMask:
         return self
 
     @property

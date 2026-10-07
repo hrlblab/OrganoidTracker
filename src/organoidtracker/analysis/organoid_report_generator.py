@@ -5,23 +5,23 @@ Integrates the new organoid-cyst analysis system with comprehensive reporting.
 """
 
 import json
-from pathlib import Path
-from typing import Dict, List, Any, Optional
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
+from .data_reconstruction import DataReconstructionEngine
 from .organoid_analysis_engine import OrganoidAnalysisEngine, OrganoidAnalysisValidator
 from .organoid_csv_exporter import OrganoidCSVExporter
-from .organoid_visualizations import OrganoidVisualizationSuite
 from .organoid_cyst_data import ExperimentData
-from .data_reconstruction import DataReconstructionEngine
+from .organoid_visualizations import OrganoidVisualizationSuite
 
 # Optional imports for enhanced reporting
 try:
-    from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import inch
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     HAS_REPORTLAB = True
 except ImportError:
     HAS_REPORTLAB = False
@@ -42,21 +42,21 @@ class OrganoidAnalysisReportGenerator:
 
     def generate_complete_analysis_report(
         self,
-        tracking_results: Dict[str, Any],
-        organoid_data: Dict[int, Dict],  # From GUI workflow
+        tracking_results: dict[str, Any],
+        organoid_data: dict[int, dict],  # From GUI workflow
         time_lapse_days: float,
         conversion_factor: float,
         output_dir: str,
         debug_mode: bool = False,
-        original_frames: Optional[List] = None
-    ) -> Dict[str, Any]:
+        original_frames: list | None = None
+    ) -> dict[str, Any]:
         """
         Generate comprehensive analysis report with all components
 
         Returns:
             Dictionary with paths to all generated files and analysis summary
         """
-        print(f"🧬 Starting comprehensive organoid analysis...")
+        print("🧬 Starting comprehensive organoid analysis...")
         print(f"   📁 Output directory: {output_dir}")
         print(f"   🕐 Time lapse: {time_lapse_days} days")
         print(f"   📏 Conversion factor: {conversion_factor} μm/pixel")
@@ -68,7 +68,7 @@ class OrganoidAnalysisReportGenerator:
         if original_frames:
             print(f"   📸 Frame comparison: {len(original_frames)} original frames available")
         else:
-            print(f"   📸 Frame comparison: Original frames not available")
+            print("   📸 Frame comparison: Original frames not available")
 
         # Create output directory
         output_path = Path(output_dir)
@@ -99,7 +99,7 @@ class OrganoidAnalysisReportGenerator:
             reconstruction_performed = False
 
             if mismatch_info['has_mismatch'] and mismatch_info['reconstruction_possible']:
-                print(f"\n🛠️ Step 1b: Reconstructing missing cyst data...")
+                print("\n🛠️ Step 1b: Reconstructing missing cyst data...")
                 print(f"   ⚠️ Detected {mismatch_info['missing_cysts']} missing cysts from {mismatch_info['tracked_objects']} tracked objects")
 
                 final_organoid_data = self.reconstruction_engine.reconstruct_organoid_data(
@@ -116,10 +116,10 @@ class OrganoidAnalysisReportGenerator:
                     print(f"   📄 Reconstruction report saved: {reconstruction_report_path}")
 
             elif mismatch_info['has_mismatch']:
-                print(f"\n⚠️ Warning: Data mismatch detected but reconstruction not possible")
+                print("\n⚠️ Warning: Data mismatch detected but reconstruction not possible")
                 print(f"   • Tracked objects: {mismatch_info['tracked_objects']}")
                 print(f"   • Expected objects: {mismatch_info['expected_total']}")
-                print(f"   • Proceeding with available data...")
+                print("   • Proceeding with available data...")
 
             # Step 2: Extract experiment data from tracking results
             print("\n🔬 Step 2: Extracting experiment data...")
@@ -140,7 +140,7 @@ class OrganoidAnalysisReportGenerator:
             print("\n✅ Step 3: Validating data quality...")
             validation_results = self.validator.validate_experiment_data(experiment)
 
-            print(f"   📊 Validation summary:")
+            print("   📊 Validation summary:")
             print(f"      • Total organoids: {validation_results['total_organoids']}")
             print(f"      • Total cysts: {validation_results['total_cysts']}")
             print(f"      • Frames analyzed: {validation_results['frames_analyzed']}")
@@ -167,7 +167,7 @@ class OrganoidAnalysisReportGenerator:
 
             # Step 5.1: Generate frame comparison visualization (TEMPORARILY DISABLED)
             print("\n📸 Step 5.1: Frame comparison visualization temporarily disabled")
-            print(f"   ⏸️ Frame comparison generation has been temporarily disabled per user request")
+            print("   ⏸️ Frame comparison generation has been temporarily disabled per user request")
             # if self._original_frames and self._tracking_results:
             #     frame_comparison_path = self.visualizer.create_frame_comparison_visualization(
             #         self._original_frames,
@@ -204,7 +204,7 @@ class OrganoidAnalysisReportGenerator:
             with open(summary_json_path, 'w') as f:
                 json.dump(summary, f, indent=2, default=str)
 
-            print(f"\n✅ Complete analysis finished successfully!")
+            print("\n✅ Complete analysis finished successfully!")
             print(f"📁 All files saved to: {output_dir}")
 
             return summary
@@ -222,7 +222,7 @@ class OrganoidAnalysisReportGenerator:
                 'timestamp': datetime.now().isoformat()
             }
 
-    def _determine_total_frames(self, tracking_results: Dict[str, Any]) -> int:
+    def _determine_total_frames(self, tracking_results: dict[str, Any]) -> int:
         """
         Determine total number of frames from tracking results
         """
@@ -260,7 +260,7 @@ class OrganoidAnalysisReportGenerator:
             print(f"⚠️ Error determining frame count: {e}, using default: 100")
             return 100
 
-    def _export_csv_data(self, experiment: ExperimentData, output_path: Path) -> Dict[str, str]:
+    def _export_csv_data(self, experiment: ExperimentData, output_path: Path) -> dict[str, str]:
         """
         Export all CSV data formats
         """
@@ -295,11 +295,11 @@ class OrganoidAnalysisReportGenerator:
     def _generate_enhanced_pdf_report(
         self,
         experiment: ExperimentData,
-        validation_results: Dict[str, Any],
-        csv_paths: Dict[str, str],
-        viz_paths: Dict[str, str],
+        validation_results: dict[str, Any],
+        csv_paths: dict[str, str],
+        viz_paths: dict[str, str],
         output_path: Path
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Generate enhanced PDF report with visualizations
         """
@@ -436,11 +436,11 @@ class OrganoidAnalysisReportGenerator:
     def _create_analysis_summary(
         self,
         experiment: ExperimentData,
-        validation_results: Dict[str, Any],
-        csv_paths: Dict[str, str],
-        viz_paths: Dict[str, str],
-        pdf_path: Optional[str]
-    ) -> Dict[str, Any]:
+        validation_results: dict[str, Any],
+        csv_paths: dict[str, str],
+        viz_paths: dict[str, str],
+        pdf_path: str | None
+    ) -> dict[str, Any]:
         """
         Create comprehensive analysis summary
         """
@@ -450,7 +450,7 @@ class OrganoidAnalysisReportGenerator:
         # Growth rate statistics
         growth_rates = experiment.sort_organoids_by_growth_rate()
         # Convert from μm²/frame to μm²/day using actual time lapse (accounting for Day 0)
-        growth_rate_values = [rate * experiment.time_lapse_days / max(1, experiment.total_frames - 1) 
+        growth_rate_values = [rate * experiment.time_lapse_days / max(1, experiment.total_frames - 1)
                              for _, rate in growth_rates] if growth_rates else []
 
         # Time coverage statistics

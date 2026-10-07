@@ -5,7 +5,9 @@ Provides a common interface for all video tracking models (SAM2 families, etc.)
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List, Tuple
+from collections.abc import Callable
+from typing import Any
+
 import numpy as np
 
 
@@ -44,7 +46,7 @@ class BaseVideoTracker(ABC):
         pass
 
     @abstractmethod
-    def load_video(self, video_path: str, max_frames: Optional[int] = None) -> Dict[str, Any]:
+    def load_video(self, video_path: str, max_frames: int | None = None) -> dict[str, Any]:
         """
         Load video for tracking
 
@@ -99,7 +101,7 @@ class BaseVideoTracker(ABC):
         pass
 
     @abstractmethod
-    def run_tracking(self, progress_callback: Optional[callable] = None) -> Dict[int, Dict[int, Any]]:
+    def run_tracking(self, progress_callback: Callable[..., None] | None = None) -> dict[int, dict[int, Any]]:
         """
         Run object tracking across all video frames
 
@@ -113,7 +115,7 @@ class BaseVideoTracker(ABC):
         pass
 
     @abstractmethod
-    def get_frame_mask(self, frame_idx: int, obj_id: int = 1, video_segments: Optional[Dict] = None) -> np.ndarray:
+    def get_frame_mask(self, frame_idx: int, obj_id: int = 1, video_segments: dict | None = None) -> np.ndarray:
         """
         Get binary mask for a specific frame and object
 
@@ -128,8 +130,8 @@ class BaseVideoTracker(ABC):
         pass
 
     @abstractmethod
-    def get_frame_overlay(self, frame_idx: int, obj_id: int = 1, video_segments: Optional[Dict] = None,
-                         color: Tuple[int, int, int] = (255, 0, 0), alpha: float = 0.3) -> np.ndarray:
+    def get_frame_overlay(self, frame_idx: int, obj_id: int = 1, video_segments: dict | None = None,
+                         color: tuple[int, int, int] = (255, 0, 0), alpha: float = 0.3) -> np.ndarray:
         """
         Get frame with segmentation overlay
 
@@ -146,17 +148,17 @@ class BaseVideoTracker(ABC):
         pass
 
     @abstractmethod
-    def clear_prompts(self, obj_id: Optional[int] = None) -> bool:
+    def clear_prompts(self, obj_id: int | None = None) -> bool:
         """Clear all prompts or prompts for a specific object"""
         pass
 
-    def get_active_objects(self) -> List[int]:
+    def get_active_objects(self) -> list[int]:
         """Get list of object IDs that have prompts"""
         if not hasattr(self, 'prompts') or not self.prompts:
             return []
         return list(self.prompts.keys())
 
-    def get_prompt_count(self, obj_id: Optional[int] = None) -> int:
+    def get_prompt_count(self, obj_id: int | None = None) -> int:
         """Get total prompt count or count for specific object"""
         if not hasattr(self, 'prompts') or not self.prompts:
             return 0
@@ -166,7 +168,7 @@ class BaseVideoTracker(ABC):
         else:
             return sum(len(obj_prompts) for obj_prompts in self.prompts.values())
 
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """
         Get model information
 
@@ -181,7 +183,7 @@ class BaseVideoTracker(ABC):
             'num_prompts': sum(len(prompts) for prompts in self.prompts.values()) if self.prompts else 0
         }
 
-    def get_video_info(self) -> Optional[Dict[str, Any]]:
+    def get_video_info(self) -> dict[str, Any] | None:
         """
         Get current video information
 
@@ -199,7 +201,7 @@ class BaseVideoTracker(ABC):
             'prompts': self.prompts
         }
 
-    def get_supported_formats(self) -> List[str]:
+    def get_supported_formats(self) -> list[str]:
         """
         Get list of supported video formats
 
@@ -239,7 +241,7 @@ class ModelMetadata:
     """
 
     def __init__(self, name: str, display_name: str, description: str,
-                 capabilities: List[str], requirements: List[str] = None):
+                 capabilities: list[str], requirements: list[str] = None):
         """
         Initialize model metadata
 
@@ -260,7 +262,7 @@ class ModelMetadata:
         """Check if model has specific capability"""
         return capability in self.capabilities
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization"""
         return {
             'name': self.name,

@@ -1,6 +1,5 @@
 """The frame contract, checked against the real SAM 2.1 tiny model on a synthetic video."""
 
-import numpy as np
 import pytest
 
 from helpers import iou

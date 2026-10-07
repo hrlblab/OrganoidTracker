@@ -4,11 +4,10 @@ Report generation for kidney organoid cyst analysis
 Generates CSV and PDF reports from metrics calculations
 """
 
-from pathlib import Path
-from typing import Dict, Any, List
-import numpy as np
-from datetime import datetime
 import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 # Optional imports for enhanced functionality
 try:
@@ -34,17 +33,11 @@ FONT_SCALE_FACTOR = 5.0
 DISABLE_VISUALIZATION_TEXT = True
 
 try:
-    import seaborn as sns
-    SEABORN_AVAILABLE = True
-except ImportError:
-    SEABORN_AVAILABLE = False
-
-try:
-    from reportlab.lib.pagesizes import letter, A4
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import inch
     from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import inch
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
@@ -69,10 +62,10 @@ class ReportGenerator:
             '°': 'deg',  # degree symbol
             '–': '-',   # en dash
             '—': '-',   # em dash
-            ''': "'",   # left single quote
-            ''': "'",   # right single quote
-            '"': '"',   # left double quote
-            '"': '"',   # right double quote
+            '\u2018': "'",  # left single quote
+            '\u2019': "'",  # right single quote
+            '\u201c': '"',  # left double quote
+            '\u201d': '"',  # right double quote
             '…': '...',  # ellipsis
         }
 
@@ -81,7 +74,7 @@ class ReportGenerator:
 
         return text
 
-    def generate_csv_report(self, results: Dict[str, Any], output_dir: str) -> str:
+    def generate_csv_report(self, results: dict[str, Any], output_dir: str) -> str:
         """
         Generate CSV report with all metrics data
 
@@ -189,7 +182,7 @@ class ReportGenerator:
 
         return str(output_path)
 
-    def generate_pdf_report(self, results: Dict[str, Any], output_dir: str) -> str:
+    def generate_pdf_report(self, results: dict[str, Any], output_dir: str) -> str:
         """
         Generate PDF report with metrics and visualizations
 
@@ -301,7 +294,7 @@ class ReportGenerator:
 
         return str(output_path)
 
-    def _generate_plots(self, results: Dict[str, Any], output_dir: str) -> str:
+    def _generate_plots(self, results: dict[str, Any], output_dir: str) -> str:
         """Generate visualization plots for the report"""
         if not MATPLOTLIB_AVAILABLE:
             print("⚠️ Matplotlib not available. Skipping plot generation.")
@@ -383,7 +376,7 @@ class ReportGenerator:
             print(f"Warning: Could not generate plots: {e}")
             return None
 
-    def generate_reports(self, results: Dict[str, Any], output_dir: str) -> Dict[str, str]:
+    def generate_reports(self, results: dict[str, Any], output_dir: str) -> dict[str, str]:
         """
         Generate both CSV and PDF reports
 
@@ -429,8 +422,8 @@ class ReportGenerator:
 
         return report_paths
 
-    def generate_comprehensive_reports(self, results: Dict[str, Any], output_dir: str,
-                                     time_points: List[float] = None) -> Dict[str, str]:
+    def generate_comprehensive_reports(self, results: dict[str, Any], output_dir: str,
+                                     time_points: list[float] = None) -> dict[str, str]:
         """
         Generate comprehensive reports with advanced visualizations
 
@@ -503,8 +496,8 @@ class ReportGenerator:
 
         return report_paths
 
-    def _generate_enhanced_pdf_report(self, results: Dict[str, Any], output_dir: str,
-                                    report_paths: Dict[str, str]) -> str:
+    def _generate_enhanced_pdf_report(self, results: dict[str, Any], output_dir: str,
+                                    report_paths: dict[str, str]) -> str:
         """
         Generate an enhanced PDF report that includes advanced visualizations
 

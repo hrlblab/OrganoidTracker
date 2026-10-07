@@ -5,15 +5,13 @@ This module handles the extraction of frame-by-frame data from SAM2 tracking res
 and converts it into the structured organoid-cyst data format for analysis.
 """
 
-import numpy as np
-import cv2
-from typing import Dict, List, Tuple, Any, Optional
-from pathlib import Path
 import json
+from typing import Any
 
-from .organoid_cyst_data import (
-    ExperimentData, OrganoidData, CystTrajectory, CystFrameData
-)
+import cv2
+import numpy as np
+
+from .organoid_cyst_data import CystFrameData, CystTrajectory, ExperimentData, OrganoidData
 
 
 class OrganoidAnalysisEngine:
@@ -27,8 +25,8 @@ class OrganoidAnalysisEngine:
 
     def extract_experiment_data_from_tracking(
         self,
-        tracking_results: Dict[str, Any],
-        organoid_data: Dict[int, Dict],  # From GUI: {organoid_id: {'point': (x,y), 'cysts': [...]}}
+        tracking_results: dict[str, Any],
+        organoid_data: dict[int, dict],  # From GUI: {organoid_id: {'point': (x,y), 'cysts': [...]}}
         time_lapse_days: float,
         total_frames: int
     ) -> ExperimentData:
@@ -89,9 +87,9 @@ class OrganoidAnalysisEngine:
         self,
         cyst_id: int,
         organoid_id: int,
-        tracking_results: Dict[str, Any],
+        tracking_results: dict[str, Any],
         total_frames: int
-    ) -> Optional[CystTrajectory]:
+    ) -> CystTrajectory | None:
         """
         Extract trajectory data for a single cyst from tracking results
         """
@@ -116,7 +114,7 @@ class OrganoidAnalysisEngine:
             else:
                 print(f"⚠️ Unknown tracking results format for cyst {cyst_id}")
                 if self.debug_mode:
-                    print(f"   Expected 'video_segments' or 'masks' keys, or direct SAM2 format")
+                    print("   Expected 'video_segments' or 'masks' keys, or direct SAM2 format")
                     if isinstance(tracking_results, dict):
                         print(f"   Available keys: {list(tracking_results.keys())}")
                 return None
@@ -152,7 +150,7 @@ class OrganoidAnalysisEngine:
         masks_data: Any,
         cyst_id: int,
         frame_idx: int
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """
         Extract mask for specific cyst at specific frame from tracking results
         """
@@ -206,7 +204,7 @@ class OrganoidAnalysisEngine:
         self,
         mask: np.ndarray,
         frame_idx: int
-    ) -> Optional[CystFrameData]:
+    ) -> CystFrameData | None:
         """
         Calculate cyst metrics (area, circularity, centroid) from binary mask
         """
@@ -415,7 +413,7 @@ class OrganoidAnalysisValidator:
     """
 
     @staticmethod
-    def validate_experiment_data(experiment: ExperimentData) -> Dict[str, Any]:
+    def validate_experiment_data(experiment: ExperimentData) -> dict[str, Any]:
         """
         Validate experiment data and return quality metrics
         """

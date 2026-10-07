@@ -9,8 +9,6 @@ tracked, which frame carried the prompts, and the per-object presence scores SAM
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-
 
 class TrackingResult(dict):
     """``{frame_idx: {obj_id: mask}}`` plus run metadata."""
@@ -25,11 +23,11 @@ class TrackingResult(dict):
         status: str = COMPLETED,
         frames_total: int = 0,
         frames_done: int = 0,
-        error: Optional[str] = None,
+        error: str | None = None,
         direction: str = "reverse",
-        annotation_frame: Optional[int] = None,
-        frame_map: Optional[List[int]] = None,
-        presence: Optional[Dict[int, Dict[int, float]]] = None,
+        annotation_frame: int | None = None,
+        frame_map: list[int] | None = None,
+        presence: dict[int, dict[int, float]] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -50,7 +48,7 @@ class TrackingResult(dict):
     def is_partial(self) -> bool:
         return self.status == self.PARTIAL
 
-    def object_ids(self) -> List[int]:
+    def object_ids(self) -> list[int]:
         ids = set()
         for frame_masks in self.values():
             ids.update(frame_masks.keys())

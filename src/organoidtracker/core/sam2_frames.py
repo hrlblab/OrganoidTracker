@@ -10,7 +10,7 @@ exactly the chronological order the application works with.
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import List, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 import torch
@@ -112,7 +112,7 @@ def build_frame_predictor(config_file: str, ckpt_path: str, device: str, apply_p
 
     from sam2.build_sam import _load_checkpoint
 
-    overrides: List[str] = [f"++model._target_={FramePredictor.__module__}.{FramePredictor.__name__}"]
+    overrides: list[str] = [f"++model._target_={FramePredictor.__module__}.{FramePredictor.__name__}"]
     if apply_postprocessing:
         overrides += _POSTPROCESSING_OVERRIDES
     cfg = compose(config_name=config_file, overrides=overrides)

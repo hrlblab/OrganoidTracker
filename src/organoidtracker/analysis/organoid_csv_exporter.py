@@ -4,11 +4,10 @@ Organoid-Cyst CSV Exporter
 Exports detailed frame-by-frame data for organoid-cyst analysis in clear tabular format.
 """
 
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Any
-from pathlib import Path
 import csv
+
+import numpy as np
+import pandas as pd
 
 from .organoid_cyst_data import ExperimentData
 
@@ -227,7 +226,7 @@ class OrganoidCSVExporter:
             self._create_empty_csv(output_path, organoid_headers=True)
             return output_path
 
-    def _export_csv_fallback(self, data_rows: List[Dict], output_path: str) -> str:
+    def _export_csv_fallback(self, data_rows: list[dict], output_path: str) -> str:
         """
         Fallback CSV export using standard library
         """

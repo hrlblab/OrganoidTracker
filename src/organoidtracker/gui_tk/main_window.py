@@ -4,23 +4,25 @@ Main GUI Window for Multi-Model Video Object Tracking
 Built with Tkinter for beginner-friendly GUI development
 """
 
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
-import threading
-from pathlib import Path
 import sys
-from typing import Optional, Dict, Any
-import queue
+import threading
 import time
+import tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, scrolledtext, ttk
 
-from ..config import AUTO_OPEN_OUTPUT_DIRECTORY, DEFAULT_TIME_LAPSE_DAYS, DEFAULT_CONVERSION_FACTOR, SAM2_CHECKPOINT_FAMILY
-from ..core.model_registry import get_model_registry, ModelFactory
+from ..config import (
+    AUTO_OPEN_OUTPUT_DIRECTORY,
+    DEFAULT_CONVERSION_FACTOR,
+    DEFAULT_TIME_LAPSE_DAYS,
+    SAM2_CHECKPOINT_FAMILY,
+)
 from ..core.base_model import BaseVideoTracker
+from ..core.model_registry import get_model_registry
 from ..core.sam2_tracker import checkpoint_filename
 from ..io.video_output import VideoOutputGenerator
-from ..analysis import MetricsCalculator, ReportGenerator, AnalysisParameters
-from .video_canvas import VideoCanvas
 from .progress_dialog import ProgressDialog
+from .video_canvas import VideoCanvas
 
 
 class VideoTrackerApp:
@@ -51,9 +53,9 @@ class VideoTrackerApp:
         self.root.resizable(True, True)
 
         # Application state
-        self.current_model: Optional[BaseVideoTracker] = None
-        self.current_video_path: Optional[str] = None
-        self.video_segments: Optional[Dict] = None
+        self.current_model: BaseVideoTracker | None = None
+        self.current_video_path: str | None = None
+        self.video_segments: dict | None = None
         self.tracking_in_progress = False
 
         # Progress dialog references
@@ -103,7 +105,7 @@ class VideoTrackerApp:
         # Error style for analysis input validation (MobaXterm-friendly)
         try:
             self.style.configure('Error.TEntry', fieldbackground='#ffe6e6', bordercolor='red')
-        except:
+        except Exception:
             # Fallback if style configuration fails in MobaXterm
             pass
 
@@ -645,7 +647,7 @@ class VideoTrackerApp:
             def load_model_thread():
                 try:
                     registry = get_model_registry()
-                    
+
                     model = registry.create_model_instance(
                         model_name,
                         device=device,
@@ -676,7 +678,7 @@ class VideoTrackerApp:
         """Handle successful model loading"""
         self.load_model_btn.config(state='normal')
         self.load_video_btn.config(state='normal')
-        
+
         # Check tracking settings and show feedback
         direction_status = "reverse" if self.reverse_var.get() else "forward"
         self.set_status(f"Model loaded successfully with {direction_status} tracking! Ready to load video.")
@@ -686,7 +688,7 @@ class VideoTrackerApp:
         registry = get_model_registry()
         metadata = registry.get_model_metadata(selected)
         model_name = metadata.display_name if metadata else selected
-        
+
         direction_icon = "⏪" if self.reverse_var.get() else "⏩"
         self.log_event(f"✅ {model_name} loaded successfully in {load_time:.2f}s ({direction_icon} {direction_status} tracking)")
 
@@ -699,7 +701,6 @@ class VideoTrackerApp:
 
     def log_event(self, message):
         """Log an event with timestamp to the results area"""
-        import time
         timestamp = time.strftime("%H:%M:%S", time.localtime())
         log_message = f"[{timestamp}] {message}\n"
 
@@ -837,7 +838,7 @@ class VideoTrackerApp:
             except (tk.TclError, ValueError):
                 self.conversion_factor_entry.config(style='Error.TEntry')
 
-        except Exception as e:
+        except Exception:
             # Silently handle validation errors
             pass
 
@@ -853,7 +854,7 @@ class VideoTrackerApp:
             elif field_type == 'conversion':
                 self.set_status("Enter conversion factor (micrometers per pixel)")
 
-        except Exception as e:
+        except Exception:
             # Silently handle focus errors (common with MobaXterm)
             pass
 
@@ -1129,7 +1130,7 @@ class VideoTrackerApp:
 
     def debug_button_states(self):
         """Debug method to check button states - simplified for new interface"""
-        print(f"🔍 DEBUG: Button States Check:")
+        print("🔍 DEBUG: Button States Check:")
         print(f"  - Clear All Objects: {self.clear_prompts_btn['state']}")
         print(f"  - Revert Last: {self.revert_btn['state']}")
         print(f"  - Track: {self.track_btn['state']}")
@@ -1252,7 +1253,6 @@ class VideoTrackerApp:
             self.log_event("❌ Cannot start tracking - no prompts in model")
             return
 
-        import time
         start_time = time.time()
 
         self.tracking_in_progress = True
@@ -1374,7 +1374,7 @@ class VideoTrackerApp:
                 self.set_status("Tracking completed! Ready to generate videos.")
             self.log_event(f"📊 Processed {num_frames} frames for {len(active_objects)} objects")
         else:
-            self.log_event(f"⚠️ Tracking completed but no results generated")
+            self.log_event("⚠️ Tracking completed but no results generated")
 
     def on_tracking_complete_error(self, error_msg, tracking_time):
         """Handle tracking completion error"""
@@ -1406,7 +1406,6 @@ class VideoTrackerApp:
         if not output_dir:
             return
 
-        import time
         start_time = time.time()
 
         self.generate_btn.config(state='disabled')
@@ -1421,7 +1420,7 @@ class VideoTrackerApp:
         self.log_event("🎬" + "=" * 60)
         self.log_event("🎬 DETAILED VIDEO GENERATION DEBUG START")
         self.log_event("🎬" + "=" * 60)
-        self.log_event(f"📊 Video Generation Configuration:")
+        self.log_event("📊 Video Generation Configuration:")
         self.log_event(f"   • Active Objects: {active_objects} (count: {len(active_objects)})")
         self.log_event(f"   • Video Segments: {num_frames} frames")
         self.log_event(f"   • Video Types: {video_types}")
@@ -1436,7 +1435,7 @@ class VideoTrackerApp:
             self.log_event(f"   • Source Frames: {frame_count} frames")
             self.log_event(f"   • Frame Dimensions: {first_frame_shape}")
         else:
-            self.log_event(f"   • Source Frames: MISSING - check video loading")
+            self.log_event("   • Source Frames: MISSING - check video loading")
 
         # Tracking data analysis
         if self.video_segments:
@@ -1448,7 +1447,7 @@ class VideoTrackerApp:
                 sample_objects = list(self.video_segments[sample_frame].keys())
                 self.log_event(f"   • Sample Frame Objects: {sample_objects}")
         else:
-            self.log_event(f"   • Tracking Data: MISSING")
+            self.log_event("   • Tracking Data: MISSING")
 
         # Organoid-cyst mapping
         total_organoids = len(self.organoid_data)
@@ -1480,7 +1479,7 @@ class VideoTrackerApp:
                 quality_scale = {"original": 1.0, "mid": 0.5, "low": 0.25}[quality]
 
                 # 🚀 USE OPTIMIZED APPROACH - single mask processing pass!
-                self.log_event(f"🚀 Using optimized video generation (2-6x faster)")
+                self.log_event("🚀 Using optimized video generation (2-6x faster)")
 
                 def optimized_progress_callback(current, total, message):
                     # Calculate overall progress
@@ -1514,7 +1513,7 @@ class VideoTrackerApp:
 
                 # FALLBACK TO ORIGINAL METHOD if optimization fails
                 if not successful_videos:
-                    self.root.after(0, lambda: self.log_event(f"⚠️ Optimization failed, falling back to original method"))
+                    self.root.after(0, lambda: self.log_event("⚠️ Optimization failed, falling back to original method"))
 
                     created_videos = {}
                     total_videos = len(video_types)
@@ -1528,7 +1527,7 @@ class VideoTrackerApp:
 
                         # Create a closure that captures the current values
                         def make_progress_callback(base_prog, prog_range, vid_type):
-                            def video_progress_callback(current_frame, total_frames, frame_message):
+                            def report_video_progress(current_frame, total_frames, frame_message):
                                 # Calculate progress within this video (0-33.33% for first video, etc.)
                                 if total_frames > 0:
                                     video_completion = (current_frame / total_frames) * prog_range
@@ -1538,7 +1537,7 @@ class VideoTrackerApp:
 
                                 message = f"Creating {vid_type} video: {frame_message} ({objects_text})"
                                 self.root.after(0, self.generation_dialog.update_progress, overall_progress, message)
-                            return video_progress_callback
+                            return report_video_progress
 
                         video_progress_callback = make_progress_callback(base_progress, video_progress_range, video_type)
 
@@ -1634,7 +1633,7 @@ class VideoTrackerApp:
             self.log_event(f"📊 Generated {len(successful_videos)}/{len(created_videos)} videos successfully")
 
             # Detailed results breakdown
-            self.log_event(f"📋 Detailed Results:")
+            self.log_event("📋 Detailed Results:")
             for video_type, path in created_videos.items():
                 if path:
                     file_size = Path(path).stat().st_size / (1024*1024) if Path(path).exists() else 0
@@ -1646,7 +1645,7 @@ class VideoTrackerApp:
                 self.log_event(f"⚠️ Failed videos: {', '.join(failed_videos)}")
 
             # Performance metrics
-            active_objects = self.current_model.get_active_objects() if self.current_model else []
+            self.current_model.get_active_objects() if self.current_model else []
             num_frames = len(self.video_segments) if self.video_segments else 0
             if num_frames > 0 and total_time > 0:
                 frames_per_second = num_frames / total_time
@@ -1668,10 +1667,10 @@ class VideoTrackerApp:
                 result_msg += f"\nOutput directory: {output_dir}"
 
                 # Remove popup - use log instead
-                self.log_event(f"✅ Video generation completed")
+                self.log_event("✅ Video generation completed")
             else:
                 # Remove popup - use log instead
-                self.log_event(f"❌ All video generation failed")
+                self.log_event("❌ All video generation failed")
 
         except Exception as e:
             # Handle any errors in completion callback
@@ -1774,7 +1773,7 @@ class VideoTrackerApp:
             self.log_event("🧬" + "=" * 60)
             self.log_event("🧬 DETAILED ORGANOID ANALYSIS DEBUG START")
             self.log_event("🧬" + "=" * 60)
-            self.log_event(f"📊 Analysis Configuration:")
+            self.log_event("📊 Analysis Configuration:")
             self.log_event(f"   • Total Organoids: {total_organoids}")
             self.log_event(f"   • Total Cysts: {total_cysts}")
             self.log_event(f"   • Time Lapse: {time_lapse_days} days")
@@ -1795,9 +1794,9 @@ class VideoTrackerApp:
                 if hasattr(self.current_model, 'original_frames'):
                     self.log_event(f"   • Original Frames Available: {len(self.current_model.original_frames) if self.current_model.original_frames else 0}")
                 else:
-                    self.log_event(f"   • Original Frames Available: No")
+                    self.log_event("   • Original Frames Available: No")
             else:
-                self.log_event(f"   • Current Model: MISSING")
+                self.log_event("   • Current Model: MISSING")
 
             self.log_event("🧬" + "=" * 60)
 
@@ -1815,7 +1814,6 @@ class VideoTrackerApp:
         if not output_dir:
             return
 
-        import time
         start_time = time.time()
 
         self.analysis_btn.config(state='disabled')
@@ -1849,35 +1847,6 @@ class VideoTrackerApp:
                     debug_mode=self.debug_var.get(),
                     original_frames=original_frames
                 )
-
-                # Export data for standalone visualization (after successful analysis)
-                try:
-                    from ..io.data_export import TrackingDataExporter
-                    
-                    exporter = TrackingDataExporter()
-                    export_dir = output_dir_path / "exported_data"
-                    
-                    exported_files = exporter.export_tracking_data(
-                        tracking_results=self.video_segments,
-                        organoid_data=self.organoid_data,
-                        time_lapse_days=time_lapse_days,
-                        conversion_factor=conversion_factor,
-                        original_frames=original_frames,
-                        debug_mode=self.debug_var.get(),
-                        video_path=self.current_video_path,
-                        output_dir=str(export_dir)
-                    )
-                    
-                    if exported_files:
-                        self.log_event(f"💾 Data exported for standalone visualization")
-                        self.log_event(f"   📁 Export directory: {export_dir}")
-                        if 'combined_data' in exported_files:
-                            combined_file = Path(exported_files['combined_data']).name
-                            self.log_event(f"   🚀 Run: python scripts/standalone_visualizer.py {combined_file}")
-                    
-                except Exception as e:
-                    self.log_event(f"⚠️ Data export failed: {e}")
-                    # Don't fail the analysis if export fails
 
                 analysis_time = time.time() - start_time
 
@@ -1915,7 +1884,7 @@ class VideoTrackerApp:
 
         # Display experiment information
         exp_info = analysis_summary.get('experiment_info', {})
-        self.log_event(f"🔬 Experiment Summary:")
+        self.log_event("🔬 Experiment Summary:")
         self.log_event(f"   • Total Organoids: {exp_info.get('total_organoids', 0)}")
         self.log_event(f"   • Total Cysts: {exp_info.get('total_cysts', 0)}")
         self.log_event(f"   • Frames Analyzed: {exp_info.get('total_frames', 0)}")
@@ -1924,7 +1893,7 @@ class VideoTrackerApp:
 
         # Display quality metrics
         quality = analysis_summary.get('quality_metrics', {})
-        self.log_event(f"📊 Data Quality:")
+        self.log_event("📊 Data Quality:")
         self.log_event(f"   • Tracking Coverage: {quality.get('tracking_coverage_percent', 0):.1f}%")
         self.log_event(f"   • Mean Trajectory Length: {quality.get('mean_trajectory_length_frames', 0):.1f} frames")
         self.log_event(f"   • Organoids with Cysts: {quality.get('organoids_with_cysts', 0)}")
@@ -1932,19 +1901,19 @@ class VideoTrackerApp:
         # Display growth statistics
         growth = analysis_summary.get('growth_statistics', {})
         if growth.get('mean_growth_rate_um2_per_day', 0) > 0:
-            self.log_event(f"📈 Growth Statistics:")
+            self.log_event("📈 Growth Statistics:")
             self.log_event(f"   • Mean Growth Rate: {growth.get('mean_growth_rate_um2_per_day', 0):.4f} μm²/day")
             self.log_event(f"   • Max Growth Rate: {growth.get('max_growth_rate_um2_per_day', 0):.4f} μm²/day")
             self.log_event(f"   • Min Growth Rate: {growth.get('min_growth_rate_um2_per_day', 0):.4f} μm²/day")
 
         # Display output files
         output_files = analysis_summary.get('output_files', {})
-        self.log_event(f"📄 Generated Files:")
+        self.log_event("📄 Generated Files:")
 
         # CSV files
         csv_files = output_files.get('csv_files', {})
         if csv_files:
-            self.log_event(f"   📊 CSV Data Files:")
+            self.log_event("   📊 CSV Data Files:")
             if csv_files.get('raw_data'):
                 self.log_event(f"      • Raw Data: {Path(csv_files['raw_data']).name}")
             if csv_files.get('cyst_summary'):
@@ -1982,7 +1951,7 @@ class VideoTrackerApp:
         validation = analysis_summary.get('validation_results', {})
         warnings = validation.get('warnings', [])
         if warnings:
-            self.log_event(f"⚠️ Quality Warnings:")
+            self.log_event("⚠️ Quality Warnings:")
             for warning in warnings:
                 self.log_event(f"   • {warning}")
 
@@ -1998,9 +1967,9 @@ class VideoTrackerApp:
             # Optional: Open directory automatically (with GTK-safe method)
             if self.auto_open_directory:
                 try:
-                    import subprocess
-                    import platform
                     import os
+                    import platform
+                    import subprocess
 
                     if platform.system() == "Windows":
                         subprocess.run(["explorer", str(output_dir)], check=False)
@@ -2047,25 +2016,25 @@ class VideoTrackerApp:
 
         # Display parameters used
         params = results['parameters']
-        self.log_event(f"📋 Analysis Parameters:")
+        self.log_event("📋 Analysis Parameters:")
         self.log_event(f"   • Total Organoids: {params['total_organoids']}")
         self.log_event(f"   • Time Lapse: {params['time_lapse_days']} days")
         self.log_event(f"   • Conversion Factor: {params['conversion_factor_um_per_pixel']} μm/pixel")
 
         # Display cyst tracking summary
         summary = results['cyst_data_summary']
-        self.log_event(f"🎯 Tracking Summary:")
+        self.log_event("🎯 Tracking Summary:")
         self.log_event(f"   • Cysts Tracked: {summary['num_cysts_tracked']}")
         self.log_event(f"   • Object IDs: {summary['cyst_ids']}")
 
         # Display key metrics
-        self.log_event(f"📈 Key Metrics:")
+        self.log_event("📈 Key Metrics:")
         for metric_name, metric_data in results['metrics'].items():
             if 'error' in metric_data:
                 self.log_event(f"   ❌ {metric_name}: Error - {metric_data['error']}")
                 continue
 
-            info = metric_data['info']
+            metric_data['info']
             metric_results = metric_data['results']
 
             if metric_name == "Cyst Formation Efficiency":
@@ -2146,9 +2115,9 @@ class VideoTrackerApp:
         if self.auto_open_directory:
             try:
                 if 'csv' in report_paths:
-                    import subprocess
-                    import platform
                     import os
+                    import platform
+                    import subprocess
 
                     output_dir = Path(report_paths['csv']).parent
 

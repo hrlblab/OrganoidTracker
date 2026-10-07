@@ -4,17 +4,18 @@ Advanced Organoid-Cyst Visualizations
 Scientific visualization suite for organoid cyst analysis with publication-quality plots.
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.colors as colors
-from matplotlib.patches import Rectangle
-from typing import Dict, List, Tuple, Any, Optional
 from pathlib import Path
-import warnings
 
+import matplotlib.pyplot as plt
+import numpy as np
+
+from ..config import (
+    DISABLE_VISUALIZATION_TEXT,
+    DISABLE_VISUALIZATION_TITLES,
+    FONT_SCALE_FACTOR,
+    VISUALIZATION_FORMAT,
+)
 from .organoid_cyst_data import ExperimentData
-
-from ..config import MATPLOTLIB_DPI, VISUALIZATION_FORMAT, FONT_SCALE_FACTOR, DISABLE_VISUALIZATION_TEXT, DISABLE_VISUALIZATION_TITLES
 
 # Optional imports with graceful fallbacks
 try:
@@ -23,13 +24,6 @@ try:
 except ImportError:
     HAS_SEABORN = False
     print("⚠️ Seaborn not available. Using matplotlib styling.")
-
-try:
-    import pandas as pd
-    HAS_PANDAS = True
-except ImportError:
-    HAS_PANDAS = False
-    print("⚠️ Pandas not available. Using numpy for data processing.")
 
 
 class OrganoidVisualizationSuite:
@@ -72,7 +66,7 @@ class OrganoidVisualizationSuite:
             'axes.grid': True,
             'grid.alpha': 0.3
         }
-        
+
         if DISABLE_VISUALIZATION_TEXT:
             # Comprehensive text disabling (legacy mode)
             base_config.update({
@@ -107,7 +101,7 @@ class OrganoidVisualizationSuite:
                 'axes.grid': True,
                 'grid.alpha': 0.3
             })
-            
+
             # Handle titles separately
             if DISABLE_VISUALIZATION_TITLES:
                 base_config.update({
@@ -119,7 +113,7 @@ class OrganoidVisualizationSuite:
                 base_config.update({
                     'axes.titlesize': int(14 * FONT_SCALE_FACTOR)
                 })
-        
+
         plt.rcParams.update(base_config)
 
     def _safe_set_text(self, ax, text_type: str, *args, **kwargs):
@@ -156,7 +150,7 @@ class OrganoidVisualizationSuite:
         self,
         experiment: ExperimentData,
         output_dir: str
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """
         Create all six required visualizations and return file paths
         """
@@ -198,7 +192,7 @@ class OrganoidVisualizationSuite:
                 experiment, str(output_path / f"f_lasagna_plot.{VISUALIZATION_FORMAT}")
             )
 
-            print(f"✅ All visualizations created successfully")
+            print("✅ All visualizations created successfully")
             return viz_paths
 
         except Exception as e:
@@ -622,7 +616,7 @@ class OrganoidVisualizationSuite:
         try:
             # Get all individual cysts and calculate their growth rates
             all_cysts = experiment.get_all_cysts()
-            
+
             if not all_cysts:
                 # Create empty plot - titles removed per user request
                 fig, ax = plt.subplots(figsize=self.figure_size)
@@ -650,7 +644,7 @@ class OrganoidVisualizationSuite:
             # Sort by individual cyst growth rate (highest to lowest) across all cysts
             # This shows the true growth rate ranking regardless of organoid grouping
             cyst_growth_data.sort(key=lambda x: -x['growth_rate'])
-            
+
             sorted_cysts = [data['cyst'] for data in cyst_growth_data]
             sorted_growth_rates = [data['growth_rate'] for data in cyst_growth_data]
             sorted_labels = [(data['organoid_id'], data['cyst_id']) for data in cyst_growth_data]
@@ -746,16 +740,16 @@ class OrganoidVisualizationSuite:
 
                 # Y-positions should match heatmap row order (top = highest growth rate)
                 # Since matplotlib puts y=0 at bottom, we need to reverse the positions
-                y_positions = list(range(n_cysts-1, -1, -1))  # [n-1, n-2, ..., 1, 0] 
+                y_positions = list(range(n_cysts-1, -1, -1))  # [n-1, n-2, ..., 1, 0]
                 ax_bar.barh(y_positions, sorted_growth_rates, color=colors, alpha=0.7)
-                
+
                 # Always show growth rate axis label and ticks (override text disabling for this specific chart)
                 ax_bar.set_xlabel('Growth Rate (μm²/day)', fontsize=12, fontweight='bold')
                 ax_bar.set_ylim(-0.5, n_cysts - 0.5)
                 ax_bar.set_yticks([])  # Remove y-axis labels (shared with main plot)
-                
+
                 # Enable x-axis ticks and labels for growth rates
-                ax_bar.tick_params(axis='x', which='both', bottom=True, top=False, 
+                ax_bar.tick_params(axis='x', which='both', bottom=True, top=False,
                                  labelbottom=True, labelsize=10)
 
                 # Legend removed per user request - keep only growth rate axis labels
@@ -808,10 +802,10 @@ class OrganoidVisualizationSuite:
 
     def create_frame_comparison_visualization(
         self,
-        original_frames: List,
-        tracking_results: Dict,
+        original_frames: list,
+        tracking_results: dict,
         output_path: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Create a comprehensive frame comparison visualization showing:
         - All original frames in top row
@@ -819,11 +813,10 @@ class OrganoidVisualizationSuite:
         - Uses EXACT video generation code to eliminate implementation differences
         """
         try:
-            import cv2
 
             total_frames = len(original_frames)
             print(f"🎨 Creating frame comparison visualization for {total_frames} frames")
-            print(f"🔧 Using actual VideoOutputGenerator to eliminate implementation differences")
+            print("🔧 Using actual VideoOutputGenerator to eliminate implementation differences")
 
             # Object colors - EXACTLY match video generation (same as VideoOutputGenerator)
             object_colors = {

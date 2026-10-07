@@ -5,8 +5,8 @@ from __future__ import annotations
 import pathlib
 
 import pytest
-from helpers import DiscVideo
 
+from helpers import DiscVideo
 from organoidtracker.paths import checkpoints_dir
 
 TINY_CHECKPOINT = checkpoints_dir() / "sam2.1_hiera_tiny.pt"

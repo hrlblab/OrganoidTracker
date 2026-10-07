@@ -14,13 +14,14 @@ This module implements state-of-the-art visualizations for organoid research:
 - Spatial point pattern analysis
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-from typing import Dict, List, Any, Optional, Tuple
-from pathlib import Path
 import warnings
+from pathlib import Path
+from typing import Any
 
-from ..config import MATPLOTLIB_DPI, VISUALIZATION_FORMAT, FONT_SCALE_FACTOR, DISABLE_VISUALIZATION_TEXT
+import matplotlib.pyplot as plt
+import numpy as np
+
+from ..config import DISABLE_VISUALIZATION_TEXT, FONT_SCALE_FACTOR, VISUALIZATION_FORMAT
 
 # Optional imports with graceful fallback
 try:
@@ -29,18 +30,6 @@ try:
 except ImportError:
     SEABORN_AVAILABLE = False
     print("⚠️ Seaborn not available. Using matplotlib styling.")
-
-try:
-    import pandas as pd
-    PANDAS_AVAILABLE = True
-except ImportError:
-    PANDAS_AVAILABLE = False
-
-try:
-    from scipy import stats, spatial
-    SCIPY_AVAILABLE = True
-except ImportError:
-    SCIPY_AVAILABLE = False
 
 # Suppress matplotlib warnings for cleaner output
 warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib')
@@ -59,7 +48,7 @@ else:
 class AdvancedOrganoidVisualizer:
     """Advanced visualization suite for kidney organoid cyst analysis"""
 
-    def __init__(self, dpi: int = 300, figure_size: Tuple[int, int] = (12, 8)):
+    def __init__(self, dpi: int = 300, figure_size: tuple[int, int] = (12, 8)):
         """
         Initialize the visualizer with publication-quality settings
 
@@ -146,9 +135,9 @@ class AdvancedOrganoidVisualizer:
 
     # SECTION 1: COLLECTIVE OUTCOME VISUALIZATIONS
 
-    def create_cyst_formation_efficiency_plot(self, results: Dict[str, Any],
+    def create_cyst_formation_efficiency_plot(self, results: dict[str, Any],
                                             output_path: str,
-                                            conditions: Optional[List[str]] = None) -> str:
+                                            conditions: list[str] | None = None) -> str:
         """
         Create comparative bar plot for Cyst Formation Efficiency
 
@@ -205,9 +194,9 @@ class AdvancedOrganoidVisualizer:
 
         return output_path
 
-    def create_cystic_index_timeseries(self, results: Dict[str, Any],
+    def create_cystic_index_timeseries(self, results: dict[str, Any],
                                      output_path: str,
-                                     time_points: Optional[List[float]] = None) -> str:
+                                     time_points: list[float] | None = None) -> str:
         """
         Create time-series plot of Cystic Index with error bands
 
@@ -274,9 +263,9 @@ class AdvancedOrganoidVisualizer:
 
         return output_path
 
-    def create_cystic_index_boxplot(self, results: Dict[str, Any],
+    def create_cystic_index_boxplot(self, results: dict[str, Any],
                                   output_path: str,
-                                  conditions: Optional[List[str]] = None) -> str:
+                                  conditions: list[str] | None = None) -> str:
         """
         Create box plot for endpoint Cystic Index comparison
 
@@ -304,7 +293,7 @@ class AdvancedOrganoidVisualizer:
             data = [[0]]  # Placeholder
 
         # Create box plot
-        box_plot = ax.boxplot(data, labels=conditions, patch_artist=True,
+        ax.boxplot(data, labels=conditions, patch_artist=True,
                              boxprops=dict(facecolor='lightcoral', alpha=0.7),
                              medianprops=dict(color='darkred', linewidth=2))
 
@@ -325,9 +314,9 @@ class AdvancedOrganoidVisualizer:
 
     # SECTION 2: DE NOVO CYST FORMATION DYNAMICS
 
-    def create_cumulative_cyst_count_plot(self, results: Dict[str, Any],
+    def create_cumulative_cyst_count_plot(self, results: dict[str, Any],
                                         output_path: str,
-                                        time_points: Optional[List[float]] = None) -> str:
+                                        time_points: list[float] | None = None) -> str:
         """
         Create cumulative cyst count over time plot
 
@@ -389,9 +378,9 @@ class AdvancedOrganoidVisualizer:
 
         return output_path
 
-    def create_dual_axis_initiation_expansion_plot(self, results: Dict[str, Any],
+    def create_dual_axis_initiation_expansion_plot(self, results: dict[str, Any],
                                                   output_path: str,
-                                                  time_points: Optional[List[float]] = None) -> str:
+                                                  time_points: list[float] | None = None) -> str:
         """
         Create dual-axis plot showing cyst initiation vs expansion phases
 
@@ -461,7 +450,7 @@ class AdvancedOrganoidVisualizer:
 
         # Combine legends
         lines = line1 + line2
-        labels = [l.get_label() for l in lines]
+        labels = [line.get_label() for line in lines]
         ax1.legend(lines, labels, loc='center right')
 
         plt.tight_layout()
@@ -472,9 +461,9 @@ class AdvancedOrganoidVisualizer:
 
     # SECTION 3: RADIAL EXPANSION HETEROGENEITY
 
-    def create_lasagna_plot(self, results: Dict[str, Any],
+    def create_lasagna_plot(self, results: dict[str, Any],
                           output_path: str,
-                          time_points: Optional[List[float]] = None) -> str:
+                          time_points: list[float] | None = None) -> str:
         """
         Create lasagna plot showing growth heterogeneity across all cysts
 
@@ -558,7 +547,7 @@ class AdvancedOrganoidVisualizer:
 
         return output_path
 
-    def create_velocity_vs_radius_scatter(self, results: Dict[str, Any],
+    def create_velocity_vs_radius_scatter(self, results: dict[str, Any],
                                         output_path: str) -> str:
         """
         Create velocity vs radius scatter plot to analyze growth mechanisms
@@ -644,9 +633,9 @@ class AdvancedOrganoidVisualizer:
 
     # SECTION 4: MORPHOLOGICAL AND SPATIAL ANALYSIS
 
-    def create_morphospace_plot(self, results: Dict[str, Any],
+    def create_morphospace_plot(self, results: dict[str, Any],
                               output_path: str,
-                              time_points: Optional[List[float]] = None) -> str:
+                              time_points: list[float] | None = None) -> str:
         """
         Create morphospace plot (Area vs Circularity) with temporal color coding
 
@@ -731,7 +720,7 @@ class AdvancedOrganoidVisualizer:
 
         return output_path
 
-    def create_spatial_density_heatmap(self, results: Dict[str, Any],
+    def create_spatial_density_heatmap(self, results: dict[str, Any],
                                      output_path: str) -> str:
         """
         Create 2D spatial density heatmap of cyst distribution
@@ -795,9 +784,9 @@ class AdvancedOrganoidVisualizer:
 
         return output_path
 
-    def create_comprehensive_analysis_dashboard(self, results: Dict[str, Any],
+    def create_comprehensive_analysis_dashboard(self, results: dict[str, Any],
                                               output_dir: str,
-                                              time_points: Optional[List[float]] = None) -> Dict[str, str]:
+                                              time_points: list[float] | None = None) -> dict[str, str]:
         """
         Create a comprehensive dashboard with all advanced visualizations
 

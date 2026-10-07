@@ -5,9 +5,10 @@ This module handles reconstruction of missing organoid-cyst relationship data
 when there's a mismatch between SAM2 tracking results and the GUI workflow data.
 """
 
-import numpy as np
-from typing import Dict, List, Tuple, Any, Optional
 import json
+from typing import Any
+
+import numpy as np
 
 
 class DataReconstructionEngine:
@@ -20,10 +21,10 @@ class DataReconstructionEngine:
 
     def detect_data_mismatch(
         self,
-        tracking_results: Dict[str, Any],
-        organoid_data: Dict[int, Dict],
+        tracking_results: dict[str, Any],
+        organoid_data: dict[int, dict],
         expected_frame_count: int
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Detect mismatch between tracking results and organoid workflow data
 
@@ -85,7 +86,7 @@ class DataReconstructionEngine:
                 mismatch_info['reconstruction_possible'] = True
 
         if self.debug_mode:
-            print(f"🔍 Data Mismatch Analysis:")
+            print("🔍 Data Mismatch Analysis:")
             print(f"   • Tracked objects: {mismatch_info['tracked_objects']}")
             print(f"   • Workflow organoids: {mismatch_info['workflow_organoids']}")
             print(f"   • Workflow cysts: {mismatch_info['workflow_cysts']}")
@@ -99,10 +100,10 @@ class DataReconstructionEngine:
 
     def reconstruct_organoid_data(
         self,
-        tracking_results: Dict[str, Any],
-        organoid_data: Dict[int, Dict],
-        mismatch_info: Dict[str, Any]
-    ) -> Dict[int, Dict]:
+        tracking_results: dict[str, Any],
+        organoid_data: dict[int, dict],
+        mismatch_info: dict[str, Any]
+    ) -> dict[int, dict]:
         """
         Reconstruct organoid_data by inferring missing cyst relationships
         """
@@ -143,14 +144,14 @@ class DataReconstructionEngine:
 
         # Validate reconstruction
         total_cysts_after = sum(len(org['cysts']) for org in reconstructed_data.values())
-        print(f"🎯 Reconstruction complete:")
+        print("🎯 Reconstruction complete:")
         print(f"   • Cysts before: {mismatch_info['workflow_cysts']}")
         print(f"   • Cysts after: {total_cysts_after}")
         print(f"   • Missing cysts recovered: {total_cysts_after - mismatch_info['workflow_cysts']}")
 
         return reconstructed_data
 
-    def _get_tracked_object_ids(self, tracking_results: Dict[str, Any]) -> List[int]:
+    def _get_tracked_object_ids(self, tracking_results: dict[str, Any]) -> list[int]:
         """Extract object IDs from tracking results"""
         object_ids = []
 
@@ -175,7 +176,7 @@ class DataReconstructionEngine:
 
                 # If no direct object IDs found, check nested structure
                 if not object_ids:
-                    for key, value in masks_data.items():
+                    for value in masks_data.values():
                         if isinstance(value, dict):
                             for nested_key in value.keys():
                                 if isinstance(nested_key, int):
@@ -199,10 +200,10 @@ class DataReconstructionEngine:
 
     def _estimate_cyst_bbox(
         self,
-        tracking_results: Dict[str, Any],
+        tracking_results: dict[str, Any],
         cyst_id: int,
-        organoid_point: Tuple[int, int]
-    ) -> Tuple[int, int, int, int]:
+        organoid_point: tuple[int, int]
+    ) -> tuple[int, int, int, int]:
         """
         Estimate a bounding box for a cyst based on organoid location
         This is a fallback since we don't have the original bbox
@@ -221,8 +222,8 @@ class DataReconstructionEngine:
 
     def save_reconstruction_report(
         self,
-        mismatch_info: Dict[str, Any],
-        reconstructed_data: Dict[int, Dict],
+        mismatch_info: dict[str, Any],
+        reconstructed_data: dict[int, dict],
         output_file: str
     ):
         """Save a report of the data reconstruction process"""

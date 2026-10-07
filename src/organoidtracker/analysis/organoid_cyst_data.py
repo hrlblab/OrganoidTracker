@@ -5,11 +5,11 @@ This module provides the enhanced data model for tracking individual organoids
 and their associated cysts across video frames.
 """
 
-import numpy as np
-from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Any, Optional, Set
 import json
-from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Any
+
+import numpy as np
 
 
 @dataclass
@@ -18,10 +18,10 @@ class CystFrameData:
     frame_index: int
     area_pixels: float
     circularity: float
-    centroid: Tuple[float, float]  # (x, y)
-    mask: Optional[np.ndarray] = None
-    radius_pixels: Optional[float] = None
-    perimeter_pixels: Optional[float] = None
+    centroid: tuple[float, float]  # (x, y)
+    mask: np.ndarray | None = None
+    radius_pixels: float | None = None
+    perimeter_pixels: float | None = None
 
     def __post_init__(self):
         """Calculate radius if not provided"""
@@ -42,9 +42,9 @@ class CystTrajectory:
     """Complete trajectory of a single cyst across frames"""
     cyst_id: int
     organoid_id: int
-    frame_data: Dict[int, CystFrameData] = field(default_factory=dict)  # frame_index -> CystFrameData
-    first_appearance_frame: Optional[int] = None
-    last_appearance_frame: Optional[int] = None
+    frame_data: dict[int, CystFrameData] = field(default_factory=dict)  # frame_index -> CystFrameData
+    first_appearance_frame: int | None = None
+    last_appearance_frame: int | None = None
 
     def add_frame_data(self, frame_data: CystFrameData):
         """Add data for a specific frame"""
@@ -56,13 +56,13 @@ class CystTrajectory:
         if self.last_appearance_frame is None or frame_data.frame_index > self.last_appearance_frame:
             self.last_appearance_frame = frame_data.frame_index
 
-    def get_area_at_frame(self, frame_index: int, conversion_factor: float = 1.0) -> Optional[float]:
+    def get_area_at_frame(self, frame_index: int, conversion_factor: float = 1.0) -> float | None:
         """Get area at specific frame (in μm² if conversion_factor provided)"""
         if frame_index in self.frame_data:
             return self.frame_data[frame_index].get_area_um2(conversion_factor)
         return None
 
-    def get_circularity_at_frame(self, frame_index: int) -> Optional[float]:
+    def get_circularity_at_frame(self, frame_index: int) -> float | None:
         """Get circularity at specific frame"""
         if frame_index in self.frame_data:
             return self.frame_data[frame_index].circularity
@@ -103,8 +103,8 @@ class CystTrajectory:
 class OrganoidData:
     """Data for a single organoid and all its cysts"""
     organoid_id: int
-    marker_point: Tuple[float, float]  # Initial click point for identification
-    cysts: Dict[int, CystTrajectory] = field(default_factory=dict)  # cyst_id -> CystTrajectory
+    marker_point: tuple[float, float]  # Initial click point for identification
+    cysts: dict[int, CystTrajectory] = field(default_factory=dict)  # cyst_id -> CystTrajectory
     next_cyst_id: int = 1
 
     def add_cyst(self, cyst_trajectory: CystTrajectory):
@@ -137,7 +137,7 @@ class OrganoidData:
         """Check if organoid has any cysts at given frame"""
         return any(cyst.exists_at_frame(frame_index) for cyst in self.cysts.values())
 
-    def get_first_cyst_appearance_frame(self) -> Optional[int]:
+    def get_first_cyst_appearance_frame(self) -> int | None:
         """Get the frame where the first cyst appeared"""
         if not self.cysts:
             return None
@@ -160,9 +160,9 @@ class ExperimentData:
     total_frames: int
     time_lapse_days: float
     conversion_factor_um_per_pixel: float
-    organoids: Dict[int, OrganoidData] = field(default_factory=dict)  # organoid_id -> OrganoidData
+    organoids: dict[int, OrganoidData] = field(default_factory=dict)  # organoid_id -> OrganoidData
     next_organoid_id: int = 1
-    frame_timestamps: List[float] = field(default_factory=list)  # Time for each frame
+    frame_timestamps: list[float] = field(default_factory=list)  # Time for each frame
 
     def __post_init__(self):
         """Initialize frame timestamps if not provided"""
@@ -216,7 +216,7 @@ class ExperimentData:
         total_cysts = self.get_total_cyst_count_at_frame(frame_index)
         return total_cysts / total_organoids
 
-    def get_all_cysts(self) -> List[CystTrajectory]:
+    def get_all_cysts(self) -> list[CystTrajectory]:
         """Get all cyst trajectories from all organoids"""
         all_cysts = []
         for organoid in self.organoids.values():
@@ -229,7 +229,7 @@ class ExperimentData:
             return self.frame_timestamps[frame_index]
         return 0.0
 
-    def sort_organoids_by_growth_rate(self) -> List[Tuple[int, float]]:
+    def sort_organoids_by_growth_rate(self) -> list[tuple[int, float]]:
         """Sort organoids by their growth rate (returns list of (organoid_id, growth_rate))"""
         organoid_growth_rates = []
         for organoid_id, organoid in self.organoids.items():
@@ -239,7 +239,7 @@ class ExperimentData:
         # Sort by growth rate (descending - fastest first)
         return sorted(organoid_growth_rates, key=lambda x: x[1], reverse=True)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
         # Note: This is a simplified version - full implementation would handle numpy arrays
         return {
@@ -259,7 +259,7 @@ class ExperimentData:
 
 
 # Helper functions for data extraction
-def extract_experiment_data_from_tracking(tracking_results: Dict[str, Any],
+def extract_experiment_data_from_tracking(tracking_results: dict[str, Any],
                                         time_lapse_days: float,
                                         conversion_factor: float) -> ExperimentData:
     """

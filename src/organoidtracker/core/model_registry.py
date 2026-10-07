@@ -4,9 +4,9 @@ Model Registry for Video Object Tracking
 Centralized system for registering and managing multiple tracking models
 """
 
-from typing import Dict, List, Type, Optional, Any
+from typing import Any
+
 from .base_model import BaseVideoTracker, ModelMetadata
-import importlib
 
 
 class ModelRegistry:
@@ -16,9 +16,9 @@ class ModelRegistry:
     """
 
     def __init__(self):
-        self._models: Dict[str, Type[BaseVideoTracker]] = {}
-        self._metadata: Dict[str, ModelMetadata] = {}
-        self._instances: Dict[str, BaseVideoTracker] = {}
+        self._models: dict[str, type[BaseVideoTracker]] = {}
+        self._metadata: dict[str, ModelMetadata] = {}
+        self._instances: dict[str, BaseVideoTracker] = {}
 
         # Auto-register available models
         self._auto_register_models()
@@ -36,7 +36,7 @@ class ModelRegistry:
             print(f"⚠️  SAM2 not available: {e}")
 
 
-    def register_model(self, model_class: Type[BaseVideoTracker]) -> bool:
+    def register_model(self, model_class: type[BaseVideoTracker]) -> bool:
         """
         Register a new model class
 
@@ -61,7 +61,7 @@ class ModelRegistry:
             print(f"❌ Error registering model {model_class.__name__}: {str(e)}")
             return False
 
-    def get_available_models(self) -> List[ModelMetadata]:
+    def get_available_models(self) -> list[ModelMetadata]:
         """
         Get list of all available models
 
@@ -70,7 +70,7 @@ class ModelRegistry:
         """
         return list(self._metadata.values())
 
-    def get_model_names(self) -> List[str]:
+    def get_model_names(self) -> list[str]:
         """
         Get list of model names
 
@@ -79,7 +79,7 @@ class ModelRegistry:
         """
         return list(self._models.keys())
 
-    def get_model_metadata(self, model_name: str) -> Optional[ModelMetadata]:
+    def get_model_metadata(self, model_name: str) -> ModelMetadata | None:
         """
         Get metadata for a specific model
 
@@ -91,7 +91,7 @@ class ModelRegistry:
         """
         return self._metadata.get(model_name)
 
-    def create_model_instance(self, model_name: str, **kwargs) -> Optional[BaseVideoTracker]:
+    def create_model_instance(self, model_name: str, **kwargs) -> BaseVideoTracker | None:
         """
         Create an instance of a model
 
@@ -120,7 +120,7 @@ class ModelRegistry:
             print(f"❌ Error creating {model_name} instance: {str(e)}")
             return None
 
-    def get_model_instance(self, model_name: str) -> Optional[BaseVideoTracker]:
+    def get_model_instance(self, model_name: str) -> BaseVideoTracker | None:
         """
         Get cached model instance
 
@@ -144,7 +144,7 @@ class ModelRegistry:
         """
         return model_name in self._models
 
-    def get_models_by_capability(self, capability: str) -> List[ModelMetadata]:
+    def get_models_by_capability(self, capability: str) -> list[ModelMetadata]:
         """
         Get models that have a specific capability
 
@@ -164,7 +164,7 @@ class ModelRegistry:
         self._instances.clear()
         print("🧹 Cleared all model instances")
 
-    def get_registry_info(self) -> Dict[str, Any]:
+    def get_registry_info(self) -> dict[str, Any]:
         """
         Get registry information
 
@@ -200,7 +200,7 @@ def get_model_registry() -> ModelRegistry:
     return _global_registry
 
 
-def register_model(model_class: Type[BaseVideoTracker]) -> bool:
+def register_model(model_class: type[BaseVideoTracker]) -> bool:
     """
     Register a model with the global registry
 
@@ -213,7 +213,7 @@ def register_model(model_class: Type[BaseVideoTracker]) -> bool:
     return get_model_registry().register_model(model_class)
 
 
-def get_available_models() -> List[ModelMetadata]:
+def get_available_models() -> list[ModelMetadata]:
     """
     Get all available models from global registry
 
@@ -223,7 +223,7 @@ def get_available_models() -> List[ModelMetadata]:
     return get_model_registry().get_available_models()
 
 
-def create_model(model_name: str, **kwargs) -> Optional[BaseVideoTracker]:
+def create_model(model_name: str, **kwargs) -> BaseVideoTracker | None:
     """
     Create a model instance from global registry
 
@@ -243,12 +243,12 @@ class ModelFactory:
     """
 
     @staticmethod
-    def create_sam2(device='cuda', **kwargs) -> Optional[BaseVideoTracker]:
+    def create_sam2(device='cuda', **kwargs) -> BaseVideoTracker | None:
         """Create SAM2 instance with default config"""
         return create_model('sam2', device=device, **kwargs)
 
     @staticmethod
-    def create_best_available_model(device='cuda', **kwargs) -> Optional[BaseVideoTracker]:
+    def create_best_available_model(device='cuda', **kwargs) -> BaseVideoTracker | None:
         """
         Create the first available model
 
@@ -271,7 +271,7 @@ class ModelFactory:
         return create_model(model_name, device=device, **kwargs)
 
     @staticmethod
-    def get_recommended_model_for_task(task_type: str = 'general') -> Optional[str]:
+    def get_recommended_model_for_task(task_type: str = 'general') -> str | None:
         """
         Get recommended model name for a specific task
 

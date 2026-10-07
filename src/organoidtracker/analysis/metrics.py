@@ -5,15 +5,13 @@ This module provides an expandable framework for calculating various metrics
 related to kidney organoid cyst formation and growth analysis.
 """
 
-import numpy as np
-import cv2
-from abc import ABC, abstractmethod
-from typing import Dict, List, Tuple, Any, Optional
-from dataclasses import dataclass
-from pathlib import Path
 import json
-from scipy import spatial
-from skimage import measure
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any
+
+import cv2
+import numpy as np
 
 
 @dataclass
@@ -23,7 +21,7 @@ class AnalysisParameters:
     time_lapse_days: float
     conversion_factor_um_per_pixel: float
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             'total_organoids': self.total_organoids,
             'time_lapse_days': self.time_lapse_days,
@@ -35,14 +33,14 @@ class AnalysisParameters:
 class CystData:
     """Enhanced data structure for individual cyst measurements"""
     object_id: int
-    frame_indices: List[int]
-    centroids: List[Tuple[float, float]]  # (x, y) coordinates
-    areas_pixels: List[float]  # Area in pixels for each frame
-    radii_pixels: List[float]  # Equivalent radius in pixels
-    perimeters_pixels: List[float] = None  # Perimeter for each frame
-    circularities: List[float] = None  # Circularity (4π×Area/Perimeter²)
-    aspect_ratios: List[float] = None  # Major/minor axis ratio
-    masks: List[np.ndarray] = None  # Binary masks for spatial analysis
+    frame_indices: list[int]
+    centroids: list[tuple[float, float]]  # (x, y) coordinates
+    areas_pixels: list[float]  # Area in pixels for each frame
+    radii_pixels: list[float]  # Equivalent radius in pixels
+    perimeters_pixels: list[float] = None  # Perimeter for each frame
+    circularities: list[float] = None  # Circularity (4π×Area/Perimeter²)
+    aspect_ratios: list[float] = None  # Major/minor axis ratio
+    masks: list[np.ndarray] = None  # Binary masks for spatial analysis
 
     def __post_init__(self):
         """Initialize empty lists if not provided"""
@@ -55,15 +53,15 @@ class CystData:
         if self.masks is None:
             self.masks = []
 
-    def get_radii_um(self, conversion_factor: float) -> List[float]:
+    def get_radii_um(self, conversion_factor: float) -> list[float]:
         """Convert radii from pixels to micrometers"""
         return [r * conversion_factor for r in self.radii_pixels]
 
-    def get_areas_um2(self, conversion_factor: float) -> List[float]:
+    def get_areas_um2(self, conversion_factor: float) -> list[float]:
         """Convert areas from pixels to square micrometers"""
         return [a * conversion_factor * conversion_factor for a in self.areas_pixels]
 
-    def get_perimeters_um(self, conversion_factor: float) -> List[float]:
+    def get_perimeters_um(self, conversion_factor: float) -> list[float]:
         """Convert perimeters from pixels to micrometers"""
         return [p * conversion_factor for p in self.perimeters_pixels]
 
@@ -85,11 +83,11 @@ class BaseMetric(ABC):
         self.unit = unit
 
     @abstractmethod
-    def calculate(self, cyst_data: List[CystData], params: AnalysisParameters) -> Dict[str, Any]:
+    def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
         """Calculate the metric and return results"""
         pass
 
-    def get_info(self) -> Dict[str, str]:
+    def get_info(self) -> dict[str, str]:
         """Get metric information"""
         return {
             'name': self.name,
@@ -108,7 +106,7 @@ class CystFormationEfficiency(BaseMetric):
             unit="%"
         )
 
-    def calculate(self, cyst_data: List[CystData], params: AnalysisParameters) -> Dict[str, Any]:
+    def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
         """
         Calculate: (Number of Organoids with ≥1 Cyst / Total Number of Organoids) × 100
         """
@@ -138,7 +136,7 @@ class DeNovoCystFormationRate(BaseMetric):
             unit="cysts/day"
         )
 
-    def calculate(self, cyst_data: List[CystData], params: AnalysisParameters) -> Dict[str, Any]:
+    def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
         """
         Calculate: (N(cysts t final) - N(cysts t initial)) / (t final - t initial)
         """
@@ -177,7 +175,7 @@ class RadialExpansionVelocity(BaseMetric):
             unit="um/day"
         )
 
-    def calculate(self, cyst_data: List[CystData], params: AnalysisParameters) -> Dict[str, Any]:
+    def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
         """
         Calculate: (r(t2) - r(t1)) / (t2 - t1) for each cyst
         """
@@ -247,7 +245,7 @@ class CysticIndex(BaseMetric):
             unit="fraction (0-1)"
         )
 
-    def calculate(self, cyst_data: List[CystData], params: AnalysisParameters) -> Dict[str, Any]:
+    def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
         """
         Calculate: Total cyst area / Total organoid area
         """
@@ -318,7 +316,7 @@ class MorphologicalAnalysis(BaseMetric):
             unit="dimensionless"
         )
 
-    def calculate(self, cyst_data: List[CystData], params: AnalysisParameters) -> Dict[str, Any]:
+    def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
         """
         Calculate morphological metrics for all cysts
         """
@@ -385,7 +383,7 @@ class SpatialOrganization(BaseMetric):
             unit="various"
         )
 
-    def calculate(self, cyst_data: List[CystData], params: AnalysisParameters) -> Dict[str, Any]:
+    def calculate(self, cyst_data: list[CystData], params: AnalysisParameters) -> dict[str, Any]:
         """
         Calculate spatial organization metrics including clustering and density
         """
@@ -498,11 +496,11 @@ class MetricsCalculator:
         """Add a new metric to the calculator"""
         self.metrics.append(metric)
 
-    def get_available_metrics(self) -> List[Dict[str, str]]:
+    def get_available_metrics(self) -> list[dict[str, str]]:
         """Get list of available metrics"""
         return [metric.get_info() for metric in self.metrics]
 
-    def extract_cyst_data_from_tracking(self, video_segments: Dict, frames: List) -> List[CystData]:
+    def extract_cyst_data_from_tracking(self, video_segments: dict, frames: list) -> list[CystData]:
         """
         Extract cyst data from tracking results
 
@@ -517,7 +515,7 @@ class MetricsCalculator:
 
         # Get all unique object IDs
         all_object_ids = set()
-        for frame_idx, objects in video_segments.items():
+        for objects in video_segments.values():
             all_object_ids.update(objects.keys())
 
         # Remove background object (ID 0) if present
@@ -591,7 +589,7 @@ class MetricsCalculator:
                                     else:
                                         aspect_ratio = 1.0
                                     aspect_ratios.append(aspect_ratio)
-                                except:
+                                except Exception:
                                     aspect_ratios.append(1.0)  # Default to circular
                             else:
                                 aspect_ratios.append(1.0)
@@ -620,8 +618,8 @@ class MetricsCalculator:
 
         return cyst_data
 
-    def calculate_all_metrics(self, video_segments: Dict, frames: List,
-                            params: AnalysisParameters) -> Dict[str, Any]:
+    def calculate_all_metrics(self, video_segments: dict, frames: list,
+                            params: AnalysisParameters) -> dict[str, Any]:
         """
         Calculate all metrics for the given data
 
@@ -661,7 +659,7 @@ class MetricsCalculator:
 
         return results
 
-    def save_analysis_data(self, results: Dict[str, Any], output_path: str):
+    def save_analysis_data(self, results: dict[str, Any], output_path: str):
         """Save analysis results to JSON file for later use"""
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2, default=str, ensure_ascii=False)

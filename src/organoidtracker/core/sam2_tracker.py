@@ -16,8 +16,9 @@ directions, so the output and analysis code never reorder anything.
 
 import hashlib
 import warnings
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import cv2
 import numpy as np
@@ -166,7 +167,7 @@ class SAM2Tracker(BaseVideoTracker):
             checkpoint_path = str(checkpoints_dir() / checkpoint_filename(model_config, self.checkpoint_family))
             print(f"   Auto-selected SAM2 checkpoint: {checkpoint_path}")
         self.checkpoint_path = checkpoint_path
-        self.checkpoint_sha256: Optional[str] = None
+        self.checkpoint_sha256: str | None = None
 
         # Duplicate-frame collapse (video generation can repeat frames)
         self.collapse_duplicates = bool(_app_setting("COLLAPSE_DUPLICATE_FRAMES", True))
@@ -175,14 +176,14 @@ class SAM2Tracker(BaseVideoTracker):
         # Model and video state
         self.predictor = None
         self.inference_state = None
-        self.video_frames: Optional[List[np.ndarray]] = None   # unique frames, chronological
-        self.original_frames: Optional[List[np.ndarray]] = None  # same list; kept for consumers
-        self.frame_map: List[int] = []                            # unique index -> decoded index
+        self.video_frames: list[np.ndarray] | None = None   # unique frames, chronological
+        self.original_frames: list[np.ndarray] | None = None  # same list; kept for consumers
+        self.frame_map: list[int] = []                            # unique index -> decoded index
         self.decoded_frame_count = 0
         self.duplicate_frames_removed = 0
         self.annotation_frame_index = 0
-        self.video_sha256: Optional[str] = None
-        self.current_video_path: Optional[str] = None
+        self.video_sha256: str | None = None
+        self.current_video_path: str | None = None
         self.is_reversed_video = self.enable_reverse_tracking
         self.debug_mode = False
 
@@ -248,7 +249,7 @@ class SAM2Tracker(BaseVideoTracker):
             return False
 
     # ------------------------------------------------------------------ video
-    def _unique_frame_indices(self, frames: List[np.ndarray]) -> List[int]:
+    def _unique_frame_indices(self, frames: list[np.ndarray]) -> list[int]:
         """Indices of frames that differ from their predecessor (mean absolute grayscale difference)."""
         keep = [0]
         previous = cv2.cvtColor(frames[0], cv2.COLOR_RGB2GRAY).astype(np.int16)
@@ -259,7 +260,7 @@ class SAM2Tracker(BaseVideoTracker):
             previous = current
         return keep
 
-    def load_video(self, video_path: str, max_frames: Optional[int] = None) -> Dict[str, Any]:
+    def load_video(self, video_path: str, max_frames: int | None = None) -> dict[str, Any]:
         """Decode the video, collapse duplicated frames, and initialize the predictor state."""
         if not self.is_loaded:
             raise RuntimeError("Model not loaded. Call load_model() first.")
@@ -272,7 +273,7 @@ class SAM2Tracker(BaseVideoTracker):
         self.fps = cap.get(cv2.CAP_PROP_FPS)
         reported_frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        frames: List[np.ndarray] = []
+        frames: list[np.ndarray] = []
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -395,7 +396,7 @@ class SAM2Tracker(BaseVideoTracker):
             return False
 
     # ------------------------------------------------------------------ tracking
-    def run_tracking(self, progress_callback: Optional[callable] = None) -> TrackingResult:
+    def run_tracking(self, progress_callback: Callable[..., None] | None = None) -> TrackingResult:
         """Propagate the prompts through the video and return masks keyed by chronological frame."""
         print("🔄 Running object tracking...")
         if not self.prompts:
@@ -426,7 +427,7 @@ class SAM2Tracker(BaseVideoTracker):
         else:
             print(f"   🧠 Memory dependence: {memory_frames} previous frames")
 
-        processed_frames: List[int] = []
+        processed_frames: list[int] = []
         try:
             for out_frame_idx, out_obj_ids, out_mask_logits in self.predictor.propagate_in_video(
                 self.inference_state,
@@ -471,9 +472,9 @@ class SAM2Tracker(BaseVideoTracker):
         print(f"✅ Tracking {result.summary()}")
         return result
 
-    def _presence_scores(self, frame_idx: int, obj_ids) -> Dict[int, float]:
+    def _presence_scores(self, frame_idx: int, obj_ids) -> dict[int, float]:
         """SAM2's object presence logits for a frame (positive means the object is present)."""
-        scores: Dict[int, float] = {}
+        scores: dict[int, float] = {}
         try:
             state = self.inference_state
             for obj_id in obj_ids:
@@ -486,7 +487,7 @@ class SAM2Tracker(BaseVideoTracker):
             pass
         return scores
 
-    def _clean_mask_to_largest_component(self, mask_logits) -> Optional[np.ndarray]:
+    def _clean_mask_to_largest_component(self, mask_logits) -> np.ndarray | None:
         """
         Keep only the largest connected component of a mask so each cyst is one object.
 
@@ -591,7 +592,7 @@ class SAM2Tracker(BaseVideoTracker):
             return True
 
     # ------------------------------------------------------------------ results access
-    def get_frame_mask(self, frame_idx: int, obj_id: int = 1, video_segments: Optional[Dict] = None) -> np.ndarray:
+    def get_frame_mask(self, frame_idx: int, obj_id: int = 1, video_segments: dict | None = None) -> np.ndarray:
         """Binary mask (uint8, frame resolution) for a chronological frame and object."""
         if video_segments is None:
             raise ValueError("No tracking results provided")
@@ -603,8 +604,8 @@ class SAM2Tracker(BaseVideoTracker):
             mask_binary = cv2.resize(mask_binary, (w, h), interpolation=cv2.INTER_NEAREST)
         return mask_binary
 
-    def get_frame_overlay(self, frame_idx: int, obj_id: int = 1, video_segments: Optional[Dict] = None,
-                          color: Tuple[int, int, int] = (255, 0, 0), alpha: float = 0.3) -> np.ndarray:
+    def get_frame_overlay(self, frame_idx: int, obj_id: int = 1, video_segments: dict | None = None,
+                          color: tuple[int, int, int] = (255, 0, 0), alpha: float = 0.3) -> np.ndarray:
         """Frame with the object's mask blended in."""
         frame = self.video_frames[frame_idx].copy()
         mask = self.get_frame_mask(frame_idx, obj_id, video_segments)
@@ -619,7 +620,7 @@ class SAM2Tracker(BaseVideoTracker):
                 self.video_frames, offload_video_to_cpu=False, offload_state_to_cpu=False
             )
 
-    def clear_prompts(self, obj_id: Optional[int] = None) -> bool:
+    def clear_prompts(self, obj_id: int | None = None) -> bool:
         """Clear all prompts, or one object's prompts and re-apply the others."""
         try:
             if obj_id is None:
@@ -655,13 +656,13 @@ class SAM2Tracker(BaseVideoTracker):
             print(f"Error clearing prompts: {e}")
             return False
 
-    def get_prompt_count(self, obj_id: Optional[int] = None) -> int:
+    def get_prompt_count(self, obj_id: int | None = None) -> int:
         """Number of prompts for one object or in total"""
         if obj_id is None:
             return sum(len(prompts_list) for prompts_list in self.prompts.values())
         return len(self.prompts.get(obj_id, []))
 
-    def provenance(self) -> Dict[str, Any]:
+    def provenance(self) -> dict[str, Any]:
         """Facts needed to reproduce a run."""
         return {
             'backend': 'sam2-vendored',

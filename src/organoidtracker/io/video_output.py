@@ -4,10 +4,10 @@ Video Output Utilities for SAM2
 Handles creation of different video output types with robust codec support
 """
 
+from pathlib import Path
+
 import cv2
 import numpy as np
-import torch
-from pathlib import Path
 
 
 class VideoOutputGenerator:
@@ -48,7 +48,7 @@ class VideoOutputGenerator:
                     self._codec_cache[codec_name] = fourcc
                     print(f"   ✅ {codec_name} codec available")
                 writer.release()
-            except:
+            except Exception:
                 print(f"   ❌ {codec_name} codec not available")
 
         # Clean up test file
@@ -56,7 +56,7 @@ class VideoOutputGenerator:
             import os
             if os.path.exists(test_path):
                 os.remove(test_path)
-        except:
+        except Exception:
             pass
 
         self._system_codecs_tested = True
@@ -147,7 +147,7 @@ class VideoOutputGenerator:
 
         except Exception as e:
             video_writer.release()
-            raise RuntimeError(f"Error creating video: {str(e)}")
+            raise RuntimeError(f"Error creating video: {str(e)}") from e
 
     def create_multi_object_video(self, frames, video_segments, output_path,
                                  fps=30.0, video_type='overlay', alpha=0.3, progress_callback=None, quality_scale=1.0, tracker=None):
@@ -177,14 +177,14 @@ class VideoOutputGenerator:
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # CRITICAL: Check if we have any data to work with
         if not frames:
-            print(f"❌ CRITICAL ERROR: No frames provided!")
+            print("❌ CRITICAL ERROR: No frames provided!")
             return None
-            
+
         if not video_segments:
-            print(f"❌ CRITICAL ERROR: No video_segments provided!")
+            print("❌ CRITICAL ERROR: No video_segments provided!")
             return None
 
         # Object colors (RGB format) - expanded palette for 20+ objects
@@ -242,11 +242,11 @@ class VideoOutputGenerator:
             # Frames and tracking results share chronological indices.
             print(f"🎬 Processing {len(frames)} frames")
             print(f"🔍 DEBUG: video_segments keys = {list(video_segments.keys()) if video_segments else 'None'}")
-            
+
             # CRITICAL DEBUG: Check if video_segments has any actual mask data
             total_objects = 0
             frames_with_masks = 0
-            for frame_idx, frame_objects in video_segments.items():
+            for frame_objects in video_segments.values():
                 if frame_objects:
                     frames_with_masks += 1
                     total_objects += len(frame_objects)
@@ -254,7 +254,7 @@ class VideoOutputGenerator:
 
             processed_frames = []
             total_frames = len(frames)
-            
+
             for frame_idx in range(total_frames):
                 # Report progress for current frame
                 if progress_callback:
@@ -341,12 +341,12 @@ class VideoOutputGenerator:
             try:
                 video_writer.release()
                 video_writer = None
-            except:
+            except Exception:
                 pass
             # Force cleanup on error
             import gc
             gc.collect()
-            raise RuntimeError(f"Error creating multi-object video: {str(e)}")
+            raise RuntimeError(f"Error creating multi-object video: {str(e)}") from e
 
     def create_optimized_multi_object_videos(self, frames, video_segments, output_dir,
                                            fps=5.0, alpha=0.4, progress_callback=None, quality_scale=1.0, tracker=None):
@@ -369,8 +369,8 @@ class VideoOutputGenerator:
         Returns:
             dict: Paths to created videos {'overlay': path, 'mask': path, 'side_by_side': path}
         """
-        from pathlib import Path
         import time
+        from pathlib import Path
 
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -378,14 +378,14 @@ class VideoOutputGenerator:
 
         print(f"🚀 OPTIMIZATION: Single-pass mask processing for {len(frames)} frames")
         print(f"🔍 OPTIMIZED ENTRY DEBUG: frames={len(frames)}, video_segments={len(video_segments) if video_segments else 0}, tracker={tracker}")
-        
+
         # CRITICAL: Check if we have any data to work with
         if not frames:
-            print(f"❌ OPTIMIZED CRITICAL ERROR: No frames provided!")
+            print("❌ OPTIMIZED CRITICAL ERROR: No frames provided!")
             return {}
-            
+
         if not video_segments:
-            print(f"❌ OPTIMIZED CRITICAL ERROR: No video_segments provided!")
+            print("❌ OPTIMIZED CRITICAL ERROR: No video_segments provided!")
             return {}
 
         # Object colors (same as original)
@@ -407,7 +407,7 @@ class VideoOutputGenerator:
         # CRITICAL DEBUG: Check video_segments data
         total_objects = 0
         frames_with_masks = 0
-        for frame_idx, frame_objects in video_segments.items():
+        for _frame_idx, frame_objects in video_segments.items():
             if frame_objects:
                 frames_with_masks += 1
                 total_objects += len(frame_objects)
@@ -504,7 +504,7 @@ class VideoOutputGenerator:
                         else:
                             if frame_idx == 0:  # Only debug first frame
                                 print(f"🔍 MASK DEBUG: Frame {frame_idx} obj {obj_id} has empty mask")
-                                
+
             # CRITICAL DEBUG: Report object processing for first few frames
             if frame_idx < 3:
                 print(f"🔍 PROCESS DEBUG: Frame {frame_idx} -> mask_idx {mask_idx}, processed {objects_processed_this_frame} objects")
@@ -539,7 +539,7 @@ class VideoOutputGenerator:
 
         if not video_writer.isOpened():
             raise RuntimeError(f"Failed to open video writer for {output_path}")
-            
+
         # CRITICAL FIX: Use the actual scaled dimensions from video writer creation
         # The _create_video_writer method stores the scaled dimensions in instance variables
         actual_width = getattr(self, '_target_width', width)
@@ -568,16 +568,16 @@ class VideoOutputGenerator:
 
             # Convert RGB to BGR for OpenCV
             frame_bgr = cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_RGB2BGR)
-            
+
             # CRITICAL DEBUG: Check if video writer is still valid
             if not video_writer.isOpened():
                 print(f"❌ CRITICAL: Video writer closed unexpectedly at frame {i}")
                 break
-                
+
             video_writer.write(frame_bgr)
 
         video_writer.release()
-        
+
         # CRITICAL DEBUG: Check final file size and validity
         import os
         if os.path.exists(output_path):
@@ -589,7 +589,7 @@ class VideoOutputGenerator:
                 print(f"✅ FILE LOOKS HEALTHY: {file_size} bytes")
         else:
             print(f"❌ CRITICAL: Output file {output_path} was not created!")
-        
+
         return output_path
 
     def _get_target_dimensions(self, width, height, video_type, quality_scale=1.0):
@@ -711,7 +711,7 @@ class VideoOutputGenerator:
                     return writer
                 else:
                     writer.release()
-            except:
+            except Exception:
                 continue
 
         # Restore log level before error
@@ -982,7 +982,7 @@ class VideoOutputGenerator:
                     # Create a symlink to save space, fallback to copy if symlink fails
                     try:
                         obj_frame_path.symlink_to(f"../../frame_{frame_idx:03d}_original.png")
-                    except:
+                    except Exception:
                         cv2.imwrite(str(obj_frame_path), cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR))
 
             # Print debug info only once per session and create session summary
@@ -990,7 +990,7 @@ class VideoOutputGenerator:
                 num_objects = len(frame_objects_data)
                 print(f"💾 DEBUG: Saving organized debug frames to {debug_session_dir}")
                 print(f"🔍 DEBUG: Processing {num_objects} objects with individual subfolders")
-                print(f"📁 DEBUG: Structure: session_dir/object_XX/frame_YYY_[original|mask|overlay].png")
+                print("📁 DEBUG: Structure: session_dir/object_XX/frame_YYY_[original|mask|overlay].png")
 
                 # Create session info file
                 self._create_debug_session_info(debug_session_dir, video_type, num_objects)
@@ -1038,9 +1038,9 @@ class VideoOutputGenerator:
                 f.write("├── frame_XXX_original.png  # Original video frames\n")
                 for i in range(1, num_objects + 1):
                     f.write(f"├── object_{i:02d}/\n")
-                    f.write(f"│   ├── frame_XXX_original.png  # Original frame (symlink)\n")
-                    f.write(f"│   ├── frame_XXX_mask.png      # Object mask\n")
-                    f.write(f"│   └── frame_XXX_overlay.png   # Object overlay\n")
+                    f.write("│   ├── frame_XXX_original.png  # Original frame (symlink)\n")
+                    f.write("│   ├── frame_XXX_mask.png      # Object mask\n")
+                    f.write("│   └── frame_XXX_overlay.png   # Object overlay\n")
                 f.write("```\n\n")
                 f.write("## File Naming Convention\n\n")
                 f.write("- `frame_XXX_original.png`: Original video frame (XXX = frame number, 3 digits)\n")
@@ -1063,7 +1063,7 @@ class VideoOutputGenerator:
         self._save_debug_frames_for_all_objects(frame, frame_objects_data, frame_idx, frame_idx, video_type)
 
     def create_multiple_videos(self, frames, video_segments, obj_id, output_dir,
-                              fps=30.0, video_types=['overlay'], **kwargs):
+                              fps=30.0, video_types=None, **kwargs):
         """
         Create multiple video types at once
 
@@ -1079,6 +1079,8 @@ class VideoOutputGenerator:
         Returns:
             dict: Mapping of video_type -> output_path
         """
+        if video_types is None:
+            video_types = ['overlay']
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 

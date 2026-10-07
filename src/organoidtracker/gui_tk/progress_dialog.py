@@ -28,7 +28,7 @@ class ProgressDialog:
         self.message_var = tk.StringVar(value=message)
         self.title = title
         self.progress_text = None  # Initialize to None, will be set in create_widgets()
-        
+
         # Throttling mechanism for long videos
         self.last_update_time = 0
         self.min_update_interval = 0.1  # Minimum 100ms between updates
