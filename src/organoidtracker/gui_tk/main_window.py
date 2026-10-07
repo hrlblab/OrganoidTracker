@@ -12,7 +12,6 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, scrolledtext, ttk
 
-from .. import RESULTS_VERSION
 from ..config import (
     AUTO_OPEN_OUTPUT_DIRECTORY,
     DEFAULT_CONVERSION_FACTOR,
@@ -1241,10 +1240,7 @@ class VideoTrackerApp:
     def _write_prompt_record(self):
         """Save prompts, organoid associations and provenance so a run can be reproduced."""
         try:
-            import json
-            import time
-
-            model = self.current_model
+            from ..services.prompt_record import build_prompt_record, default_prompt_record_path, write_prompt_record
 
             def tk_value(var):
                 try:
@@ -1252,43 +1248,14 @@ class VideoTrackerApp:
                 except Exception:
                     return None
 
-            record = {
-                "results_version": RESULTS_VERSION,
-                "schema": "organoidtracker.prompts/1",
-                "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                "video": {
-                    "path": str(self.current_video_path),
-                    "sha256": getattr(model, "video_sha256", None),
-                    "decoded_frames": getattr(model, "decoded_frame_count", None),
-                    "unique_frames": len(model.video_frames) if model.video_frames else 0,
-                    "frame_map": list(getattr(model, "frame_map", [])),
-                },
-                "tracking": {
-                    "direction": "reverse" if getattr(model, "enable_reverse_tracking", True) else "forward",
-                    "annotation_frame_index": getattr(model, "annotation_frame_index", 0),
-                },
-                "model": model.provenance()
-                if hasattr(model, "provenance")
-                else {"name": getattr(model, "model_name", "?")},
-                "organoids": [
-                    {
-                        "organoid_id": organoid_id,
-                        "point": list(info["point"]),
-                        "cysts": [{"cyst_id": c["cyst_id"], "bbox": list(c["bbox"])} for c in info["cysts"]],
-                    }
-                    for organoid_id, info in self.organoid_data.items()
-                ],
-                "prompts": {str(obj_id): prompts for obj_id, prompts in model.prompts.items()},
-                "analysis_inputs": {
-                    "time_lapse_days": tk_value(self.time_lapse_var),
-                    "conversion_factor_um_per_pixel": tk_value(self.conversion_factor_var),
-                },
-            }
-            out_dir = Path("data/output_videos/prompts")
-            out_dir.mkdir(parents=True, exist_ok=True)
-            stem = Path(str(self.current_video_path)).stem
-            path = out_dir / f"{stem}_{time.strftime('%Y%m%d-%H%M%S')}.json"
-            path.write_text(json.dumps(record, indent=2, default=str))
+            record = build_prompt_record(
+                self.current_model,
+                str(self.current_video_path),
+                self.organoid_data,
+                tk_value(self.time_lapse_var),
+                tk_value(self.conversion_factor_var),
+            )
+            path = write_prompt_record(record, default_prompt_record_path(str(self.current_video_path)))
             self.log_event(f"💾 Prompt record saved: {path}")
         except Exception as e:
             self.log_event(f"⚠️ Could not save prompt record: {e}")
