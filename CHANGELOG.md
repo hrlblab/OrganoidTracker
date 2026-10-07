@@ -123,9 +123,10 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
 
 ### Fixed
 - Re-plotting from the exported CSV (`scripts/csv_visualizer.py`) used frame indices as timestamps,
-  which changed the day labels and the growth rates; it now rebuilds the experiment through
-  `organoidtracker.analysis.csv_import.experiment_from_csv`, which keeps the exported `Time_Days`
-  and the tracked frames.
+  which changed the day labels and the growth rates, and dropped organoids without cysts, which
+  inflated the population statistics; it now rebuilds the experiment through
+  `organoidtracker.analysis.csv_import.experiment_from_csv`, which keeps the exported `Time_Days`,
+  the tracked frames and every organoid listed in `organoid_summary.csv`.
 - The Results Viewer module had lost its indentation and could not be imported, so the
   View Results action always failed; it opens again.
 - The Results Viewer's frame slider and display update called each other recursively.

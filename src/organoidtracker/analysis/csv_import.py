@@ -1,22 +1,41 @@
 """Rebuild an ``ExperimentData`` from the exported CSV and summary files.
 
-The raw data table carries each observation's frame index and timestamp; ``analysis_summary.json``
-carries the experiment parameters and, since results version 2, the tracked frames. Reloading
-keeps the exported time axis (``Time_Days``) and the set of tracked frames, so re-plotting from
-CSV gives the same growth rates and the same gaps as the original report.
+The raw data table carries each observation's frame index and timestamp; ``organoid_summary.csv``
+lists every organoid, including those without cysts; ``analysis_summary.json`` carries the
+experiment parameters and, since results version 2, the tracked frames. Reloading keeps the
+exported time axis (``Time_Days``), the tracked frames and the whole organoid population, so
+re-plotting from CSV gives the same growth rates, gaps and population statistics as the report.
 """
 
 from __future__ import annotations
 
 import csv
 import json
+import logging
 from pathlib import Path
 
 from .organoid_cyst_data import CystFrameData, CystTrajectory, ExperimentData, OrganoidData
 
+logger = logging.getLogger(__name__)
 
-def experiment_from_csv(raw_csv_path: str | Path, summary_json_path: str | Path | None = None) -> ExperimentData:
-    """``ExperimentData`` from ``raw_cyst_data.csv`` and, when given, ``analysis_summary.json``."""
+
+def experiment_from_csv(
+    raw_csv_path: str | Path,
+    summary_json_path: str | Path | None = None,
+    organoid_csv_path: str | Path | None = None,
+) -> ExperimentData:
+    """``ExperimentData`` from ``raw_cyst_data.csv``, ``analysis_summary.json`` and ``organoid_summary.csv``.
+
+    The summary and organoid files default to the ones next to the raw table when they exist.
+    Without the organoid summary, organoids that have no cyst measurements cannot be recovered
+    and the population statistics are those of the cyst-bearing organoids only.
+    """
+    raw_csv_path = Path(raw_csv_path)
+    if summary_json_path is None and (raw_csv_path.parent / "analysis_summary.json").is_file():
+        summary_json_path = raw_csv_path.parent / "analysis_summary.json"
+    if organoid_csv_path is None and (raw_csv_path.parent / "organoid_summary.csv").is_file():
+        organoid_csv_path = raw_csv_path.parent / "organoid_summary.csv"
+
     with open(raw_csv_path, newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     if not rows:
@@ -49,7 +68,20 @@ def experiment_from_csv(raw_csv_path: str | Path, summary_json_path: str | Path 
     tracked = tracking.get("tracked_frames")
     experiment.observed_frames = sorted(int(f) for f in tracked) if tracked else None
 
+    # Every organoid, with its marker point, from the organoid summary; organoids without
+    # cysts have no raw rows and would otherwise disappear.
     organoids: dict[int, OrganoidData] = {}
+    if organoid_csv_path is not None:
+        with open(organoid_csv_path, newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                organoid_id = int(row["Organoid_ID"])
+                marker = (float(row["Marker_X"]), float(row["Marker_Y"]))
+                organoids[organoid_id] = OrganoidData(organoid_id=organoid_id, marker_point=marker)
+    else:
+        logger.warning(
+            f"organoid_summary.csv not found next to {raw_csv_path}; organoids without cysts cannot be recovered"
+        )
+
     cysts: dict[tuple[int, int], CystTrajectory] = {}
     for row in rows:
         organoid_id, cyst_id = int(row["Organoid_ID"]), int(row["Cyst_ID"])
@@ -71,4 +103,7 @@ def experiment_from_csv(raw_csv_path: str | Path, summary_json_path: str | Path 
         organoids[organoid_id].add_cyst(trajectory)
     for organoid in organoids.values():
         experiment.add_organoid(organoid)
+    expected = info.get("total_organoids")
+    if expected is not None and int(expected) != len(organoids):
+        logger.warning(f"{summary_json_path}: the report had {expected} organoids, {len(organoids)} were rebuilt")
     return experiment

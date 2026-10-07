@@ -1,6 +1,7 @@
 """Re-plotting from the exported CSV keeps the time axis, the tracked frames and the growth rates."""
 
 import json
+import logging
 
 import pytest
 
@@ -33,3 +34,21 @@ def test_partial_run_report_round_trips_with_its_gaps(tmp_path):
     assert reloaded.total_frames == 7 and reloaded.observed_frames == [4, 5, 6]
     assert reloaded.frame_timestamps == [float(1 + k) for k in range(7)]
     assert sorted(reloaded.get_all_cysts()[0].frame_data) == [4, 5, 6]
+
+
+def test_organoids_without_cysts_survive_the_round_trip(tmp_path, caplog):
+    population = {**organoids(1), 2: {"point": (30.0, 30.0), "cysts": []}}
+    summary = run_report(tmp_path, results_for(range(4)), population)
+    assert summary["experiment_info"]["total_organoids"] == 2
+    reloaded = experiment_from_csv(tmp_path / "raw_cyst_data.csv")  # summary and organoid files found alongside
+    assert reloaded.get_total_organoid_count() == 2
+    assert reloaded.organoids[2].marker_point == (30.0, 30.0) and not reloaded.organoids[2].cysts
+    assert reloaded.get_percentage_organoids_with_cysts_at_frame(0) == 50.0
+    assert reloaded.get_cyst_to_organoid_ratio_at_frame(0) == 0.5
+
+    # without the organoid summary the population cannot be recovered, and the importer says so
+    (tmp_path / "organoid_summary.csv").unlink()
+    with caplog.at_level(logging.WARNING):
+        reduced = experiment_from_csv(tmp_path / "raw_cyst_data.csv", tmp_path / "analysis_summary.json")
+    assert reduced.get_total_organoid_count() == 1
+    assert "organoid_summary.csv not found" in caplog.text and "2 organoids, 1 were rebuilt" in caplog.text
