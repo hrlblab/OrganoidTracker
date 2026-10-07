@@ -650,8 +650,7 @@ class VideoTrackerApp:
                     service = TrackingService.create(spec)
                     service.load_model()
                     load_time = time.time() - start_time
-                    self.tracking = service
-                    self.post(self.on_model_loaded_success, load_time)
+                    self.post(self.on_model_loaded_success, service, load_time)
 
                 except (TrackingError, SessionError) as e:
                     load_time = time.time() - start_time
@@ -666,8 +665,12 @@ class VideoTrackerApp:
             load_time = time.time() - start_time
             self.on_model_loaded_error(str(e), load_time)
 
-    def on_model_loaded_success(self, load_time):
-        """Handle successful model loading"""
+    def on_model_loaded_success(self, service, load_time):
+        """Install the loaded backend (GUI thread) and discard whatever the previous one produced."""
+        previous = self.tracking
+        self.tracking = service
+        if previous is not None:
+            self._discard_downstream_state("a new model replaced the previous one")
         self.load_model_btn.config(state="normal")
         self.load_video_btn.config(state="normal")
 
@@ -685,6 +688,49 @@ class VideoTrackerApp:
         self.log_event(
             f"✅ {model_name} loaded successfully in {load_time:.2f}s ({direction_icon} {direction_status} tracking)"
         )
+
+    def _discard_downstream_state(self, reason: str) -> None:
+        """Forget the video, annotations and results of the previous backend; disable what depends on them.
+
+        A new backend holds no video, so results and prompts of the old one must not look usable.
+        """
+        had_results = self.video_segments is not None or self.current_video_path is not None or bool(self.organoid_data)
+        self.current_video_path = None
+        self.video_segments = None
+        self.tracking_in_progress = False
+        self.video_canvas.clear_markers()
+        self.video_canvas.show_placeholder()
+        self.organoid_data.clear()
+        self.active_object_ids.clear()
+        self.action_history.clear()
+        self.next_organoid_id = 1
+        self.next_cyst_id = 1
+        self.current_organoid_id = None
+        self.organoid_mode = True
+        for button in (self.track_btn, self.clear_prompts_btn, self.revert_btn, self.generate_btn, self.analysis_btn):
+            button.config(state="disabled")
+        self.video_info_label.config(text="No video loaded")
+        self.update_active_objects_display()
+        self.update_organoid_count_display()
+        self.update_workflow_status()
+        if had_results:
+            self.log_event(
+                f"🔁 {reason}: the previous video, annotations and results were discarded; load a video to continue"
+            )
+
+    def _ready_for_export(self, what: str) -> bool:
+        """A loaded video and tracking results from this backend are needed before anything is exported."""
+        if self.video_segments is None or not self.video_segments:
+            self.set_status("No tracking results available. Please run tracking first")
+            self.log_event(f"❌ No tracking results available for {what}")
+            return False
+        if self.tracking is None or self.tracking.video is None:
+            self.set_status("Load a video and run tracking first")
+            self.log_event(
+                f"❌ Cannot start {what}: the loaded model holds no video (results are from a previous model)"
+            )
+            return False
+        return True
 
     def on_model_loaded_error(self, error_msg, load_time):
         """Handle model loading error"""
@@ -1361,9 +1407,7 @@ class VideoTrackerApp:
 
     def generate_videos(self):
         """Generate output videos with timing"""
-        if not self.video_segments:
-            self.set_status("No tracking results available. Please run tracking first")
-            self.log_event("❌ No tracking results available")
+        if not self._ready_for_export("video generation"):
             return
 
         # Ask for output directory
@@ -1584,9 +1628,7 @@ class VideoTrackerApp:
 
     def generate_analysis_report(self):
         """Generate comprehensive organoid-cyst analysis report using new workflow"""
-        if not self.video_segments:
-            self.set_status("No tracking results available. Please run tracking first")
-            self.log_event("❌ No tracking results available for analysis")
+        if not self._ready_for_export("the analysis report"):
             return
 
         if not self.organoid_data:
@@ -1677,7 +1719,7 @@ class VideoTrackerApp:
         organoid_data = {
             oid: {"point": info["point"], "cysts": list(info["cysts"])} for oid, info in self.organoid_data.items()
         }
-        frames = self.tracking.frames if self.tracking else None
+        frames = self.tracking.frames
 
         def analysis_thread():
             try:

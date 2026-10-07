@@ -264,3 +264,99 @@ def test_window_reports_an_incomplete_report_as_a_failure(app, monkeypatch, smal
     assert "ORGANOID ANALYSIS FAILED" in log and "organoid_analysis_report.pdf" in log
     assert "report generated successfully" not in log
     assert json.loads((report_dir / "analysis_summary.json").read_text())["success"] is False
+
+
+def test_reloading_the_model_discards_stale_results_and_recovers(app, monkeypatch, small_disc, small_video, tmp_path):
+    """Load, annotate, track; load a model again: results and export controls of the old backend go away, a stale
+    export request is refused without getting stuck, and the workflow runs again on the new backend."""
+    from organoidtracker.gui_tk import main_window
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    videos_dir = tmp_path / "videos"
+    videos_dir.mkdir()
+    state: dict = {}
+
+    def load_model():
+        app.device_var.set("cpu")
+        app.model_config_var.set("sam2_hiera_s")
+        app.load_selected_model()
+
+    def model_loaded():
+        return app.current_model is not None and str(app.load_model_btn["state"]) == "normal"
+
+    def load_video():
+        monkeypatch.setattr(main_window.filedialog, "askopenfilename", lambda *a, **k: str(small_video))
+        app.load_video()
+
+    def video_loaded():
+        return app.current_video_path is not None and str(app.track_btn["state"]) == "normal"
+
+    def annotate_and_track():
+        app.on_canvas_click(cx - 30, cy - 30)
+        app.on_canvas_bbox(*box)
+        app.start_tracking()
+
+    def tracked():
+        return (
+            not app.tracking_in_progress and app.video_segments is not None and str(app.track_btn["state"]) == "normal"
+        )
+
+    def reload_model():
+        state["first_service"] = app.tracking
+        state["first_results"] = app.video_segments
+        assert str(app.generate_btn["state"]) == "normal" and str(app.analysis_btn["state"]) == "normal"
+        app.load_selected_model()
+
+    def reloaded():
+        return (
+            app.tracking is not None
+            and app.tracking is not state["first_service"]
+            and str(app.load_model_btn["state"]) == "normal"
+        )
+
+    def stale_export_requests():
+        # everything downstream of the old backend is gone and disabled
+        assert app.video_segments is None and app.current_video_path is None and not app.organoid_data
+        assert not app.active_object_ids and app.current_organoid_id is None
+        for button in (app.track_btn, app.generate_btn, app.analysis_btn, app.clear_prompts_btn, app.revert_btn):
+            assert str(button["state"]) == "disabled", button
+        assert "discarded" in log_of(app)
+        # a stale request (as if the buttons had still been enabled) is refused and nothing gets stuck
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(videos_dir))
+        app.generate_videos()
+        app.generate_analysis_report()
+        assert "No tracking results available" in app.status_label["text"]
+        assert "Generating videos" not in app.status_label["text"]
+        # the race between the swap and a click: old results still present, new backend without a video
+        app.video_segments = state["first_results"]
+        app.generate_videos()
+        assert "Load a video and run tracking first" in app.status_label["text"]
+        assert str(app.generate_btn["state"]) == "disabled" and not list(videos_dir.iterdir())
+        app.video_segments = None
+
+    def second_run():
+        load_video()
+
+    def second_tracked():
+        return tracked() and app.video_segments is not state["first_results"]
+
+    def generate_videos():
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(videos_dir))
+        app.generate_videos()
+
+    (
+        TkDriver(app.root)
+        .step("model loaded", load_model, model_loaded, 30)
+        .step("video loaded", load_video, video_loaded, 30)
+        .step("tracked", annotate_and_track, tracked, 60)
+        .step("model reloaded", reload_model, reloaded, 30)
+        .step("stale requests refused", stale_export_requests, None, 5)
+        .step("video loaded again", second_run, video_loaded, 30)
+        .step("tracked again", annotate_and_track, second_tracked, 60)
+        .step("videos written", generate_videos, lambda: "Video generation completed" in log_of(app), 60)
+        .run()
+    )
+    assert app.video_segments.object_ids() == [1]
+    assert all((videos_dir / f"multi_object_{t}.mp4").is_file() for t in ("overlay", "mask", "side_by_side"))
+    assert str(app.generate_btn["state"]) == "normal" and "❌ Video generation failed" not in log_of(app)
