@@ -136,14 +136,15 @@ wget -O sam2_hiera_large.pt https://dl.fbaipublicfiles.com/segment_anything_2/09
    - Supported formats: MP4
 
 3. **Configure Tracking**
-   - Select SAM2 model variant (base/large)
-   - Enable "Reverse Tracking" (recommended for organoid analysis)
-   - Adjust confidence thresholds if needed
+   - Select the SAM2 model size (small, base-plus or large)
+   - Keep "Reverse Tracking" enabled (recommended for organoid analysis)
+   - Adjust confidence thresholds in `config.py` if needed
 
 4. **Annotate Cysts**
-   - Navigate to the final frame (clearest morphology)
-   - Click and drag to create bounding boxes around cysts
-   - Each cyst will be assigned a unique color
+   - With Reverse Tracking enabled the canvas shows the final frame of the video, where cysts are clearest
+   - Left-click an organoid, then click and drag bounding boxes around its cysts; left-click again to start the next organoid
+   - Each cyst is assigned a unique color
+   - Repeated frames produced by video export are collapsed into single time points; the log shows the decoded and unique frame counts
 
 5. **Run Analysis**
    - Click "Start Tracking" to begin automated segmentation
@@ -166,6 +167,19 @@ After analysis, the following files are generated in `data/output_videos/`:
 - `organoid_analysis_report.pdf` - Publication-ready report
 - `analysis_summary.json` - Complete session metadata
 - `visualizations/` - Individual plots and figures
+- `prompts/<video>_<timestamp>.json` - Prompts, organoid associations and provenance of each tracking run
+
+### Frame order and timing
+
+Frames are handled in chronological order throughout. With Reverse Tracking enabled, prompts are placed on the last frame and SAM2 propagates backwards in time; outputs are always written chronologically. The "Time Lapse (days)" value is the span from the first to the last frame, and days are numbered from 1 as in the paper's figures (seven daily frames spanning six days are days 1 to 7).
+
+### Running the tests
+
+```bash
+python -m pytest tests
+```
+
+Model tests use `checkpoints/sam2.1_hiera_tiny.pt` and are skipped when it is absent. The suite uses synthetic videos only.
 
 ### Citation
 
