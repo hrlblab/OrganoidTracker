@@ -66,6 +66,7 @@ dev = [
 ]
 
 [project.scripts]
+organoidtracker = "organoidtracker.cli:main"
 organoidtracker-tk = "organoidtracker.gui_tk.launcher:main"
 
 [project.urls]

@@ -143,6 +143,45 @@ types are checked at startup. A legacy `user_config.py` is still read for now, w
    - Includes tracking videos, analysis reports, and raw data
 
 
+### Headless runs (command line)
+
+The same tracking, analysis and exports run without a window from a *session file*: a JSON document
+with the video, the organoid points and cyst boxes (source pixels on the annotation frame, the last
+frame with reverse tracking), the calibration and the timing. The prompt record the application writes
+when tracking starts (`data/output_videos/prompts/*.json`) is accepted as a session file, so a GUI run can
+be repeated headlessly.
+
+```json
+{
+  "schema": "organoidtracker.session/1",
+  "video": {"path": "well.mp4"},
+  "tracking": {"direction": "reverse", "model_config": "sam2_hiera_b", "device": "cuda"},
+  "calibration": {"um_per_pixel": 1.6934},
+  "timing": {"time_lapse_days": 6.0},
+  "organoids": [
+    {"organoid_id": 1, "point": [1300, 700],
+     "cysts": [{"cyst_id": 1, "bbox": [1200, 800, 1400, 1000]}, {"cyst_id": 2, "bbox": [1500, 820, 1650, 960]}]},
+    {"organoid_id": 2, "point": [600, 2400], "cysts": []}
+  ]
+}
+```
+
+```bash
+uv run organoidtracker validate --session session.json
+uv run organoidtracker run --session session.json --out runs/well-01 [--video other/path.mp4] [--device cpu] [--model sam2_hiera_t] [--no-videos] [--video-quality original|mid|low]
+```
+
+`timing` takes either `time_lapse_days` (spread uniformly, days numbered from 1 as in the paper) or
+`frame_times_days`, one explicit time per unique frame. Every key of `tracking` is optional; `--video`
+relocates a moved video (its recorded `sha256`, when present, must still match). The output directory
+receives the CSV tables, figures and PDF report (re-plottable with `scripts/csv_visualizer.py`), the
+videos under `videos/`, the prompt record (`prompts.json`), the validated session (`session.json`), the log,
+and `run_manifest.json`: software, environment and settings, the video facts, the backend provenance,
+the tracking status and frame coverage, a digest of every mask, and the hash of every file written.
+
+Exit status: 0 completed; 1 failed; 2 invalid input (session, settings, missing or different video);
+3 the tracking stopped early and the exports are **partial** (the manifest, the summary and the PDF say so).
+
 ## Output Files
 
 After analysis, the following files are generated in `data/output_videos/`:
