@@ -346,3 +346,55 @@ def test_prompt_record_replays_explicit_timestamps_exactly(small_disc, small_vid
     record = json.loads((uniform.output_dir / "prompts.json").read_text())
     assert record["analysis_inputs"]["frame_times_days"] is None
     assert load_session(uniform.output_dir / "prompts.json").timing == Timing(time_lapse_days=7.0)
+
+
+def test_overwrite_replaces_the_previous_run_completely(small_disc, small_video, tmp_path):
+    first = run(make_session(small_disc, small_video), tmp_path / "run", small_disc, videos=True)
+    assert (first.output_dir / "videos").is_dir()
+    changed = make_session(small_disc, small_video, calibration=2.0)
+    second = run_session(
+        changed, tmp_path / "run", videos=False, overwrite=True, tracking_service_factory=factory(small_disc)
+    )
+    manifest = json.loads(second.manifest_path.read_text())
+    assert not (second.output_dir / "videos").exists()
+    assert not any(path.startswith("videos/") for path in manifest["files"])
+    assert manifest["video_export"] is None and manifest["session"]["calibration"]["um_per_pixel"] == 2.0
+    # every file in the directory belongs to the second run, apart from the log
+    for path in second.output_dir.rglob("*"):
+        if path.is_file() and not path.name.startswith("organoidtracker.log"):
+            relative = path.relative_to(second.output_dir).as_posix()
+            assert relative == "run_manifest.json" or relative in manifest["files"], relative
+
+
+def test_failed_overwrite_leaves_no_manifest_behind(small_disc, small_video, tmp_path):
+    run(make_session(small_disc, small_video), tmp_path / "run", small_disc)
+    changed = make_session(small_disc, small_video, calibration=3.0)
+    with pytest.raises(TrackingError):
+        run_session(
+            changed,
+            tmp_path / "run",
+            videos=False,
+            overwrite=True,
+            tracking_service_factory=factory(small_disc, fail_load=True),
+        )
+    out = tmp_path / "run"
+    assert not (out / "run_manifest.json").exists() and not (out / "raw_cyst_data.csv").exists()
+    assert json.loads((out / "session.json").read_text())["calibration"]["um_per_pixel"] == 3.0
+
+
+def test_an_unfinished_run_directory_is_refused_and_stray_files_survive(small_disc, small_video, tmp_path):
+    out = tmp_path / "run"
+    out.mkdir()
+    (out / "analysis_summary.json").write_text("{}")  # left by a run that never reached its manifest
+    with pytest.raises(ExportError, match="already holds a run"):
+        run(make_session(small_disc, small_video), out, small_disc)
+    (out / "notes.txt").write_text("keep me")
+    outcome = run_session(
+        make_session(small_disc, small_video),
+        out,
+        videos=False,
+        overwrite=True,
+        tracking_service_factory=factory(small_disc),
+    )
+    assert outcome.complete and (out / "notes.txt").read_text() == "keep me"
+    assert "notes.txt" in json.loads(outcome.manifest_path.read_text())["files"]  # inventoried, never deleted

@@ -13,6 +13,7 @@ from typing import Any
 from ..analysis.organoid_report_generator import Analysis
 from ..core.tracking_result import TrackingResult
 from .analysis_service import AnalysisService
+from .annotations import AnnotationError
 from .export_service import ExportService
 from .prompt_record import build_prompt_record
 from .run_manifest import build_manifest
@@ -94,6 +95,8 @@ def run_session(
     timings: dict[str, float] = {}
     exporter = ExportService(output_dir)
     exporter.video_export_parameters(video_quality)  # fail early on a bad quality name
+    if not session.annotations.cysts:  # before anything is written: nothing to track
+        raise AnnotationError("at least one cyst box is required to track")
     video_sha256 = check_video(session)
     exporter.prepare(overwrite=overwrite)
     exporter.write_session(session, video_sha256)
