@@ -1,100 +1,34 @@
-#!/usr/bin/env python3
 """
-Configuration settings for the Kidney Organoid Video Tracker
+Application settings as module-level constants.
 
-Modify these settings to customize the application behavior.
+The values are those of :class:`organoidtracker.settings.Settings` (the defaults the original
+``config.py`` shipped), overridden by an optional ``organoidtracker.toml`` found through
+:func:`organoidtracker.settings.settings_path`. A legacy ``user_config.py`` next to it is still
+applied on top with a deprecation warning. Modules import constants by name from here, for
+example ``from ..config import FONT_SCALE_FACTOR``; ``SETTINGS`` is the typed view of the same
+values.
 """
 
 import logging
 
-# GUI Configuration
+from .settings import SETTINGS_FILENAME, Settings, SettingsError, load_settings, settings_path
+
 logger = logging.getLogger(__name__)
 
-AUTO_OPEN_OUTPUT_DIRECTORY = False  # Set to False to disable automatic file manager opening
-# This prevents GTK warnings on some Linux systems
+LOADED_SETTINGS_FILE = None  # the organoidtracker.toml that was applied, if any
+LOADED_USER_CONFIG = None  # the legacy user_config.py that was applied, if any
 
-# Analysis Configuration
-DEFAULT_TOTAL_ORGANOIDS = 13  # Default number of organoids
-DEFAULT_TIME_LAPSE_DAYS = 6.0  # Default time lapse duration in days
-DEFAULT_CONVERSION_FACTOR = 1.6934  # Default μm per pixel conversion factor
+_settings_file = settings_path()
+try:
+    SETTINGS = load_settings(_settings_file)
+    LOADED_SETTINGS_FILE = _settings_file
+except SettingsError as error:
+    logger.error(f"{error}; using the default settings")
+    SETTINGS = Settings()
 
-# Video Processing Configuration
-DEFAULT_VIDEO_QUALITY = "mid"  # "original", "mid", or "low"
-DEBUG_MODE_ENABLED = False  # Enable debug frame generation by default
+globals().update(SETTINGS.as_constants())
 
-# Advanced Analysis Configuration
-ENABLE_COMPREHENSIVE_REPORTS = True  # Generate enhanced reports with visualizations
-MATPLOTLIB_DPI = 150  # DPI for plot output (150=normal, 300=publication)
-VISUALIZATION_FORMAT = "png"  # Output format for visualizations ('png' or 'svg')
-FIGURE_SIZE = (10, 6)  # Default figure size in inches
-
-# System Configuration
-SUPPRESS_MATPLOTLIB_WARNINGS = True  # Suppress matplotlib 3D projection warnings
-FALLBACK_FOR_OPTIONAL_DEPS = True  # Use fallbacks when seaborn/scipy unavailable
-
-# Report Configuration
-GENERATE_DEBUG_FRAMES = False  # Generate debug frames for research validation
-AUTO_SAVE_ANALYSIS_DATA = True  # Automatically save JSON analysis data
-INCLUDE_SESSION_METADATA = True  # Include session info in reports
-
-# Color Scheme for Visualizations (RGB tuples)
-PLOT_COLORS = {
-    "primary": (70, 130, 180),  # Steel blue
-    "secondary": (220, 20, 60),  # Crimson
-    "accent": (255, 165, 0),  # Orange
-    "success": (34, 139, 34),  # Forest green
-    "warning": (255, 140, 0),  # Dark orange
-    "error": (178, 34, 34),  # Fire brick
-}
-
-# File Output Configuration
-CSV_ENCODING = "utf-8"  # Character encoding for CSV files
-JSON_ENSURE_ASCII = False  # Allow Unicode characters in JSON
-PDF_PAGE_SIZE = "A4"  # PDF page size: 'A4', 'letter', etc.
-
-# Visualization Font Scaling
-FONT_SCALE_FACTOR = 1.0  # Scale factor for all visualization fonts
-DISABLE_VISUALIZATION_TEXT = False  # Enable axis labels and legends
-DISABLE_VISUALIZATION_TITLES = False  # Enable titles for normal use (True=publication mode)
-
-# Frame Handling Configuration
-COLLAPSE_DUPLICATE_FRAMES = (
-    True  # Collapse consecutive near-identical frames (video-generation artifact) into one time point
-)
-DUPLICATE_FRAME_MAD_THRESHOLD = (
-    1.0  # Mean absolute grayscale difference (0-255) below which consecutive frames count as duplicates
-)
-SAM2_CHECKPOINT_FAMILY = "2.1"  # "2.1" (default) or "2" (original SAM 2 checkpoints used for the paper's figures)
-
-# Performance Configuration
-MAX_VIDEO_FRAMES = None  # Maximum frames to load (None = no limit)
-MEMORY_OPTIMIZATION = True  # Enable memory optimization for large videos
-GARBAGE_COLLECTION_FREQUENCY = 10  # Frames between garbage collection calls
-
-# Expert Configuration (Advanced Users Only)
-TORCH_DEVICE_OVERRIDE = None  # Override device selection: 'cpu', 'cuda', None=auto
-SAM2_MODEL_CACHE = True  # Cache loaded SAM2 models
-ENABLE_MODEL_VALIDATION = True  # Validate model compatibility
-
-# SAM2 Tracking Quality Configuration - STRICT SETTINGS FOR NOISY BACKGROUNDS
-SAM2_IMPROVED_TRACKING = True  # Enable improved tracking for disappearing objects
-SAM2_USE_IMPROVED_CONFIG = True  # Use improved SAM2 configuration file
-SAM2_MIN_MASK_AREA = 50  # Minimum mask area (pixels) - Allow small cyst detection
-SAM2_MIN_CONFIDENCE = 0.5  # Minimum confidence score (0-1) - FURTHER INCREASED for even stricter filtering
-SAM2_MEMORY_FRAMES = (
-    1000  # Number of previous frames to depend on for memory (unlimited - depends on all previous frames)
-)
-
-# Logging Configuration
-LOG_LEVEL = "INFO"  # "DEBUG", "INFO", "WARNING", "ERROR"; console and log file
-GUI_LOG_LEVEL = "WARNING"  # records at this level and above also appear in the GUI log panel
-ENABLE_PERFORMANCE_LOGGING = False  # Log performance metrics
-LOG_ANALYSIS_DETAILS = True  # Log detailed analysis information
-
-# Load user-specific configuration overrides from a user_config.py (see user_config_example.py).
-# The file is located by organoidtracker.paths.user_config_path(): an explicit
-# ORGANOIDTRACKER_USER_CONFIG path, then the working directory, then the source checkout.
-LOADED_USER_CONFIG = None  # path of the user_config.py that was applied, if any
+# Legacy override file (any UPPERCASE name); organoidtracker.toml replaces it.
 try:
     import importlib.util
 
@@ -107,14 +41,16 @@ try:
             raise ImportError(f"cannot load {_user_config_file}")
         user_config = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(user_config)
-
-        # Override settings from user config
         for attr in dir(user_config):
             if not attr.startswith("_") and attr.isupper():
-                globals()[attr] = getattr(user_config, attr)
-
+                value = getattr(user_config, attr)
+                globals()[attr] = value
+                if hasattr(SETTINGS, attr.lower()):
+                    setattr(SETTINGS, attr.lower(), value)
         LOADED_USER_CONFIG = _user_config_file
-
-        logger.info(f"User configuration loaded from {_user_config_file}")
+        logger.warning(
+            f"{_user_config_file} is deprecated and will stop being read in a later release; "
+            f"move its settings to {SETTINGS_FILENAME} (lowercase keys, see organoidtracker.example.toml)"
+        )
 except Exception as e:
     logger.warning(f"Error loading user config: {e}; using the default configuration")

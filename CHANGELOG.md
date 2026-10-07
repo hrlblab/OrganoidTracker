@@ -29,7 +29,11 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
 - `pyproject.toml` and a uv lock file (`uv.lock`, Linux and Windows). The application installs as
   the `organoidtracker` package with the `organoidtracker-tk` console script; `python
   video_tracker_gui.py` still works inside the environment. Accelerator extras `cpu` and `cuda`
-  select the PyTorch build; `requirements.txt` is exported from the lock for pip users.
+  select the PyTorch build; `qt` and `hf` declare the dependencies of the upcoming PySide6 interface
+  and `transformers` backends; `requirements.txt` is exported from the lock for pip users.
+- Typed settings (`organoidtracker.settings.Settings`) with the defaults of the original `config.py`,
+  loaded from an optional `organoidtracker.toml` (`organoidtracker.example.toml` documents every key;
+  keys and value types are checked). `config.py` keeps exposing the values as module constants.
 - Logging through the standard `logging` module replaces the 350 `print` calls. Entry points write
   to the console and to a rotating log file next to the outputs
   (`data/output_videos/organoidtracker.log`); warnings and errors also appear in the GUI log panel
@@ -75,6 +79,8 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
 
 ### Removed
 - `environment.yml` (conda); the uv lock and `requirements.txt` replace it.
+- `user_config_example.py`; `organoidtracker.example.toml` replaces it. An existing `user_config.py`
+  is still applied, with a deprecation warning.
 - The duplicated `models/sam2/configs` tree and a stray `.backup` config; the one application-owned
   config (base-plus "improved tracking") lives in `organoidtracker/configs`.
 - A data-export step in the analysis report that could never run (it referenced an undefined variable

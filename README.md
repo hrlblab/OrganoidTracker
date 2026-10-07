@@ -99,6 +99,13 @@ cd ..
 
 The application looks for checkpoints in `./checkpoints` (or `ORGANOIDTRACKER_CHECKPOINTS`).
 
+### Settings
+
+Defaults live in the package (`organoidtracker.settings.Settings`). To change any of them, copy
+[`organoidtracker.example.toml`](organoidtracker.example.toml) to `organoidtracker.toml` in the directory you
+launch from (or point `ORGANOIDTRACKER_SETTINGS` at a file) and uncomment the keys you need; keys and value
+types are checked at startup. A legacy `user_config.py` is still read for now, with a deprecation warning.
+
 ## Quick Start
 
 ### Basic Usage
@@ -118,7 +125,7 @@ The application looks for checkpoints in `./checkpoints` (or `ORGANOIDTRACKER_CH
 3. **Configure Tracking**
    - Select the SAM2 model size (small, base-plus or large)
    - Keep "Reverse Tracking" enabled (recommended for organoid analysis)
-   - Adjust confidence thresholds in `config.py` if needed
+   - Adjust tracking thresholds and other settings in `organoidtracker.toml` if needed (see Settings above)
 
 4. **Annotate Cysts**
    - With Reverse Tracking enabled the canvas shows the final frame of the video, where cysts are clearest

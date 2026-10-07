@@ -140,6 +140,7 @@ files = [
   "src/organoidtracker/config.py",
   "src/organoidtracker/logging_config.py",
   "src/organoidtracker/paths.py",
+  "src/organoidtracker/settings.py",
 ]
 ignore_missing_imports = true
 check_untyped_defs = true
