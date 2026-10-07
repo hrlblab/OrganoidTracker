@@ -1,10 +1,10 @@
 # Organoid Tracker: A SAM2-Powered Platform for Zero-shot Cyst Analysis in Human Kidney Organoid Videos
 
-This is the official implementation of Organoid Tracker, a comprehensive AI-powered platform for automated kidney organoid cyst tracking and quantitative analysis. 
+This is the official implementation of Organoid Tracker, a comprehensive AI-powered platform for automated kidney organoid cyst tracking and quantitative analysis.
 
 **Paper**
-> [**Organoid Tracker: A SAM2-Powered Platform for Zero-shot Cyst Analysis in Human Kidney Organoid Videos**](#)  
-> Xiaoyu Huang, Lauren M Maxson, Trang Nguyen, Cheng Jack Song, and Yuankai Huo  
+> [**Organoid Tracker: A SAM2-Powered Platform for Zero-shot Cyst Analysis in Human Kidney Organoid Videos**](#)
+> Xiaoyu Huang, Lauren M Maxson, Trang Nguyen, Cheng Jack Song, and Yuankai Huo
 > *arXiv (2509.11063)*
 
 Contact: [xiaoyu.huang@vanderbilt.edu](mailto:xiaoyu.huang@vanderbilt.edu). Feel free to reach out with any questions or discussion!
@@ -18,7 +18,7 @@ Quantitative analysis of kidney organoid cyst dynamics is crucial for understand
 ## Highlights
 
 - **Zero-Shot Learning**: No training data required - works immediately with SAM2's foundation model capabilities
-- **Inverse Temporal Tracking**: Novel backward-in-time approach that leverages mature cyst morphology for improved accuracy  
+- **Inverse Temporal Tracking**: Novel backward-in-time approach that leverages mature cyst morphology for improved accuracy
 - **Comprehensive Analytics**: Automated extraction of growth kinetics, morphological metrics, and population-level statistics
 - **User-Friendly Interface**: Intuitive GUI designed specifically for biological researchers
 
@@ -42,7 +42,7 @@ Side-by-side comparison showing original time-lapse video frames (top row) with 
 
 **Key Measurements:**
 - **(a) Cyst Area Tracking**: Cross-sectional area measurement across multiple time points
-- **(b) Morphological Analysis**: Circularity comparison between irregular and well-defined cysts  
+- **(b) Morphological Analysis**: Circularity comparison between irregular and well-defined cysts
 - **(c) Population Metrics**: Comprehensive organoid and cyst identification at initial and final time points
 - **(d) Population-level Growth Heterogeneity**: Individual cyst growth rate analysis and temporal relationship visualization
 
@@ -51,76 +51,53 @@ Representative analysis output for a PKD mutant organoid video showing: **(a)** 
 ## Installation
 
 ### Prerequisites
-- Python 3.9 or higher
-- CUDA-compatible GPU (recommended) or CPU
-- 8GB+ RAM for video processing
+- Python 3.12 or 3.13 and [uv](https://docs.astral.sh/uv/) (pip also works, see below)
+- Linux or Windows. An NVIDIA GPU is strongly recommended: the CPU path works but is slow
+- Tk for the desktop interface (included with the python.org and uv-managed interpreters; on Debian/Ubuntu install `python3-tk`)
+- 8 GB+ RAM; 2 GB+ of GPU memory for the base-plus model on 4096 x 4096 videos
 
-### Option 1: Conda Environment (Recommended)
+### Install with uv (recommended)
 
 ```bash
-# Clone the repository
 git clone https://github.com/hrlblab/OrganoidTracker.git
 cd OrganoidTracker
-
-# Create conda environment from file
-conda env create -f environment.yml
-conda activate organoid-tracker
-
-# Install PyTorch with CUDA support (adjust CUDA version as needed)
-# For CUDA 11.8:
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-
-# For CUDA 12.1:
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-
-# For CPU only:
-pip install torch torchvision
+uv sync --extra tk            # Linux: PyPI torch with CUDA 13; Windows: CPU torch
 ```
 
-### Option 2: Pip Only
+Pick the PyTorch build explicitly when needed:
 
 ```bash
-# Clone the repository
-git clone https://github.com/hrlblab/OrganoidTracker.git
-cd OrganoidTracker
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or: venv\Scripts\activate  # Windows
-
-# Install PyTorch first (adjust CUDA version as needed)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-
-# Install remaining dependencies
-pip install -r requirements.txt
+uv sync --extra tk --extra cuda   # NVIDIA GPU on Windows or Linux (CUDA 13.0 wheels; driver 580 or newer)
+uv sync --extra tk --extra cpu    # CPU only (smaller download)
 ```
 
-### Verify Installation
+`uv.lock` pins every dependency for Linux and Windows; `uv sync` creates `.venv` from it.
+
+### Install with pip
 
 ```bash
-python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r requirements.txt  # exported from uv.lock
+pip install -e .
+# NVIDIA GPU on Windows: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
 ```
 
-### Model Checkpoints
-
-Download the pre-trained SAM2 model weights:
+### Verify the installation
 
 ```bash
-# Create checkpoints directory
-mkdir -p checkpoints
+uv run python -c "import torch, organoidtracker; print(torch.__version__, 'CUDA:', torch.cuda.is_available())"
+```
 
-# Download SAM2 base model (recommended)
+### Model checkpoints
+
+```bash
 cd checkpoints
-bash download_ckpts.sh
-
-# Or manually download specific models:
-# SAM2 Hiera Base Plus (recommended for most users)
-wget -O sam2_hiera_base_plus.pt https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2_hiera_base_plus.pt
-
-# SAM2 Hiera Large (for maximum accuracy)
-wget -O sam2_hiera_large.pt https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2_hiera_large.pt
+bash download_ckpts.sh        # SAM 2.1 (default); `bash download_ckpts.sh 2` for the original SAM 2 files
+cd ..
 ```
+
+The application looks for checkpoints in `./checkpoints` (or `ORGANOIDTRACKER_CHECKPOINTS`).
 
 ## Quick Start
 
@@ -128,8 +105,11 @@ wget -O sam2_hiera_large.pt https://dl.fbaipublicfiles.com/segment_anything_2/09
 
 1. **Launch the Application**
    ```bash
-   python video_tracker_gui.py
+   uv run organoidtracker-tk
    ```
+   (`python video_tracker_gui.py` inside the environment does the same.) Outputs, the prompt
+   records and the log file (`data/output_videos/organoidtracker.log`) are written under `data/`
+   in the directory you launch from.
 
 2. **Load Your Video**
    - Click "Load Video" and select your time-lapse organoid video
@@ -161,7 +141,7 @@ wget -O sam2_hiera_large.pt https://dl.fbaipublicfiles.com/segment_anything_2/09
 After analysis, the following files are generated in `data/output_videos/`:
 
 - `multi_object_overlay.mp4` - Annotated tracking video
-- `multi_object_mask.mp4` - Binary mask visualization  
+- `multi_object_mask.mp4` - Binary mask visualization
 - `multi_object_side_by_side.mp4` - Original and mask comparison
 - `organoid_summary.csv` - Quantitative metrics data
 - `organoid_analysis_report.pdf` - Publication-ready report
@@ -176,10 +156,13 @@ Frames are handled in chronological order throughout. With Reverse Tracking enab
 ### Running the tests
 
 ```bash
-python -m pytest tests
+uv run pytest                      # unit tests; model tests run when checkpoints/sam2.1_hiera_tiny.pt exists
+uv run pytest -m gui               # opens and closes the main window (needs a display)
+uv run ruff check && uv run ruff format --check
 ```
 
-Model tests use `checkpoints/sam2.1_hiera_tiny.pt` and are skipped when it is absent. The suite uses synthetic videos only.
+The suite uses synthetic videos only; the same checks run in GitHub Actions on Linux and Windows.
+Install the pre-commit hooks with `uv run pre-commit install`.
 
 ### Citation
 
@@ -189,9 +172,13 @@ If you find this work useful for your research, please cite our paper:
 @article{huang2025organoid,
   title={Organoid Tracker: A SAM2-Powered Platform for Zero-shot Cyst Analysis in Human Kidney Organoid Videos},
   author={Huang, Xiaoyu and Maxson, Lauren M and Nguyen, Trang and Song, Cheng Jack and Huo, Yuankai},
-  year={2025}
+  journal={arXiv preprint arXiv:2509.11063},
+  year={2025},
+  doi={10.48550/arXiv.2509.11063}
 }
 ```
+
+The same metadata is in [CITATION.cff](CITATION.cff).
 
 ## Acknowledgments
 
@@ -200,3 +187,4 @@ This work builds upon the foundation of [Segment Anything Model 2 (SAM2)](https:
 ## License
 
 This project is licensed under the Apache-2.0 License. See the [LICENSE](LICENSE) file for details.
+Third-party notices, including for the vendored SAM 2 code under `src/sam2`, are in [NOTICE](NOTICE).

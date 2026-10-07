@@ -26,6 +26,20 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   the first to the last frame.
 
 ### Added
+- `pyproject.toml` and a uv lock file (`uv.lock`, Linux and Windows). The application installs as
+  the `organoidtracker` package with the `organoidtracker-tk` console script; `python
+  video_tracker_gui.py` still works inside the environment. Accelerator extras `cpu` and `cuda`
+  select the PyTorch build; `requirements.txt` is exported from the lock for pip users.
+- Logging through the standard `logging` module replaces the 350 `print` calls. Entry points write
+  to the console and to a rotating log file next to the outputs
+  (`data/output_videos/organoidtracker.log`); warnings and errors also appear in the GUI log panel
+  (`LOG_LEVEL`, `GUI_LOG_LEVEL` in `config.py`).
+- Ruff (lint and format), mypy (core package) and pytest configuration in `pyproject.toml`, a
+  pre-commit configuration, and a GitHub Actions workflow that runs the checks and the synthetic
+  test suite on Linux and Windows (Python 3.12 and 3.13, CPU wheels) plus the SAM 2.1 tiny model
+  tests on Linux.
+- `CITATION.cff` and `NOTICE` (vendored SAM 2 and its cctorch kernel; dependency licenses).
+- A GUI smoke test (`pytest -m gui`) that opens and closes the main window.
 - This changelog. The upstream state before maintenance began is tagged `legacy-baseline`.
 - Both SAM 2 and SAM 2.1 checkpoint families, selected with `SAM2_CHECKPOINT_FAMILY` in
   `config.py` (default `2.1`; `2` is the family used for the paper's figures).
@@ -39,6 +53,17 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   tiny checkpoint and skip when it is absent.
 
 ### Changed
+- Source layout: `src/organoidtracker/{core,analysis,io,gui_tk}`; the vendored upstream SAM 2 is the
+  top-level `sam2` package under `src/sam2` (byte-identical to facebookresearch/sam2 at 2b90b9f) with
+  its configs as package data and its license files alongside. All `sys.path` edits are gone.
+- The checkpoints directory and the optional `user_config.py` are resolved from the environment
+  (`ORGANOIDTRACKER_CHECKPOINTS`, `ORGANOIDTRACKER_USER_CONFIG`), the working directory, then the
+  source checkout, instead of from the module file location.
+- The analysis modules now actually read `config.py`; their `from ...config import` had always failed
+  silently and used fallback values equal to the defaults, so output is unchanged unless `user_config.py`
+  overrides them. The legacy `report_generator` keeps its own publication-style values.
+- Bare `except:` clauses became `except Exception:`.
+- Minimum versions: Python 3.12, torch 2.7 (RTX 50-series GPUs and current CUDA wheels).
 - Masks are stored as packed bits on the CPU (2 MB per 4096x4096 mask) instead of 64 MB float32
   logits per object per frame on the GPU. Peak GPU memory on a sample well with six objects fell
   from 5.3 GB to 1.3 GB.
@@ -49,8 +74,16 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
 - `decord` is no longer required; the predictor is fed the frames the application decodes.
 
 ### Removed
+- `environment.yml` (conda); the uv lock and `requirements.txt` replace it.
+- The duplicated `models/sam2/configs` tree and a stray `.backup` config; the one application-owned
+  config (base-plus "improved tracking") lives in `organoidtracker/configs`.
+- A data-export step in the analysis report that could never run (it referenced an undefined variable
+  and a script that does not exist).
 - Adaptive bounding-box tracking. Its mid-run prompts were never consulted by the running
   propagation, so it changed nothing except on a repeated run.
+- The Medical-SAM2 backend (`models/medical_sam2`, `src/core/inference.py`). Its upstream has
+  been dormant since 2024, its checkpoint URL returns 404, and its GPL license badge conflicted
+  with this repository's Apache-2.0 license. SAM2 is the only backend.
 
 ### Fixed
 - The Results Viewer module had lost its indentation and could not be imported, so the
@@ -62,8 +95,3 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   manual download commands name the files that actually exist.
 - Removed a shadowed duplicate `on_window_resize` definition in the main window (no behavior
   change).
-
-### Removed
-- The Medical-SAM2 backend (`models/medical_sam2`, `src/core/inference.py`). Its upstream has
-  been dormant since 2024, its checkpoint URL returns 404, and its GPL license badge conflicted
-  with this repository's Apache-2.0 license. SAM2 is the only backend.

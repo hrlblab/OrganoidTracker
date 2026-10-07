@@ -1,0 +1,24 @@
+Organoid Tracker
+Copyright 2025 the Organoid Tracker authors (hrlblab, Vanderbilt University)
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software developed by third parties:
+
+Segment Anything Model 2 (SAM 2)
+    Copyright (c) Meta Platforms, Inc. and affiliates.
+    Licensed under the Apache License, Version 2.0.
+    Source: https://github.com/facebookresearch/sam2 (commit 2b90b9f, 2024-12-16)
+    Vendored unmodified as the `sam2` package under `src/sam2`; the license text is
+    in `src/sam2/LICENSE`. The connected-components CUDA kernel in
+    `src/sam2/csrc/connected_components.cu` is adapted by the SAM 2 authors from
+    cctorch (https://github.com/zsef123/Connected_components_PyTorch), which is
+    licensed under the BSD 3-Clause License reproduced in `src/sam2/LICENSE_cctorch`.
+    The SAM 2 checkpoints downloaded by `checkpoints/download_ckpts.sh` are
+    distributed by Meta under the same Apache License, Version 2.0.
+
+The application depends on separately installed packages that are not part of this
+repository, among them PyTorch and torchvision (BSD-3-Clause), OpenCV (Apache-2.0),
+Hydra and OmegaConf (MIT), NumPy and SciPy (BSD-3-Clause), scikit-image (BSD-3-Clause),
+pandas (BSD-3-Clause), Matplotlib (PSF-based license), seaborn (BSD-3-Clause),
+Pillow (MIT-CMU) and ReportLab (BSD-3-Clause). Their licenses accompany those packages.

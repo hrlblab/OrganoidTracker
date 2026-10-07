@@ -1,0 +1,56 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite the paper below (preferred-citation) and,
+  where appropriate, the software itself.
+type: software
+title: Organoid Tracker
+abstract: >-
+  A SAM2-powered desktop application for zero-shot segmentation, backward-in-time
+  tracking and quantitative analysis of cysts in time-lapse videos of human kidney
+  organoids.
+authors:
+  - family-names: Huang
+    given-names: Xiaoyu
+  - family-names: Maxson
+    given-names: Lauren M
+  - family-names: Nguyen
+    given-names: Trang
+  - family-names: Song
+    given-names: Cheng Jack
+  - family-names: Huo
+    given-names: Yuankai
+version: 2.0.0a0
+license: Apache-2.0
+repository-code: https://github.com/hrlblab/OrganoidTracker
+keywords:
+  - kidney organoid
+  - cyst
+  - polycystic kidney disease
+  - SAM2
+  - video object segmentation
+  - time-lapse microscopy
+preferred-citation:
+  type: article
+  title: >-
+    Organoid Tracker: A SAM2-Powered Platform for Zero-shot Cyst Analysis in Human
+    Kidney Organoid Videos
+  authors:
+    - family-names: Huang
+      given-names: Xiaoyu
+    - family-names: Maxson
+      given-names: Lauren M
+    - family-names: Nguyen
+      given-names: Trang
+    - family-names: Song
+      given-names: Cheng Jack
+    - family-names: Huo
+      given-names: Yuankai
+  journal: arXiv
+  year: 2025
+  month: 9
+  doi: 10.48550/arXiv.2509.11063
+  url: https://arxiv.org/abs/2509.11063
+  identifiers:
+    - type: other
+      value: arXiv:2509.11063
+      description: arXiv identifier
