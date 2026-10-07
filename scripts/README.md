@@ -1,21 +1,26 @@
 # Utility Scripts
 
-This directory contains a utility script for advanced visualization workflows.
-
 ## csv_visualizer.py
 
-A standalone script that generates publication-quality visualizations directly from CSV data files produced by the main application. This ensures exact data fidelity and provides researchers with reproducible visualization capabilities.
+Re-creates the analysis figures from the CSV data a report exported, so plots can be regenerated
+(for example with other visualization settings in `organoidtracker.toml`) without re-running the
+tracking.
 
 ### Usage
 
-The script automatically looks for CSV data in the `data/output_videos/` directory and generates corresponding visualizations.
-
 ```bash
-uv run python scripts/csv_visualizer.py   # from the repository root (it reads data/output_videos/)
+uv run python scripts/csv_visualizer.py                      # reads data/output_videos/, writes csv_output/visualizations/
+uv run python scripts/csv_visualizer.py --data-dir data/output_videos/my_run --output-dir replot
 ```
+
+Keep `raw_cyst_data.csv`, `organoid_summary.csv` and `analysis_summary.json` together in the data
+directory: the raw table holds the measurements and their timestamps, the organoid summary the whole
+organoid population (including organoids without cysts), and the analysis summary the experiment
+parameters and the frames the tracker visited. With all three the figures match the report; a missing
+file is reported and limits what can be rebuilt (for example, organoids without cysts cannot be
+recovered without the organoid summary).
 
 ### Note
 
-Most users will not need to use this script directly, as the main application provides all necessary functionality through the GUI interface. This script is provided for advanced analysis workflows and custom visualization requirements.
-
-For standard usage, please use the main application: `uv run organoidtracker-tk`
+Most users will not need this script; the application produces the same figures as part of the
+analysis report. For standard usage run the application: `uv run organoidtracker-tk`.
