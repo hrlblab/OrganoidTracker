@@ -7,6 +7,7 @@ and converts it into the structured organoid-cyst data format for analysis.
 
 import json
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 import cv2
@@ -33,6 +34,7 @@ class OrganoidAnalysisEngine:
         time_lapse_days: float,
         total_frames: int,
         observed_frames: list[int] | None = None,
+        frame_timestamps: Sequence[float] | None = None,
     ) -> ExperimentData:
         """
         Extract complete experiment data from SAM2 tracking results
@@ -43,6 +45,8 @@ class OrganoidAnalysisEngine:
             time_lapse_days: Total experiment duration
             total_frames: Number of video frames
             observed_frames: Frames the tracker visited (None: all frames)
+            frame_timestamps: Explicit time (days) per frame; None spreads ``time_lapse_days``
+                uniformly from day 1, the paper's time axis
 
         Returns:
             ExperimentData: Complete structured experiment data
@@ -55,6 +59,7 @@ class OrganoidAnalysisEngine:
             time_lapse_days=time_lapse_days,
             conversion_factor_um_per_pixel=self.conversion_factor,
             observed_frames=observed_frames,
+            frame_timestamps=list(frame_timestamps) if frame_timestamps is not None else [],
         )
 
         # Process each organoid and its cysts

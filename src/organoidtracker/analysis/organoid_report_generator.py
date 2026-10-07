@@ -6,6 +6,8 @@ Integrates the new organoid-cyst analysis system with comprehensive reporting.
 
 import json
 import logging
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -33,6 +35,22 @@ except ImportError:
     logger.warning("ReportLab not available. PDF reports will be basic.")
 
 
+@dataclass
+class Analysis:
+    """The measured experiment and the facts about the tracking run it came from (no files yet)."""
+
+    experiment: ExperimentData
+    run: dict[str, Any]  # tracking facts (status, frame counts, frame map, tracked frames, object ids)
+    validation: dict[str, Any]
+    untracked_cysts: list[int] = field(default_factory=list)  # annotated cysts without any tracked mask
+    unannotated_objects: list[int] = field(default_factory=list)  # tracked objects that are not annotated cysts
+
+    @property
+    def complete(self) -> bool:
+        """False for a partial tracking run; its exports cover only the tracked frames."""
+        return self.run.get("status", "completed") == "completed"
+
+
 class OrganoidAnalysisReportGenerator:
     """
     Comprehensive report generator for organoid-cyst analysis
@@ -53,9 +71,13 @@ class OrganoidAnalysisReportGenerator:
         output_dir: str,
         debug_mode: bool = False,
         original_frames: list | None = None,
+        frame_timestamps: Sequence[float] | None = None,
     ) -> dict[str, Any]:
         """
         Generate comprehensive analysis report with all components
+
+        :meth:`analyze` followed by :meth:`write_report`. A failure in either step is returned
+        as an error summary (``success: False``) instead of raised, as the GUI expects.
 
         Returns:
             Dictionary with paths to all generated files and analysis summary
@@ -78,108 +100,16 @@ class OrganoidAnalysisReportGenerator:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        # Set up analysis engine
-        self.analysis_engine.conversion_factor = conversion_factor
-        self.analysis_engine.debug_mode = debug_mode
-
         try:
-            # Step 1: Describe the run and compare the annotations with the tracked objects.
-            # Nothing is invented: a cyst without masks has no trajectory, a tracked object that
-            # is not an annotated cyst is ignored, and both cases are reported.
-            logger.info("Step 1: Checking the tracking results...")
-            run = self._describe_tracking(tracking_results)
-            total_frames = run["frames_total"]
-            logger.debug(
-                f"Frames: {total_frames} tracked, {run['frames_with_masks']} with masks; tracking {run['status']}"
+            analysis = self.analyze(
+                tracking_results,
+                organoid_data,
+                time_lapse_days,
+                conversion_factor,
+                frame_timestamps=frame_timestamps,
+                debug_mode=debug_mode,
             )
-            annotated_ids = sorted(
-                int(cyst["cyst_id"]) for info in organoid_data.values() for cyst in info.get("cysts", [])
-            )
-            untracked = sorted(set(annotated_ids) - set(run["object_ids"]))
-            unannotated = sorted(set(run["object_ids"]) - set(annotated_ids))
-            if untracked:
-                logger.warning(f"Annotated cysts without any tracked mask (no trajectory): {untracked}")
-            if unannotated:
-                logger.warning(f"Tracked objects that are not annotated cysts (ignored): {unannotated}")
-
-            # Step 2: Extract experiment data from tracking results
-            logger.info("Step 2: Extracting experiment data...")
-
-            experiment = self.analysis_engine.extract_experiment_data_from_tracking(
-                tracking_results=tracking_results,
-                organoid_data=organoid_data,
-                time_lapse_days=time_lapse_days,
-                total_frames=total_frames,
-                observed_frames=run["tracked_frames"],
-            )
-
-            # Save experiment data for debugging
-            if debug_mode:
-                experiment_json_path = output_path / "experiment_data_debug.json"
-                self.analysis_engine.save_experiment_data(experiment, str(experiment_json_path))
-
-            # Step 3: Validate data quality
-            logger.info("Step 3: Validating data quality...")
-            validation_results = self.validator.validate_experiment_data(experiment)
-            if run["status"] != "completed":
-                validation_results["warnings"].append(
-                    f"Tracking {run['status']}: {run['frames_done']} of {run['frames_total']} frames were tracked"
-                    + (f" ({run['error']})" if run["error"] else "")
-                )
-            if untracked:
-                validation_results["warnings"].append(f"Annotated cysts without tracked masks: {untracked}")
-
-            logger.debug("Validation summary:")
-            logger.debug(f"• Total organoids: {validation_results['total_organoids']}")
-            logger.debug(f"• Total cysts: {validation_results['total_cysts']}")
-            logger.debug(f"• Frames analyzed: {validation_results['frames_analyzed']}")
-            for warning in validation_results.get("warnings", []):
-                logger.warning(f"{warning}")
-
-            # Step 4: Export CSV data
-            logger.info("Step 4: Exporting CSV data...")
-            csv_paths = self._export_csv_data(experiment, output_path)
-
-            # Step 5: Generate visualizations
-            logger.info("Step 5: Creating visualizations...")
-            viz_paths = self.visualizer.create_all_visualizations(experiment, str(output_path / "visualizations"))
-
-            # Step 5.1: Generate frame comparison visualization (TEMPORARILY DISABLED)
-            logger.info("Step 5.1: Frame comparison visualization temporarily disabled")
-            logger.debug("Frame comparison generation has been temporarily disabled per user request")
-            # if self._original_frames and self._tracking_results:
-            #     frame_comparison_path = self.visualizer.create_frame_comparison_visualization(
-            #         self._original_frames,
-            #         self._tracking_results,
-            #         str(output_path / "visualizations" / "g_frame_comparison.png")
-            #     )
-            #     if frame_comparison_path:
-            #         viz_paths['frame_comparison'] = frame_comparison_path
-            #         print(f"   ✅ Frame comparison visualization: {Path(frame_comparison_path).name}")
-            #     else:
-            #         print(f"   ❌ Frame comparison visualization failed")
-            # else:
-            #     missing = []
-            #     if not self._original_frames:
-            #         missing.append("original frames")
-            #     if not self._tracking_results:
-            #         missing.append("tracking results")
-            #     print(f"   ⚠️ Skipping frame comparison - missing: {', '.join(missing)}")
-
-            # Step 6: Generate enhanced PDF report
-            logger.info("Step 6: Generating PDF report...")
-            pdf_path = self._generate_enhanced_pdf_report(
-                experiment, validation_results, csv_paths, viz_paths, output_path, run
-            )
-
-            # Step 7: Create analysis summary
-            logger.info("Step 7: Creating analysis summary...")
-            summary = self._create_analysis_summary(experiment, validation_results, csv_paths, viz_paths, pdf_path, run)
-
-            # Save summary as JSON
-            summary_json_path = output_path / "analysis_summary.json"
-            with open(summary_json_path, "w") as f:
-                json.dump(summary, f, indent=2, default=str)
+            summary = self.write_report(analysis, output_dir, debug_mode=debug_mode)
 
             logger.info("Complete analysis finished successfully!")
             logger.info(f"All files saved to: {output_dir}")
@@ -199,6 +129,120 @@ class OrganoidAnalysisReportGenerator:
                 "output_directory": str(output_dir),
                 "timestamp": datetime.now().isoformat(),
             }
+
+    def analyze(
+        self,
+        tracking_results: dict[str, Any],
+        organoid_data: dict[int, dict],
+        time_lapse_days: float,
+        conversion_factor: float,
+        frame_timestamps: Sequence[float] | None = None,
+        debug_mode: bool = False,
+    ) -> Analysis:
+        """Measure the tracked cysts: the analysis half of the report, writing no file.
+
+        Describes the tracking run and compares the annotations with the tracked objects,
+        extracts the experiment data and validates it. ``frame_timestamps`` (days per
+        chronological frame) replaces the uniform time axis derived from ``time_lapse_days``.
+        """
+        # Set up analysis engine
+        self.analysis_engine.conversion_factor = conversion_factor
+        self.analysis_engine.debug_mode = debug_mode
+
+        # Step 1: Describe the run and compare the annotations with the tracked objects.
+        # Nothing is invented: a cyst without masks has no trajectory, a tracked object that
+        # is not an annotated cyst is ignored, and both cases are reported.
+        logger.info("Step 1: Checking the tracking results...")
+        run = self._describe_tracking(tracking_results)
+        total_frames = run["frames_total"]
+        logger.debug(f"Frames: {total_frames} tracked, {run['frames_with_masks']} with masks; tracking {run['status']}")
+        annotated_ids = sorted(
+            int(cyst["cyst_id"]) for info in organoid_data.values() for cyst in info.get("cysts", [])
+        )
+        untracked = sorted(set(annotated_ids) - set(run["object_ids"]))
+        unannotated = sorted(set(run["object_ids"]) - set(annotated_ids))
+        if untracked:
+            logger.warning(f"Annotated cysts without any tracked mask (no trajectory): {untracked}")
+        if unannotated:
+            logger.warning(f"Tracked objects that are not annotated cysts (ignored): {unannotated}")
+
+        # Step 2: Extract experiment data from tracking results
+        logger.info("Step 2: Extracting experiment data...")
+
+        experiment = self.analysis_engine.extract_experiment_data_from_tracking(
+            tracking_results=tracking_results,
+            organoid_data=organoid_data,
+            time_lapse_days=time_lapse_days,
+            total_frames=total_frames,
+            observed_frames=run["tracked_frames"],
+            frame_timestamps=frame_timestamps,
+        )
+
+        # Step 3: Validate data quality
+        logger.info("Step 3: Validating data quality...")
+        validation_results = self.validator.validate_experiment_data(experiment)
+        if run["status"] != "completed":
+            validation_results["warnings"].append(
+                f"Tracking {run['status']}: {run['frames_done']} of {run['frames_total']} frames were tracked"
+                + (f" ({run['error']})" if run["error"] else "")
+            )
+        if untracked:
+            validation_results["warnings"].append(f"Annotated cysts without tracked masks: {untracked}")
+
+        logger.debug("Validation summary:")
+        logger.debug(f"• Total organoids: {validation_results['total_organoids']}")
+        logger.debug(f"• Total cysts: {validation_results['total_cysts']}")
+        logger.debug(f"• Frames analyzed: {validation_results['frames_analyzed']}")
+        for warning in validation_results.get("warnings", []):
+            logger.warning(f"{warning}")
+
+        return Analysis(
+            experiment=experiment,
+            run=run,
+            validation=validation_results,
+            untracked_cysts=untracked,
+            unannotated_objects=unannotated,
+        )
+
+    def write_report(self, analysis: Analysis, output_dir: str, debug_mode: bool = False) -> dict[str, Any]:
+        """Write the CSV tables, figures, PDF and ``analysis_summary.json`` of an analysis; returns the summary."""
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        experiment, validation_results, run = analysis.experiment, analysis.validation, analysis.run
+
+        # Save experiment data for debugging
+        if debug_mode:
+            experiment_json_path = output_path / "experiment_data_debug.json"
+            self.analysis_engine.save_experiment_data(experiment, str(experiment_json_path))
+
+        # Step 4: Export CSV data
+        logger.info("Step 4: Exporting CSV data...")
+        csv_paths = self._export_csv_data(experiment, output_path)
+
+        # Step 5: Generate visualizations
+        logger.info("Step 5: Creating visualizations...")
+        viz_paths = self.visualizer.create_all_visualizations(experiment, str(output_path / "visualizations"))
+
+        # Step 5.1: Generate frame comparison visualization (TEMPORARILY DISABLED)
+        logger.info("Step 5.1: Frame comparison visualization temporarily disabled")
+        logger.debug("Frame comparison generation has been temporarily disabled per user request")
+
+        # Step 6: Generate enhanced PDF report
+        logger.info("Step 6: Generating PDF report...")
+        pdf_path = self._generate_enhanced_pdf_report(
+            experiment, validation_results, csv_paths, viz_paths, output_path, run
+        )
+
+        # Step 7: Create analysis summary
+        logger.info("Step 7: Creating analysis summary...")
+        summary = self._create_analysis_summary(experiment, validation_results, csv_paths, viz_paths, pdf_path, run)
+
+        # Save summary as JSON
+        summary_json_path = output_path / "analysis_summary.json"
+        with open(summary_json_path, "w") as f:
+            json.dump(summary, f, indent=2, default=str)
+
+        return summary
 
     def _describe_tracking(self, tracking_results: Any) -> dict[str, Any]:
         """Facts about the tracking run behind the results.

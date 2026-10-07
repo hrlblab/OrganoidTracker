@@ -186,7 +186,14 @@ class ExperimentData:
 
     def __post_init__(self):
         """Initialize frame timestamps if not provided"""
-        if not self.frame_timestamps and self.total_frames > 0:
+        if self.frame_timestamps:
+            # Explicit times (days) per chronological frame, for example from a session file
+            if len(self.frame_timestamps) != self.total_frames:
+                raise ValueError(
+                    f"frame_timestamps has {len(self.frame_timestamps)} values for {self.total_frames} frames"
+                )
+            self.frame_timestamps = [float(t) for t in self.frame_timestamps]
+        elif self.total_frames > 0:
             # Evenly distribute the time span (first to last frame) across frames. Days are
             # numbered from 1 as in the paper's figures: with 7 daily frames and a 6-day span,
             # the frames are days 1 to 7.
