@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .. import RESULTS_VERSION, __version__
+from ..paths import source_revision
 from .data_reconstruction import DataReconstructionEngine
 from .organoid_analysis_engine import OrganoidAnalysisEngine, OrganoidAnalysisValidator
 from .organoid_csv_exporter import OrganoidCSVExporter
@@ -476,6 +478,8 @@ class OrganoidAnalysisReportGenerator:
         summary = {
             "success": True,
             "timestamp": datetime.now().isoformat(),
+            "results_version": RESULTS_VERSION,
+            "software": {"organoidtracker": __version__, "source_revision": source_revision()},
             "experiment_info": {
                 "total_organoids": len(experiment.organoids),
                 "total_cysts": len(all_cysts),

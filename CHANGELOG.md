@@ -55,6 +55,10 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   organoid points, cyst boxes, video hash, frame map, direction, model family, checkpoint hash
   and software versions, written when tracking starts.
 - SAM2's object presence score is recorded per object and frame.
+- A results version (`organoidtracker.RESULTS_VERSION`, currently 1; 0 is the untouched upstream
+  code) is written into the prompt record and `analysis_summary.json`, together with the software
+  version and the source commit. The tracker's provenance also records the Hydra config used and the
+  settings that alter masks (quality filter thresholds, memory frames, improved-config choice).
 - A pytest suite with synthetic fixtures (`python -m pytest tests`); model tests use the SAM 2.1
   tiny checkpoint and skip when it is absent.
 

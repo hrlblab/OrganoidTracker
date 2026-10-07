@@ -12,6 +12,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, scrolledtext, ttk
 
+from .. import RESULTS_VERSION
 from ..config import (
     AUTO_OPEN_OUTPUT_DIRECTORY,
     DEFAULT_CONVERSION_FACTOR,
@@ -1252,6 +1253,7 @@ class VideoTrackerApp:
                     return None
 
             record = {
+                "results_version": RESULTS_VERSION,
                 "schema": "organoidtracker.prompts/1",
                 "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "video": {

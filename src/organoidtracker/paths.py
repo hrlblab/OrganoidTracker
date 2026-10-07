@@ -37,6 +37,34 @@ def checkpoints_dir() -> Path:
     return local
 
 
+def source_revision() -> str | None:
+    """Commit hash of the source checkout when running from one, else None (read from .git, no subprocess)."""
+    root = source_checkout_root()
+    if root is None:
+        return None
+    try:
+        git_dir = root / ".git"
+        if git_dir.is_file():  # a linked worktree: "gitdir: <path>"
+            git_dir = (root / git_dir.read_text().split(":", 1)[1].strip()).resolve()
+        head = (git_dir / "HEAD").read_text().strip()
+        if not head.startswith("ref: "):
+            return head or None
+        ref = head[5:]
+        common = git_dir / "commondir"
+        base = (git_dir / common.read_text().strip()).resolve() if common.is_file() else git_dir
+        for ref_file in (git_dir / ref, base / ref):
+            if ref_file.is_file():
+                return ref_file.read_text().strip() or None
+        packed = base / "packed-refs"
+        if packed.is_file():
+            for line in packed.read_text().splitlines():
+                if line.endswith(" " + ref):
+                    return line.split()[0]
+    except OSError:
+        return None
+    return None
+
+
 def user_config_path() -> Path | None:
     """The ``user_config.py`` override file to load, or None when there is none."""
     env = os.environ.get("ORGANOIDTRACKER_USER_CONFIG")

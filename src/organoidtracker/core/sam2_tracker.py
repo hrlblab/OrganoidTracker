@@ -25,7 +25,8 @@ import cv2
 import numpy as np
 import torch
 
-from ..paths import checkpoints_dir
+from .. import RESULTS_VERSION, __version__
+from ..paths import checkpoints_dir, source_revision
 from .base_model import BaseVideoTracker, ModelCapabilities, ModelMetadata
 from .masks import PackedMask
 from .tracking_result import TrackingResult
@@ -180,6 +181,7 @@ class SAM2Tracker(BaseVideoTracker):
             logger.debug(f"Auto-selected SAM2 checkpoint: {checkpoint_path}")
         self.checkpoint_path = checkpoint_path
         self.checkpoint_sha256: str | None = None
+        self.config_file: str | None = None  # Hydra config name used by load_model
 
         # Duplicate-frame collapse (video generation can repeat frames)
         self.collapse_duplicates = bool(_app_setting("COLLAPSE_DUPLICATE_FRAMES", True))
@@ -251,6 +253,7 @@ class SAM2Tracker(BaseVideoTracker):
             GlobalHydra.instance().clear()
             with hydra_search_path(config_file):
                 self.predictor = build_frame_predictor(config_file, self.checkpoint_path, self.device_name)
+            self.config_file = config_file
 
             self.checkpoint_sha256 = _sha256_file(self.checkpoint_path)
             self.is_loaded = True
@@ -715,11 +718,15 @@ class SAM2Tracker(BaseVideoTracker):
         return len(self.prompts.get(obj_id, []))
 
     def provenance(self) -> dict[str, Any]:
-        """Facts needed to reproduce a run."""
+        """Facts needed to reproduce a run: software, model, video, frame handling and the settings that alter masks."""
         return {
+            "results_version": RESULTS_VERSION,
+            "organoidtracker_version": __version__,
+            "source_revision": source_revision(),
             "backend": "sam2-vendored",
             "checkpoint_family": self.checkpoint_family,
             "model_config": self.model_config,
+            "config_file": self.config_file,
             "checkpoint_path": self.checkpoint_path,
             "checkpoint_sha256": self.checkpoint_sha256,
             "device": self.device_name,
@@ -730,7 +737,18 @@ class SAM2Tracker(BaseVideoTracker):
             "decoded_frames": self.decoded_frame_count,
             "unique_frames": len(self.video_frames) if self.video_frames else 0,
             "frame_map": list(self.frame_map),
+            "collapse_duplicate_frames": self.collapse_duplicates,
             "duplicate_threshold": self.duplicate_threshold,
             "direction": "reverse" if self.enable_reverse_tracking else "forward",
             "annotation_frame_index": self.annotation_frame_index,
+            "settings": {
+                name: _app_setting(name, default)
+                for name, default in (
+                    ("SAM2_USE_IMPROVED_CONFIG", False),
+                    ("SAM2_IMPROVED_TRACKING", True),
+                    ("SAM2_MIN_MASK_AREA", 50),
+                    ("SAM2_MIN_CONFIDENCE", 0.3),
+                    ("SAM2_MEMORY_FRAMES", 2),
+                )
+            },
         }
