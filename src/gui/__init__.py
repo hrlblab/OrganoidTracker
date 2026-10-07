@@ -1,4 +1,4 @@
-"""GUI components for Medical-SAM2"""
+"""GUI components (Tkinter)"""
 
 from .main_window import VideoTrackerApp
 

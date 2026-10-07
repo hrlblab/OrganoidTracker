@@ -35,12 +35,6 @@ class ModelRegistry:
         except ImportError as e:
             print(f"⚠️  SAM2 not available: {e}")
 
-        # Register Medical-SAM2
-        try:
-            from .inference import MedicalSAM2Tracker
-            self.register_model(MedicalSAM2Tracker)
-        except ImportError as e:
-            print(f"⚠️  Medical-SAM2 not available: {e}")
 
     def register_model(self, model_class: Type[BaseVideoTracker]) -> bool:
         """
@@ -184,8 +178,7 @@ class ModelRegistry:
             'models_by_capability': {
                 'click_prompts': len(self.get_models_by_capability('click_prompts')),
                 'bbox_prompts': len(self.get_models_by_capability('bbox_prompts')),
-                'multi_object': len(self.get_models_by_capability('multi_object')),
-                'medical_optimized': len(self.get_models_by_capability('medical_optimized'))
+                'multi_object': len(self.get_models_by_capability('multi_object'))
             }
         }
 
@@ -250,22 +243,16 @@ class ModelFactory:
     """
 
     @staticmethod
-    def create_medical_sam2(device='cuda', **kwargs) -> Optional[BaseVideoTracker]:
-        """Create Medical-SAM2 instance with default config"""
-        return create_model('medical_sam2', device=device, **kwargs)
-
-    @staticmethod
     def create_sam2(device='cuda', **kwargs) -> Optional[BaseVideoTracker]:
         """Create SAM2 instance with default config"""
         return create_model('sam2', device=device, **kwargs)
 
     @staticmethod
-    def create_best_available_model(prefer_medical=True, device='cuda', **kwargs) -> Optional[BaseVideoTracker]:
+    def create_best_available_model(device='cuda', **kwargs) -> Optional[BaseVideoTracker]:
         """
-        Create the best available model based on preferences
+        Create the first available model
 
         Args:
-            prefer_medical: Whether to prefer medical-optimized models
             device: Device to use
             **kwargs: Additional model config
 
@@ -279,14 +266,7 @@ class ModelFactory:
             print("❌ No models available")
             return None
 
-        # Prioritize models based on preferences
-        if prefer_medical:
-            medical_models = registry.get_models_by_capability('medical_optimized')
-            if medical_models:
-                model_name = medical_models[0].name
-                return create_model(model_name, device=device, **kwargs)
-
-        # Fallback to first available model
+        # Use the first available model
         model_name = available_models[0].name
         return create_model(model_name, device=device, **kwargs)
 
@@ -296,18 +276,14 @@ class ModelFactory:
         Get recommended model name for a specific task
 
         Args:
-            task_type: Type of task ('medical', 'general', 'research')
+            task_type: Type of task ('general', 'research')
 
         Returns:
             str: Recommended model name or None
         """
         registry = get_model_registry()
 
-        if task_type == 'medical':
-            medical_models = registry.get_models_by_capability('medical_optimized')
-            return medical_models[0].name if medical_models else None
-
-        elif task_type == 'general':
+        if task_type == 'general':
             available = registry.get_available_models()
             # Prefer SAM2 for general use
             for model in available:

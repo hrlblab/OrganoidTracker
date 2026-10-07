@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Base Model Interface for Video Object Tracking
-Provides a common interface for all video tracking models (Medical-SAM2, SAM2, etc.)
+Provides a common interface for all video tracking models (SAM2 families, etc.)
 """
 
 from abc import ABC, abstractmethod
@@ -13,7 +13,7 @@ class BaseVideoTracker(ABC):
     """
     Abstract base class for video object tracking models
 
-    All tracking models (Medical-SAM2, SAM2, etc.) must implement this interface
+    All tracking models (SAM2 families, etc.) must implement this interface
     to ensure compatibility with the GUI and provide a consistent API.
     """
 
@@ -22,7 +22,7 @@ class BaseVideoTracker(ABC):
         Initialize the base tracker
 
         Args:
-            model_name: Name of the model (e.g., "Medical-SAM2", "SAM2")
+            model_name: Name of the model (e.g., "SAM2")
             **kwargs: Model-specific configuration
         """
         self.model_name = model_name
@@ -231,7 +231,6 @@ class ModelCapabilities:
     MULTI_OBJECT = "multi_object"
     REAL_TIME = "real_time"
     GPU_REQUIRED = "gpu_required"
-    MEDICAL_OPTIMIZED = "medical_optimized"
 
 
 class ModelMetadata:

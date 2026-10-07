@@ -1,4 +1,4 @@
-"""Utility functions for Medical-SAM2"""
+"""Utility functions for video output generation"""
 
 from .video_output import VideoOutputGenerator
 
