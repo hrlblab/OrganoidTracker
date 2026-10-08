@@ -169,6 +169,7 @@ be repeated headlessly.
 ```bash
 uv run organoidtracker validate --session session.json
 uv run organoidtracker run --session session.json --out runs/well-01 [--video other/path.mp4] [--device cpu] [--model sam2_hiera_t] [--no-videos] [--video-quality original|mid|low]
+uv run organoidtracker export --run runs/well-01 [--out runs/well-01-replot] [--video other/path.mp4] [--no-videos] [--video-quality original|mid|low] [--overwrite]
 ```
 
 `timing` takes either `time_lapse_days` (spread uniformly, days numbered from 1 as in the paper) or
@@ -176,11 +177,24 @@ uv run organoidtracker run --session session.json --out runs/well-01 [--video ot
 relocates a moved video (its recorded `sha256`, when present, must still match). The output directory
 receives the CSV tables, figures and PDF report (re-plottable with `scripts/csv_visualizer.py`), the
 videos under `videos/`, the prompt record (`prompts.json`), the validated session (`session.json`), the log,
-and `run_manifest.json`: software, environment and settings, the video facts, the backend provenance,
-the tracking status and frame coverage, a digest of every mask, and the hash of every file written.
+the saved tracking result (`results.json` and `masks-<digest>.npz`: every mask as packed bits, with the
+organoid and cyst identities, the time axis, the calibration, the frame map, the tracking status and
+coverage, the presence scores, the settings and the provenance; written right after tracking, before any
+export), and `run_manifest.json`: software, environment and settings, the video facts, the backend
+provenance, the tracking status and frame coverage, a digest of every mask, and the hash of every file written.
 
-Exit status: 0 completed; 1 failed; 2 invalid input (session, settings, missing or different video);
-3 the tracking stopped early and the exports are **partial** (the manifest, the summary and the PDF say so).
+`organoidtracker export` reopens a run directory **without a model** and writes its analysis again: the
+CSV tables, figures, PDF, summary and manifest, plus the videos when the video file is available (`--video`
+relocates a moved file with the same content; `--no-videos` needs no video at all). In place (`--run` alone)
+it needs `--overwrite` and keeps the saved result, session, prompt record and log; with `--out` another
+directory receives a copy of the saved result as well, so it is a complete run directory too. The exports
+equal the original run's for the same software and settings. A damaged, truncated or edited result file is
+refused. Tracking again from the saved prompts is `run --session runs/well-01/session.json`; continuing an
+interrupted propagation exactly is not supported (SAM 2 keeps an inference memory beyond the saved masks).
+
+Exit status: 0 completed; 1 failed; 2 invalid input (session, settings, saved result, missing or different
+video); 3 the tracking stopped early and the exports are **partial** (the manifest, the summary and the PDF
+say so; `export` reports the status of the run it exports again).
 
 ## Output Files
 

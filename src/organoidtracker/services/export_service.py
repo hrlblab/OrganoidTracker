@@ -12,7 +12,9 @@ import json
 import logging
 import os
 import shutil
-from collections.abc import Callable, Sequence
+import uuid
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +24,18 @@ from ..analysis.organoid_report_generator import Analysis, OrganoidAnalysisRepor
 from ..core.tracking_result import TrackingResult
 from ..io.video_output import VideoOutputGenerator
 from .run_manifest import RUN_MANIFEST_NAME
+from .saved_results import (
+    MASKS_GLOB,
+    RESULTS_NAME,
+    SavedResult,
+    discard_staged_result,
+    publish_staged_result,
+    relocated_document,
+    stage_saved_result,
+    write_saved_result,
+)
 from .session import Session
+from .video_source import VideoSource
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +50,7 @@ RUN_ARTIFACT_FILES = (
     RUN_MANIFEST_NAME,
     SESSION_NAME,
     PROMPT_RECORD_NAME,
+    RESULTS_NAME,
     "raw_cyst_data.csv",
     "cyst_summary.csv",
     "organoid_summary.csv",
@@ -45,6 +59,10 @@ RUN_ARTIFACT_FILES = (
     "experiment_data_debug.json",
 )
 RUN_ARTIFACT_DIRS = ("visualizations", VIDEO_DIR_NAME)
+# What survives when a run is exported again in place (with the mask file results.json names)
+SAVED_RESULT_FILES = (SESSION_NAME, PROMPT_RECORD_NAME, RESULTS_NAME)
+# The saved-run files (manifest first: it must never describe files of another run)
+SAVED_RUN_FILES = (RUN_MANIFEST_NAME, SESSION_NAME, PROMPT_RECORD_NAME, RESULTS_NAME)
 # What a report must contain; a missing item fails the run instead of being logged and forgotten
 REQUIRED_CSV = (
     ("raw_data", "raw_cyst_data.csv"),
@@ -83,15 +101,25 @@ class ExportService:
     def previous_run_artifacts(self) -> list[Path]:
         """Files and directories of an earlier run in the output directory, finished or not."""
         found = [self.output_dir / name for name in RUN_ARTIFACT_FILES if (self.output_dir / name).is_file()]
+        if self.output_dir.is_dir():
+            found += sorted(path for path in self.output_dir.glob(MASKS_GLOB) if path.is_file())
         found += [self.output_dir / name for name in RUN_ARTIFACT_DIRS if (self.output_dir / name).is_dir()]
         return found
 
-    def prepare(self, overwrite: bool = False) -> Path:
+    def previous_saved_run(self) -> list[Path]:
+        """The saved-run files the directory holds: manifest, session, prompt record, result and mask files."""
+        found = [self.output_dir / name for name in SAVED_RUN_FILES if (self.output_dir / name).is_file()]
+        if self.output_dir.is_dir():
+            found += sorted(path for path in self.output_dir.glob(MASKS_GLOB) if path.is_file())
+        return found
+
+    def prepare(self, overwrite: bool = False, keep_results: bool = False) -> Path:
         """Create the output directory; a directory holding an earlier run is refused unless ``overwrite``.
 
         With ``overwrite`` every artifact of the earlier run is removed before anything is written, the
         manifest first: the directory never holds a completed manifest next to files of another run,
-        and a run that fails midway leaves no manifest at all.
+        and a run that fails midway leaves no manifest at all. With ``keep_results`` (a run exported
+        again in place) the saved result, the session and the prompt record survive; the exports go.
         """
         existing = self.previous_run_artifacts()
         if existing and not overwrite:
@@ -104,14 +132,25 @@ class ExportService:
         except OSError as error:
             raise ExportError(f"cannot create the output directory {self.output_dir}: {error}") from error
         if existing:
-            removed = self.clear_previous_run()
+            removed = self.clear_previous_run(keep_results=keep_results)
             logger.info(f"Replaced the previous run in {self.output_dir}: removed {len(removed)} artifact(s)")
         return self.output_dir
 
-    def clear_previous_run(self) -> list[str]:
-        """Remove the earlier run's artifacts: the manifest, the files it lists, the known output names."""
+    def clear_previous_run(self, keep_results: bool = False) -> list[str]:
+        """Remove the earlier run's artifacts: the manifest, the files it lists, the known output names.
+
+        With ``keep_results`` the saved result (``results.json`` and its mask file), the session and
+        the prompt record stay, so that a run can be exported again in place.
+        """
         removed: list[str] = []
         root = self.output_dir.resolve()
+
+        def kept(relative: str) -> bool:
+            path = Path(relative)
+            return keep_results and (
+                relative in SAVED_RESULT_FILES or (path.parent == Path() and path.match(MASKS_GLOB))
+            )
+
         manifest = self.output_dir / RUN_MANIFEST_NAME
         inventory: list[str] = []
         if manifest.is_file():
@@ -122,6 +161,8 @@ class ExportService:
             manifest.unlink()
             removed.append(RUN_MANIFEST_NAME)
         for relative in inventory:
+            if kept(relative):
+                continue
             path = self.output_dir / relative
             try:
                 inside = path.resolve().is_relative_to(root)
@@ -132,9 +173,14 @@ class ExportService:
                 removed.append(relative)
         for name in RUN_ARTIFACT_FILES:
             path = self.output_dir / name
-            if path.is_file():
+            if path.is_file() and not kept(name):
                 path.unlink()
                 removed.append(name)
+        if not keep_results:
+            for path in sorted(self.output_dir.glob(MASKS_GLOB)):
+                if path.is_file():
+                    path.unlink()
+                    removed.append(path.name)
         for name in RUN_ARTIFACT_DIRS:
             path = self.output_dir / name
             if path.is_dir():
@@ -148,14 +194,19 @@ class ExportService:
         return removed
 
     # ------------------------------------------------------------------ small files
-    def write_session(self, session: Session, video_sha256: str | None = None) -> Path:
+    @staticmethod
+    def session_document(session: Session, video_sha256: str | None = None) -> dict[str, Any]:
+        """The session as saved next to a run: absolute file references, the video hash filled in."""
         document = session.to_document()
         document["video"]["path"] = os.path.abspath(session.video.path)  # holds from any directory
         if session.tracking.checkpoint_path is not None:
             document["tracking"]["checkpoint_path"] = os.path.abspath(session.tracking.checkpoint_path)
         if video_sha256 and not document["video"].get("sha256"):
             document["video"]["sha256"] = video_sha256
-        return self._write_json(self.output_dir / SESSION_NAME, document)
+        return document
+
+    def write_session(self, session: Session, video_sha256: str | None = None) -> Path:
+        return self._write_json(self.output_dir / SESSION_NAME, self.session_document(session, video_sha256))
 
     def write_prompt_record(self, record: dict[str, Any]) -> Path:
         return self._write_json(self.output_dir / PROMPT_RECORD_NAME, record)
@@ -164,12 +215,151 @@ class ExportService:
         return self._write_json(self.output_dir / RUN_MANIFEST_NAME, manifest)
 
     def _write_json(self, path: Path, data: dict[str, Any]) -> Path:
-        """Write atomically: the file either holds the complete document or does not exist."""
+        """Write atomically: the file either holds the complete document or is unchanged; no temporary is left."""
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
-        temporary.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
-        os.replace(temporary, path)
+        try:
+            temporary.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+            os.replace(temporary, path)
+        except OSError:
+            temporary.unlink(missing_ok=True)
+            raise
         return path
+
+    def copy_prompt_record(self, record_path: Path, *, video_path: Path | str | None = None) -> Path:
+        """The prompt record of the run being exported again, copied next to the new exports.
+
+        With ``video_path`` the record's video locator points at the relocated file (its provenance block
+        keeps the path the tracker read).
+        """
+        target = self.output_dir / PROMPT_RECORD_NAME
+        try:
+            if video_path is None:
+                shutil.copyfile(record_path, target)
+                return target
+            record = json.loads(Path(record_path).read_text(encoding="utf-8"))
+            record.setdefault("video", {})["path"] = os.path.abspath(video_path)
+            return self._write_json(target, record)
+        except (OSError, ValueError) as error:
+            raise ExportError(f"cannot copy the prompt record to {target}: {error}") from error
+
+    # ------------------------------------------------------------------ saved result
+    def write_results(
+        self,
+        *,
+        run_id: str,
+        session: Session,
+        video: VideoSource,
+        provenance: Mapping[str, Any],
+        result: TrackingResult,
+    ) -> SavedResult:
+        """``results.json`` and the mask file: the run's complete experiment, reloadable without a model."""
+        return write_saved_result(
+            self.output_dir, run_id=run_id, session=session, video=video, provenance=provenance, result=result
+        )
+
+    def save_run(
+        self,
+        *,
+        run_id: str,
+        session: Session,
+        video: VideoSource,
+        provenance: Mapping[str, Any],
+        result: TrackingResult,
+        prompt_record: Mapping[str, Any],
+        replace_existing: bool = False,
+    ) -> SavedResult:
+        """Save a run's result, session and prompt record together (the window's Save Results).
+
+        A directory that already holds a saved run is refused unless ``replace_existing``. Everything
+        is staged under temporary names first; the previous saved run, with its manifest (which must not
+        describe the new files), stays in place until the replacement is complete, so a save that fails
+        leaves the previous run usable. Exported videos, tables and figures are never touched.
+        """
+        existing = self.previous_saved_run()
+        if existing and not replace_existing:
+            names = ", ".join(path.name for path in existing)
+            raise ExportError(f"{self.output_dir} already holds a saved run ({names}); confirm replacing it first")
+        try:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise ExportError(f"cannot create the output directory {self.output_dir}: {error}") from error
+        staged = stage_saved_result(
+            self.output_dir, run_id=run_id, session=session, video=video, provenance=provenance, result=result
+        )
+        token = uuid.uuid4().hex
+        session_temp = self.output_dir / f".{SESSION_NAME}.{token}.tmp"
+        record_temp = self.output_dir / f".{PROMPT_RECORD_NAME}.{token}.tmp"
+        try:
+            session_temp.write_text(
+                json.dumps(self.session_document(session, video.sha256), indent=2, default=str), encoding="utf-8"
+            )
+            record_temp.write_text(json.dumps(dict(prompt_record), indent=2, default=str), encoding="utf-8")
+        except OSError as error:
+            discard_staged_result(staged)
+            session_temp.unlink(missing_ok=True)
+            record_temp.unlink(missing_ok=True)
+            raise ExportError(f"cannot write the session or the prompt record in {self.output_dir}: {error}") from error
+        manifest = self.output_dir / RUN_MANIFEST_NAME
+        try:
+            if manifest.is_file():
+                manifest.unlink()  # it described the previous run's files
+            saved = publish_staged_result(staged)
+            os.replace(session_temp, self.output_dir / SESSION_NAME)
+            os.replace(record_temp, self.output_dir / PROMPT_RECORD_NAME)
+        except OSError as error:
+            session_temp.unlink(missing_ok=True)
+            record_temp.unlink(missing_ok=True)
+            raise ExportError(f"cannot publish the saved run in {self.output_dir}: {error}") from error
+        except Exception:
+            session_temp.unlink(missing_ok=True)
+            record_temp.unlink(missing_ok=True)
+            raise
+        return saved
+
+    def copy_saved_result(self, saved: SavedResult, *, video_path: Path | str | None = None) -> SavedResult:
+        """A copy of a saved result (its two files) into the output directory, byte-identical unless relocated.
+
+        With ``video_path`` the copied ``results.json`` points at the relocated video, so that the
+        copy reopens and exports again without another relocation; the mask file is the same bytes.
+        """
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        masks_target = self.output_dir / saved.masks_path.name
+        results_target = self.output_dir / saved.path.name
+        temporary = results_target.with_name(results_target.name + ".tmp")
+        try:
+            shutil.copyfile(saved.masks_path, masks_target)
+            if video_path is None:
+                shutil.copyfile(saved.path, temporary)
+                os.replace(temporary, results_target)  # results.json appears complete or not at all
+            else:
+                self._write_json(results_target, relocated_document(saved.path, video_path))
+        except OSError as error:
+            temporary.unlink(missing_ok=True)
+            raise ExportError(f"cannot copy the saved result to {self.output_dir}: {error}") from error
+        copied = replace(saved, path=results_target, masks_path=masks_target)
+        if video_path is not None:
+            copied = replace(
+                copied,
+                session=saved.session.with_video(video_path),
+                video=replace(saved.video, path=Path(os.path.abspath(video_path))),
+            )
+        return copied
+
+    def relocate_saved_run(self, saved: SavedResult, video_path: Path | str) -> SavedResult:
+        """Point a saved run's ``results.json``, ``session.json`` and prompt record at a relocated video, in place."""
+        try:
+            self._write_json(saved.path, relocated_document(saved.path, video_path))
+            session = saved.session.with_video(video_path)
+            self.write_session(session, saved.video.sha256)
+            record = self.output_dir / PROMPT_RECORD_NAME
+            if record.is_file():
+                data = json.loads(record.read_text(encoding="utf-8"))
+                data.setdefault("video", {})["path"] = os.path.abspath(video_path)
+                self._write_json(record, data)
+        except (OSError, ValueError) as error:
+            raise ExportError(f"cannot relocate the video of the run in {self.output_dir}: {error}") from error
+        return replace(saved, session=session, video=replace(saved.video, path=Path(os.path.abspath(video_path))))
 
     # ------------------------------------------------------------------ videos
     @staticmethod

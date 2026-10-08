@@ -148,14 +148,26 @@ def build_manifest(
     video_export: dict[str, Any] | None,
     output_dir: Path,
     timings_s: dict[str, float],
+    produced_by: str = "run",
+    source: dict[str, Any] | None = None,
+    results: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """The manifest of a run directory.
+
+    ``produced_by`` is ``"run"`` (tracked into this directory) or ``"export"`` (exported again from
+    a saved result; ``source`` then names that run and its tracking-time settings). ``results``
+    names the saved result files (``results.json``, the mask file) the directory holds.
+    """
     experiment = analysis.experiment
     return {
         "schema": RUN_MANIFEST_SCHEMA,
         "run_id": run_id,
         "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "produced_by": produced_by,
+        "source": source,
         "status": result.status,
         "complete": analysis.complete,
+        "results": results,
         "results_version": RESULTS_VERSION,
         "software": {"organoidtracker": __version__, "source_revision": source_revision()},
         "environment": environment_facts(),

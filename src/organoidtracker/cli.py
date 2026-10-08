@@ -4,10 +4,13 @@
                         [--model sam2_hiera_t|s|b|l] [--no-videos] [--video-quality original|mid|low]
                         [--overwrite] [--debug] [--log-level LEVEL]
     organoidtracker validate --session SESSION.json
+    organoidtracker export --run RUN_DIR [--out DIR] [--video VIDEO] [--no-videos]
+                           [--video-quality original|mid|low] [--overwrite] [--debug] [--log-level LEVEL]
 
 Exit status: 0 the run completed; 1 it failed (no masks, export error); 2 the inputs were
-invalid (session file, settings file, missing or different video, bad arguments); 3 the run
-stopped early and its exports are partial (they say so in every file).
+invalid (session file, settings file, saved result, missing or different video, bad arguments);
+3 the run stopped early and its exports are partial (they say so in every file). ``export``
+reports the status of the run it exports again.
 """
 
 from __future__ import annotations
@@ -48,6 +51,18 @@ def build_parser() -> argparse.ArgumentParser:
     validate = commands.add_parser("validate", help="check a session file and its video without running")
     validate.add_argument("--session", required=True, type=Path)
     validate.add_argument("--video", type=Path, default=None, help="use this video file instead of the session's path")
+
+    export = commands.add_parser("export", help="analyze and export a saved run again, without a model")
+    export.add_argument("--run", required=True, type=Path, help="run directory holding results.json (or the file)")
+    export.add_argument(
+        "--out", type=Path, default=None, help="output directory (default: the run directory itself, with --overwrite)"
+    )
+    export.add_argument("--video", type=Path, default=None, help="use this video file for the videos (same content)")
+    export.add_argument("--no-videos", action="store_true", help="skip the videos (the video file is then not needed)")
+    export.add_argument("--video-quality", default="original", choices=["original", "mid", "low"])
+    export.add_argument("--overwrite", action="store_true", help="allow replacing the exports of a run directory")
+    export.add_argument("--debug", action="store_true", help="debug outputs of the analysis and video steps")
+    export.add_argument("--log-level", default=None, help="console log level (default: the log_level setting)")
     return parser
 
 
@@ -67,6 +82,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "validate":
         logging.basicConfig(level=logging.WARNING, format="%(levelname)-8s %(message)s")
         return _validate(args.session, args.video)
+    if args.command == "export":
+        return _export(args, config)
     return _run(args, config)
 
 
@@ -122,6 +139,7 @@ def _run(args: argparse.Namespace, config) -> int:
     from .services.annotations import AnnotationError
     from .services.export_service import ExportError
     from .services.pipeline import run_session
+    from .services.saved_results import SavedResultError
     from .services.session import SessionError
     from .services.tracking_service import TrackingError
 
@@ -179,7 +197,13 @@ def _run(args: argparse.Namespace, config) -> int:
     except TrackingError as error:
         logger.error(f"Tracking failed: {error}")
         return EXIT_FAILURE
+    except SavedResultError as error:
+        logger.error(f"Saving the results failed: {error}")
+        return EXIT_FAILURE
+    return _report_outcome(outcome)
 
+
+def _report_outcome(outcome) -> int:
     info = outcome.summary.get("experiment_info", {})
     logger.info(
         f"Tracking {outcome.result.summary()}; {info.get('total_organoids')} organoids, "
@@ -188,6 +212,68 @@ def _run(args: argparse.Namespace, config) -> int:
     if not outcome.complete:
         logger.warning("The run is PARTIAL: exports cover the tracked frames only (exit status 3)")
     return outcome.exit_code
+
+
+def _export(args: argparse.Namespace, config) -> int:
+    from .logging_config import configure_logging
+    from .services.export_service import ExportError
+    from .services.pipeline import export_saved_result
+    from .services.saved_results import RESULTS_NAME, SavedResultError, load_saved_result
+    from .services.session import SessionError
+
+    run_dir = Path(args.run)
+    if run_dir.is_file():
+        run_dir = run_dir.parent
+    out = Path(args.out) if args.out is not None else run_dir
+    in_place = out.resolve() == run_dir.resolve()
+    if in_place and not args.overwrite:
+        logging.basicConfig(level=logging.ERROR, format="%(levelname)-8s %(message)s")
+        logger.error(
+            f"{run_dir} is the run directory itself: add --overwrite to replace its exports in place, "
+            "or give --out another directory"
+        )
+        return EXIT_INVALID
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        logging.basicConfig(level=logging.ERROR, format="%(levelname)-8s %(message)s")
+        logger.error(f"cannot create the output directory {out}: {error}")
+        return EXIT_INVALID
+    log_file = configure_logging(args.log_level, log_file=out / "organoidtracker.log")
+    logger.info(f"organoidtracker {__version__}")
+    if log_file is not None:
+        logger.info(f"Log file: {log_file}")
+    if config.LOADED_SETTINGS_FILE is not None:
+        logger.info(f"Settings file: {config.LOADED_SETTINGS_FILE}")
+
+    try:
+        saved = load_saved_result(run_dir / RESULTS_NAME)
+    except SavedResultError as error:
+        logger.error(f"Cannot use the saved result: {error}")
+        return EXIT_INVALID
+    logger.info(f"Loaded run {saved.run_id} saved {saved.created}: tracking {saved.result.summary()}")
+
+    def progress(phase: str, current: int, total: int, message: str) -> None:
+        logger.debug(f"[{phase}] {message}")
+
+    try:
+        outcome = export_saved_result(
+            saved,
+            out,
+            videos=not args.no_videos,
+            video_quality=args.video_quality,
+            overwrite=args.overwrite,
+            debug=args.debug,
+            video_path=args.video,
+            progress=progress,
+        )
+    except SessionError as error:
+        logger.error(f"Invalid input: {error}")
+        return EXIT_INVALID
+    except ExportError as error:
+        logger.error(f"Export failed: {error}")
+        return EXIT_INVALID if "already holds a run" in str(error) else EXIT_FAILURE
+    return _report_outcome(outcome)
 
 
 if __name__ == "__main__":

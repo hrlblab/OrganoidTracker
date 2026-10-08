@@ -39,6 +39,27 @@ class PackedMask:
             arr = np.asarray(logits)
         return cls(arr > threshold)
 
+    @classmethod
+    def from_packed_bits(cls, bits, shape) -> PackedMask:
+        """Rebuild a mask from its stored form: the row-major packed bits of :attr:`packed_bits` and the shape."""
+        height, width = int(shape[0]), int(shape[1])
+        if height < 1 or width < 1:
+            raise ValueError(f"mask shape must be positive, got {height}x{width}")
+        arr = np.ascontiguousarray(np.asarray(bits, dtype=np.uint8).ravel())
+        expected = (height * width + 7) // 8
+        if arr.size != expected:
+            raise ValueError(f"packed bits hold {arr.size} bytes, a {height}x{width} mask needs {expected}")
+        packed = cls.__new__(cls)
+        packed.shape = (height, width)
+        packed.area = int(np.count_nonzero(np.unpackbits(arr, count=height * width)))
+        packed._bits = arr
+        return packed
+
+    @property
+    def packed_bits(self) -> np.ndarray:
+        """The stored form: ``numpy.packbits`` of the boolean mask, row-major (uint8, read-only use)."""
+        return self._bits
+
     # --- array access -------------------------------------------------------------------
     def numpy(self) -> np.ndarray:
         """Return the mask as a boolean (H, W) array."""
