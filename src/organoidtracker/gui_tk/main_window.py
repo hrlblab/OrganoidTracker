@@ -1843,17 +1843,14 @@ class VideoTrackerApp:
                     service.tracker, video_path, organoid_data, time_lapse_days, conversion_factor
                 )
                 session = session_from_document(record)
-                if replace:
-                    exporter.clear_saved_run()
-                exporter.output_dir.mkdir(parents=True, exist_ok=True)
-                exporter.write_session(session, service.video.sha256)
-                exporter.write_prompt_record(record)
-                saved = exporter.write_results(
+                saved = exporter.save_run(
                     run_id=run_id,
                     session=session,
                     video=service.video,
                     provenance=service.provenance(),
                     result=result,
+                    prompt_record=record,
+                    replace_existing=replace,
                 )
                 self.post(self.on_results_saved, saved, time.time() - start_time)
             except Exception as error:

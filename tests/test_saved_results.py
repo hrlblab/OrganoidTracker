@@ -421,16 +421,6 @@ def test_an_interrupted_or_failed_save_keeps_the_previous_result(hard_run, tmp_p
         tracked_frames=[7, 6, 5],
     )
 
-    def crash_before_the_json_is_replaced(path, data):
-        raise OSError("disk full")  # the mask file is already in place, results.json is not touched
-
-    monkeypatch.setattr(saved_results, "_write_json_atomically", crash_before_the_json_is_replaced)
-    with pytest.raises(SavedResultError, match="disk full"):
-        _save(store, hard_run, result=changed)
-    monkeypatch.undo()
-    assert {p.name: p.read_bytes() for p in store.iterdir()} == before  # the orphaned new mask file was removed too
-    assert mask_digests(load_saved_result(store).result) == mask_digests(previous.result)
-
     def crash_while_writing_the_masks(handle, arrays):
         handle.write(b"partial")
         raise OSError("no space")
@@ -439,11 +429,21 @@ def test_an_interrupted_or_failed_save_keeps_the_previous_result(hard_run, tmp_p
     with pytest.raises(SavedResultError, match="no space"):
         _save(store, hard_run, result=changed)
     monkeypatch.undo()
+    assert {p.name: p.read_bytes() for p in store.iterdir()} == before  # nothing published, no temporary left
+    assert mask_digests(load_saved_result(store).result) == mask_digests(previous.result)
+
+    def crash_while_writing_the_document(path, text):
+        raise OSError("disk full")  # the mask file is staged, results.json is not touched
+
+    monkeypatch.setattr(saved_results, "_write_text", crash_while_writing_the_document)
+    with pytest.raises(SavedResultError, match="disk full"):
+        _save(store, hard_run, result=changed)
+    monkeypatch.undo()
     assert {p.name: p.read_bytes() for p in store.iterdir()} == before
     assert mask_digests(load_saved_result(store).result) == mask_digests(previous.result)
 
-    # a crash after the mask file was renamed but before results.json: the old pair still loads,
-    # the orphan is cleaned up by the next successful save
+    # a crash after the mask file was renamed but before results.json: the old pair still loads, and the
+    # orphan is removed because the previous results.json does not name it
     import os
 
     original_replace = os.replace
@@ -457,8 +457,8 @@ def test_an_interrupted_or_failed_save_keeps_the_previous_result(hard_run, tmp_p
     with pytest.raises(SavedResultError, match="power cut"):
         _save(store, hard_run, result=changed)
     monkeypatch.undo()
+    assert {p.name: p.read_bytes() for p in store.iterdir()} == before
     assert mask_digests(load_saved_result(store).result) == mask_digests(previous.result)
-    assert not list(store.glob("*.tmp"))
     recovered = _save(store, hard_run, result=changed)
     assert sorted(p.name for p in store.glob("masks-*.npz")) == [recovered.masks_path.name]
     assert mask_digests(load_saved_result(store).result) == mask_digests(changed)
@@ -544,3 +544,63 @@ def test_a_run_that_fails_after_tracking_keeps_its_saved_result(small_disc, smal
     monkeypatch.undo()
     again = export_saved_result(saved, tmp_path / "again", videos=False)
     assert again.exit_code == 0 and (again.output_dir / "organoid_analysis_report.pdf").is_file()
+
+
+# ------------------------------------------------------------------------------------ review findings
+def test_a_failed_replacement_keeps_the_previous_saved_run_and_its_files(
+    hard_run, small_disc, small_video, tmp_path, monkeypatch
+):
+    """Save Results over a saved run: the previous run, its session, prompt record and manifest stay until the
+    replacement is complete (review finding: the GUI cleared them first, a failed write left nothing)."""
+    from organoidtracker.services.export_service import ExportService
+    from organoidtracker.services.prompt_record import build_prompt_record
+
+    out = hard_run.output_dir
+    before = {p.name: p.read_bytes() for p in out.iterdir() if p.is_file()}
+    other = run(
+        make_session(small_disc, small_video, timing={"time_lapse_days": 7.0}, calibration=1.0),
+        tmp_path / "other",
+        small_disc,
+        never_track={9},
+    )
+    replacement = other.saved_result
+    record = build_prompt_record(
+        FakeTracker(small_disc), str(small_video), replacement.session.annotations.organoid_data(), 7.0, 1.0
+    )
+    exporter = ExportService(out)
+
+    def save(**kwargs):
+        return exporter.save_run(
+            run_id="replacement",
+            session=replacement.session,
+            video=replacement.video,
+            provenance=replacement.provenance,
+            result=replacement.result,
+            prompt_record=record,
+            **kwargs,
+        )
+
+    with pytest.raises(ExportError, match="already holds a saved run"):
+        save()
+    assert {p.name: p.read_bytes() for p in out.iterdir() if p.is_file()} == before
+
+    for seam, message in (("_write_npz", "disk full"), ("_write_text", "no space")):
+
+        def fail(*args, _message=message, **kwargs):
+            raise OSError(_message)
+
+        monkeypatch.setattr(saved_results, seam, fail)
+        with pytest.raises(SavedResultError, match=message):
+            save(replace_existing=True)
+        monkeypatch.undo()
+        assert {p.name: p.read_bytes() for p in out.iterdir() if p.is_file()} == before, seam  # nothing changed
+        assert mask_digests(load_saved_result(out).result) == mask_digests(hard_run.result)
+
+    saved = save(replace_existing=True)
+    assert saved.run_id == "replacement" and not (out / "run_manifest.json").exists()
+    assert mask_digests(load_saved_result(out).result) == mask_digests(replacement.result)
+    assert json.loads((out / "session.json").read_text())["calibration"]["um_per_pixel"] == 1.0
+    assert json.loads((out / "prompts.json").read_text())["analysis_inputs"]["time_lapse_days"] == 7.0
+    assert sorted(p.name for p in out.glob("masks-*.npz")) == [saved.masks_path.name]
+    assert not list(out.glob(".*.tmp"))
+    assert (out / "raw_cyst_data.csv").read_bytes() == before["raw_cyst_data.csv"]  # exports untouched

@@ -608,3 +608,98 @@ def test_window_opens_a_saved_run_without_a_model_and_exports_it(app, monkeypatc
     assert app.opened is None and app.video_segments is None and not app.organoid_data
     assert "set aside" in log_of(app) and str(app.generate_btn["state"]) == "disabled"
     assert str(app.track_btn["state"]) == "normal"
+
+
+def _track_in_window(app, monkeypatch, video, box, point=None):
+    """Driver steps that load the fake model, the video, one organoid with one cyst box, and track."""
+    from organoidtracker.gui_tk import main_window
+
+    def load_model():
+        app.device_var.set("cpu")
+        app.model_config_var.set("sam2_hiera_s")
+        app.load_selected_model()
+
+    def load_video():
+        monkeypatch.setattr(main_window.filedialog, "askopenfilename", lambda *a, **k: str(video))
+        app.load_video()
+
+    def annotate_and_track():
+        app.on_canvas_click(*(point or (5, 5)))
+        app.on_canvas_bbox(*box)
+        app.start_tracking()
+
+    def tracked():
+        return (
+            not app.tracking_in_progress and app.video_segments is not None and str(app.track_btn["state"]) == "normal"
+        )
+
+    return (
+        TkDriver(app.root)
+        .step("model loaded", load_model, lambda: app.current_model is not None, 30)
+        .step("video loaded", load_video, lambda: app.current_video_path == str(video), 30)
+        .step("tracked", annotate_and_track, tracked, 60)
+    )
+
+
+def test_a_failed_save_over_a_saved_run_keeps_it(app, monkeypatch, small_disc, small_video, tmp_path):
+    """Review finding: Save Results cleared the previous saved run before writing; a failed write left nothing."""
+    from organoidtracker.gui_tk import main_window
+    from organoidtracker.services import saved_results
+    from organoidtracker.services.saved_results import load_saved_result
+
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    cx, cy = small_disc.centers[N - 1]
+    previous = run_session(
+        equivalent_session(
+            small_video, [{"organoid_id": 1, "point": [1, 1], "cysts": [{"cyst_id": 1, "bbox": list(box)}]}]
+        ),
+        tmp_path / "dest",
+        videos=False,
+        tracking_service_factory=lambda spec: TrackingService(
+            FakeTracker(small_disc, enable_reverse_tracking=spec.reverse, grow=5)
+        ),
+    )
+    dest = previous.output_dir
+    before = {p.name: p.read_bytes() for p in dest.iterdir() if p.is_file()}
+
+    def save():
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(dest))
+        monkeypatch.setattr(main_window.messagebox, "askyesno", lambda *a, **k: True)
+        app.save_results()
+
+    def failing_save():
+        monkeypatch.setattr(
+            saved_results,
+            "_write_npz",
+            lambda handle, arrays: (_ for _ in ()).throw(OSError("injected disk-full error")),
+        )
+        save()
+
+    def failed():
+        return (
+            "Saving the results failed" in app.status_label["text"] and str(app.save_results_btn["state"]) == "normal"
+        )
+
+    def check_previous_intact():
+        assert "injected disk-full error" in app.status_label["text"]
+        assert {p.name: p.read_bytes() for p in dest.iterdir() if p.is_file()} == before  # manifest included
+        assert mask_digests(load_saved_result(dest).result) == mask_digests(previous.result)
+        monkeypatch.setattr(
+            saved_results,
+            "_write_npz",
+            saved_results._write_npz.__wrapped__
+            if hasattr(saved_results._write_npz, "__wrapped__")
+            else original_write_npz,
+        )
+
+    original_write_npz = saved_results._write_npz
+    (
+        _track_in_window(app, monkeypatch, small_video, box, point=(cx - 30, cy - 30))
+        .step("failed save", failing_save, failed, 30)
+        .step("previous run intact", check_previous_intact, None, 5)
+        .step("replacing save", save, lambda: "Results saved" in app.status_label["text"], 30)
+        .run()
+    )
+    assert not (dest / "run_manifest.json").exists()
+    assert mask_digests(load_saved_result(dest).result) == mask_digests(app.video_segments)
+    assert (dest / "raw_cyst_data.csv").read_bytes() == before["raw_cyst_data.csv"]  # exports left alone

@@ -166,7 +166,22 @@ def tracking_document(result: TrackingResult) -> dict[str, Any]:
     }
 
 
-def write_saved_result(
+@dataclass(frozen=True)
+class StagedResult:
+    """A saved result written under temporary names, invisible to readers until it is published."""
+
+    directory: Path
+    masks_temp: Path
+    masks_path: Path  # the content-named final file
+    results_temp: Path
+    document: dict[str, Any]
+    run_id: str
+    session: Session
+    video: VideoSource
+    result: TrackingResult
+
+
+def stage_saved_result(
     directory: Path | str,
     *,
     run_id: str,
@@ -176,8 +191,8 @@ def write_saved_result(
     result: TrackingResult,
     settings: Mapping[str, Any] | None = None,
     environment: Mapping[str, Any] | None = None,
-) -> SavedResult:
-    """Write ``results.json`` and the mask file into ``directory``; returns the saved result as reloaded."""
+) -> StagedResult:
+    """Write the mask file and ``results.json`` under temporary names; nothing readable changes yet."""
     directory = Path(directory)
     if result.status not in STATUSES:
         raise SavedResultError(f"a result with status {result.status!r} cannot be saved")
@@ -202,67 +217,118 @@ def write_saved_result(
                 "sha256": hashlib.sha256(packed.packed_bits.tobytes()).hexdigest(),
             }
 
-    temporary = directory / f".{MASKS_PREFIX}{uuid.uuid4().hex}.tmp"
-    try:
-        with open(temporary, "wb") as handle:
-            _write_npz(handle, arrays)
-        digest = sha256_file(temporary)
-        masks_path = directory / f"{MASKS_PREFIX}{digest[:16]}{MASKS_SUFFIX}"
-        os.replace(temporary, masks_path)
-    except OSError as error:
-        temporary.unlink(missing_ok=True)
-        raise SavedResultError(f"cannot write the mask file in {directory}: {error}") from error
-
     if settings is None or environment is None:
         from .run_manifest import environment_facts, settings_snapshot
 
         settings = settings_snapshot() if settings is None else settings
         environment = environment_facts() if environment is None else environment
-    document: dict[str, Any] = {
-        "schema": RESULTS_SCHEMA,
-        "run_id": run_id,
-        "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "results_version": RESULTS_VERSION,
-        "software": {"organoidtracker": __version__, "source_revision": source_revision()},
-        "environment": dict(environment),
-        "settings": dict(settings),
-        "session": _session_document(session, video),
-        "video": video.to_document(),
-        "provenance": dict(provenance),
-        "tracking": tracking_document(result),
-        "masks": {
-            "file": masks_path.name,
-            "sha256": digest,
-            "bytes": masks_path.stat().st_size,
-            "format": MASKS_FORMAT,
-            "index": index,
-        },
-    }
-    results_path = directory / RESULTS_NAME
+
+    token = uuid.uuid4().hex
+    masks_temp = directory / f".{MASKS_PREFIX}{token}.tmp"
+    results_temp = directory / f".{RESULTS_NAME}.{token}.tmp"
     try:
-        _write_json_atomically(results_path, document)
+        with open(masks_temp, "wb") as handle:
+            _write_npz(handle, arrays)
+        digest = sha256_file(masks_temp)
+        masks_path = directory / f"{MASKS_PREFIX}{digest[:16]}{MASKS_SUFFIX}"
+        document: dict[str, Any] = {
+            "schema": RESULTS_SCHEMA,
+            "run_id": run_id,
+            "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "results_version": RESULTS_VERSION,
+            "software": {"organoidtracker": __version__, "source_revision": source_revision()},
+            "environment": dict(environment),
+            "settings": dict(settings),
+            "session": _session_document(session, video),
+            "video": video.to_document(),
+            "provenance": dict(provenance),
+            "tracking": tracking_document(result),
+            "masks": {
+                "file": masks_path.name,
+                "sha256": digest,
+                "bytes": masks_temp.stat().st_size,
+                "format": MASKS_FORMAT,
+                "index": index,
+            },
+        }
+        _write_text(results_temp, json.dumps(document, indent=2, default=str))
     except OSError as error:
-        # the previous results.json, if any, still names its own mask file; only an orphan is removed
-        if not _referenced_mask_files(directory) & {masks_path.name}:
-            masks_path.unlink(missing_ok=True)
-        raise SavedResultError(f"cannot write {results_path}: {error}") from error
+        masks_temp.unlink(missing_ok=True)
+        results_temp.unlink(missing_ok=True)
+        raise SavedResultError(f"cannot write the saved result in {directory}: {error}") from error
+    return StagedResult(directory, masks_temp, masks_path, results_temp, document, run_id, session, video, result)
+
+
+def publish_staged_result(staged: StagedResult) -> SavedResult:
+    """Make a staged result the directory's saved result: the mask file first, then ``results.json``.
+
+    A previous saved result stays readable until its ``results.json`` is replaced; a mask file is never
+    overwritten with different content because it is named after its content. Mask files the new
+    ``results.json`` does not name are removed afterwards.
+    """
+    directory = staged.directory
+    try:
+        os.replace(staged.masks_temp, staged.masks_path)
+        os.replace(staged.results_temp, directory / RESULTS_NAME)
+    except OSError as error:
+        discard_staged_result(staged)
+        if staged.masks_path.name not in _referenced_mask_files(directory):
+            staged.masks_path.unlink(missing_ok=True)  # an orphan: the previous results.json names its own file
+        raise SavedResultError(f"cannot publish the saved result in {directory}: {error}") from error
     for stale in directory.glob(MASKS_GLOB):
-        if stale.name != masks_path.name:
+        if stale.name != staged.masks_path.name:
             stale.unlink(missing_ok=True)
+    document = staged.document
     return SavedResult(
-        path=results_path,
-        masks_path=masks_path,
-        run_id=run_id,
+        path=directory / RESULTS_NAME,
+        masks_path=staged.masks_path,
+        run_id=staged.run_id,
         created=document["created"],
         results_version=RESULTS_VERSION,
         software=document["software"],
         environment=document["environment"],
         settings=document["settings"],
-        session=session,
-        video=video,
+        session=staged.session,
+        video=staged.video,
         provenance=document["provenance"],
-        result=result,
+        result=staged.result,
     )
+
+
+def discard_staged_result(staged: StagedResult) -> None:
+    """Remove a staged result that will not be published."""
+    staged.masks_temp.unlink(missing_ok=True)
+    staged.results_temp.unlink(missing_ok=True)
+
+
+def write_saved_result(
+    directory: Path | str,
+    *,
+    run_id: str,
+    session: Session,
+    video: VideoSource,
+    provenance: Mapping[str, Any],
+    result: TrackingResult,
+    settings: Mapping[str, Any] | None = None,
+    environment: Mapping[str, Any] | None = None,
+) -> SavedResult:
+    """Write ``results.json`` and the mask file into ``directory`` (staged, then published)."""
+    return publish_staged_result(
+        stage_saved_result(
+            directory,
+            run_id=run_id,
+            session=session,
+            video=video,
+            provenance=provenance,
+            result=result,
+            settings=settings,
+            environment=environment,
+        )
+    )
+
+
+def _write_text(path: Path, text: str) -> None:
+    path.write_text(text, encoding="utf-8")
 
 
 def _write_npz(handle: Any, arrays: Mapping[str, np.ndarray]) -> None:
@@ -287,17 +353,6 @@ def _session_document(session: Session, video: VideoSource) -> dict[str, Any]:
     if not document["video"].get("sha256") and video.sha256:
         document["video"]["sha256"] = video.sha256
     return document
-
-
-def _write_json_atomically(path: Path, data: dict[str, Any]) -> None:
-    """The file either holds the complete document or is unchanged; a failed write leaves no temporary file."""
-    temporary = path.with_name(path.name + ".tmp")
-    try:
-        temporary.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
-        os.replace(temporary, path)
-    except OSError:
-        temporary.unlink(missing_ok=True)
-        raise
 
 
 def _referenced_mask_files(directory: Path) -> set[str]:
