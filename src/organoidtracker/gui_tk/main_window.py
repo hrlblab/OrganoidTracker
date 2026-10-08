@@ -95,6 +95,9 @@ class VideoTrackerApp:
         self.tracking_in_progress = False
         self.opened: OpenedResult | None = None  # a saved run reopened without a model (Open Results...)
         self.tracking_run_id: str | None = None  # identifies the results shown when they are saved
+        self.result_video = None  # the VideoSource the live results belong to (the backend's at tracking time)
+        self.result_provenance: dict | None = None  # the backend's provenance at tracking time
+        self._results_serial = 0  # bumped whenever the shown results change (ids of objects can be reused)
 
         # Progress dialog references
         self.tracking_dialog = None
@@ -724,7 +727,10 @@ class VideoTrackerApp:
         self.video_segments = None
         self.opened = None
         self.tracking_run_id = None
+        self.result_video = None
+        self.result_provenance = None
         self.tracking_in_progress = False
+        self._results_changed()
         self.video_canvas.clear_markers()
         self.video_canvas.show_placeholder()
         self.organoid_data.clear()
@@ -753,18 +759,29 @@ class VideoTrackerApp:
             )
 
     def _ready_for_export(self, what: str) -> bool:
-        """Results and the video they belong to are needed: a reopened run's, or this backend's."""
+        """Results and the video they belong to are needed: a reopened run's, or this backend's.
+
+        Live results are tied to the video the backend held when they were produced; once another
+        video is loaded through the backend (even the same file again) they are no longer exportable.
+        """
+        if self.tracking_in_progress:
+            self.set_status("Tracking is running; wait for it to finish")
+            self.log_event(f"❌ Cannot start {what}: tracking is in progress")
+            return False
         if self.video_segments is None or not self.video_segments:
             self.set_status("No tracking results available. Please run tracking first")
             self.log_event(f"❌ No tracking results available for {what}")
             return False
         if self.opened is not None:
             return True
-        if self.tracking is None or self.tracking.video is None:
+        if (
+            self.tracking is None
+            or self.tracking.video is None
+            or self.result_video is None
+            or self.tracking.video is not self.result_video
+        ):
             self.set_status("Load a video and run tracking first")
-            self.log_event(
-                f"❌ Cannot start {what}: the loaded model holds no video (results are from a previous model)"
-            )
+            self.log_event(f"❌ Cannot start {what}: the loaded video is not the one the results were tracked on")
             return False
         return True
 
@@ -801,6 +818,11 @@ class VideoTrackerApp:
 
         if not file_path:
             return
+
+        # The backend is about to hold another video: results tracked on the previous one (or reopened
+        # ones) must not be exported, saved or viewed under the new video's identity
+        self._close_opened_result()
+        self._invalidate_results("a new video is being loaded")
 
         try:
             import time
@@ -1411,6 +1433,11 @@ class VideoTrackerApp:
         self.tracking_in_progress = False
         self.track_btn.config(state="normal")
 
+        # The results belong to the video and backend state of this moment
+        self.result_video = self.tracking.video if self.tracking is not None else None
+        self.result_provenance = self.tracking.provenance() if self.tracking is not None else None
+        self._results_changed()
+
         # Enable results buttons
         self.generate_btn.config(state="normal")
         self.analysis_btn.config(state="normal")
@@ -1456,14 +1483,16 @@ class VideoTrackerApp:
             return
 
         # Ask for output directory
+        token = self._results_token()
         output_dir = filedialog.askdirectory(title="Select Output Directory", initialdir="./data/output_videos")
 
         if not output_dir:
             return
 
         # The chooser is modal and runs the event loop: a model reload may have completed meanwhile
-        # and discarded the results, so the readiness is checked again before any control changes.
-        if not self._ready_for_export("video generation"):
+        # and discarded the results, or another run may have been opened, so the readiness and the
+        # identity of the results are checked again before any control changes.
+        if not self._ready_for_export("video generation") or not self._same_results(token, "video generation"):
             return
         frames = self._export_frames()
         if frames is None:
@@ -1725,6 +1754,7 @@ class VideoTrackerApp:
         self.opened = OpenedResult(saved, frames)
         self.video_segments = saved.result
         self.tracking_run_id = saved.run_id
+        self._results_changed()
         self.current_video_path = str(saved.session.video.path)
         self.organoid_data = saved.session.annotations.organoid_data()
         self.next_organoid_id = max(self.organoid_data, default=0) + 1
@@ -1775,6 +1805,9 @@ class VideoTrackerApp:
         self.opened = None
         self.video_segments = None
         self.tracking_run_id = None
+        self.result_video = None
+        self.result_provenance = None
+        self._results_changed()
         self.organoid_data.clear()
         self.active_object_ids.clear()
         self.action_history.clear()
@@ -1787,6 +1820,34 @@ class VideoTrackerApp:
             button.config(state="disabled")
         self.log_event("🔁 The reopened results were set aside")
 
+    def _invalidate_results(self, reason: str) -> None:
+        """Forget the live results and disable what depends on them (the video they belong to is going away)."""
+        had_results = self.video_segments is not None
+        self.video_segments = None
+        self.tracking_run_id = None
+        self.result_video = None
+        self.result_provenance = None
+        self._results_changed()
+        for button in (self.generate_btn, self.analysis_btn, self.save_results_btn):
+            button.config(state="disabled")
+        if had_results:
+            self.log_event(f"🔁 {reason}: the previous tracking results were discarded; track again to export or save")
+
+    def _results_changed(self) -> None:
+        """Note that the shown results were replaced or discarded (a token taken before no longer matches)."""
+        self._results_serial += 1
+
+    def _results_token(self) -> int:
+        """Identity of the results shown; compared after a modal dialog, which runs the event loop."""
+        return self._results_serial
+
+    def _same_results(self, token: int, what: str) -> bool:
+        if token == self._results_token():
+            return True
+        self.set_status(f"The results changed while the dialog was open; request {what} again")
+        self.log_event(f"❌ {what} refused: the results changed while the dialog was open")
+        return False
+
     def save_results(self):
         """Save the shown results with their session and prompt record into a directory of the user's choice."""
         if not self._ready_for_export("saving the results"):
@@ -1794,18 +1855,23 @@ class VideoTrackerApp:
         if self.opened is not None:
             self.set_status("These results are already saved (they were opened from a run directory)")
             return
+        token = self._results_token()
         directory = filedialog.askdirectory(
             title="Select a directory for the saved results", initialdir="./data/output_videos"
         )
         if not directory:
             return
         # The chooser is modal and runs the event loop: re-check after it returns (see generate_videos)
-        if self.opened is not None or not self._ready_for_export("saving the results"):
+        if (
+            self.opened is not None
+            or not self._ready_for_export("saving the results")
+            or not self._same_results(token, "saving the results")
+        ):
             return
         target = Path(directory)
         exporter = ExportService(target)
         existing = exporter.previous_saved_run()
-        replace = False
+        replace_existing = False
         if existing:
             names = ", ".join(path.name for path in existing)
             if not messagebox.askyesno(
@@ -1815,8 +1881,12 @@ class VideoTrackerApp:
             ):
                 self.set_status("Saving cancelled: the directory already holds a saved run")
                 return
-            replace = True
-            if self.opened is not None or not self._ready_for_export("saving the results"):  # modal again
+            replace_existing = True
+            if (  # the question box is modal too
+                self.opened is not None
+                or not self._ready_for_export("saving the results")
+                or not self._same_results(token, "saving the results")
+            ):
                 return
 
         # Read the Tk variables and the annotations on the GUI thread before starting the worker
@@ -1831,6 +1901,8 @@ class VideoTrackerApp:
         }
         result = self.video_segments
         service = self.tracking
+        video = self.result_video  # the video the results were tracked on, checked by _ready_for_export
+        provenance = self.result_provenance or service.provenance()
         run_id = self.tracking_run_id or service.run_id
         video_path = self.current_video_path
         start_time = time.time()
@@ -1846,11 +1918,11 @@ class VideoTrackerApp:
                 saved = exporter.save_run(
                     run_id=run_id,
                     session=session,
-                    video=service.video,
-                    provenance=service.provenance(),
+                    video=video,
+                    provenance=provenance,
                     result=result,
                     prompt_record=record,
-                    replace_existing=replace,
+                    replace_existing=replace_existing,
                 )
                 self.post(self.on_results_saved, saved, time.time() - start_time)
             except Exception as error:
@@ -1963,6 +2035,7 @@ class VideoTrackerApp:
             return
 
         # Ask for output directory
+        token = self._results_token()
         output_dir = filedialog.askdirectory(
             title="Select Output Directory for Organoid Analysis Report", initialdir="./data/output_videos"
         )
@@ -1971,7 +2044,20 @@ class VideoTrackerApp:
             return
 
         # The chooser is modal and runs the event loop: re-check after it returns (see generate_videos)
-        if not self._ready_for_export("the analysis report"):
+        if not self._ready_for_export("the analysis report") or not self._same_results(token, "the analysis report"):
+            return
+
+        # The parameters are read again now: they belong to the results shown after the chooser
+        try:
+            time_lapse_days = float(self.time_lapse_var.get())
+            conversion_factor = float(self.conversion_factor_var.get())
+        except (tk.TclError, ValueError) as error:
+            self.set_status(f"Error reading analysis parameters: {error}")
+            self.log_event(f"❌ Parameter validation error: {error}")
+            return
+        if time_lapse_days <= 0 or conversion_factor <= 0:
+            self.set_status("The time lapse and the conversion factor must be positive")
+            self.log_event("❌ Invalid analysis parameters")
             return
 
         start_time = time.time()
