@@ -30,6 +30,7 @@ from .saved_results import (
     SavedResult,
     discard_staged_result,
     publish_staged_result,
+    relocated_document,
     stage_saved_result,
     write_saved_result,
 )
@@ -225,14 +226,22 @@ class ExportService:
             raise
         return path
 
-    def copy_prompt_record(self, record_path: Path) -> Path:
-        """The prompt record of the run being exported again, copied next to the new exports."""
+    def copy_prompt_record(self, record_path: Path, *, video_path: Path | str | None = None) -> Path:
+        """The prompt record of the run being exported again, copied next to the new exports.
+
+        With ``video_path`` the record's video locator points at the relocated file (its provenance block
+        keeps the path the tracker read).
+        """
         target = self.output_dir / PROMPT_RECORD_NAME
         try:
-            shutil.copyfile(record_path, target)
-        except OSError as error:
+            if video_path is None:
+                shutil.copyfile(record_path, target)
+                return target
+            record = json.loads(Path(record_path).read_text(encoding="utf-8"))
+            record.setdefault("video", {})["path"] = os.path.abspath(video_path)
+            return self._write_json(target, record)
+        except (OSError, ValueError) as error:
             raise ExportError(f"cannot copy the prompt record to {target}: {error}") from error
-        return target
 
     # ------------------------------------------------------------------ saved result
     def write_results(
@@ -308,20 +317,49 @@ class ExportService:
             raise
         return saved
 
-    def copy_saved_result(self, saved: SavedResult) -> SavedResult:
-        """A byte-identical copy of a saved result (its two files) into the output directory."""
+    def copy_saved_result(self, saved: SavedResult, *, video_path: Path | str | None = None) -> SavedResult:
+        """A copy of a saved result (its two files) into the output directory, byte-identical unless relocated.
+
+        With ``video_path`` the copied ``results.json`` points at the relocated video, so that the
+        copy reopens and exports again without another relocation; the mask file is the same bytes.
+        """
         self.output_dir.mkdir(parents=True, exist_ok=True)
         masks_target = self.output_dir / saved.masks_path.name
         results_target = self.output_dir / saved.path.name
         temporary = results_target.with_name(results_target.name + ".tmp")
         try:
             shutil.copyfile(saved.masks_path, masks_target)
-            shutil.copyfile(saved.path, temporary)
-            os.replace(temporary, results_target)  # results.json appears complete or not at all
+            if video_path is None:
+                shutil.copyfile(saved.path, temporary)
+                os.replace(temporary, results_target)  # results.json appears complete or not at all
+            else:
+                self._write_json(results_target, relocated_document(saved.path, video_path))
         except OSError as error:
             temporary.unlink(missing_ok=True)
             raise ExportError(f"cannot copy the saved result to {self.output_dir}: {error}") from error
-        return replace(saved, path=results_target, masks_path=masks_target)
+        copied = replace(saved, path=results_target, masks_path=masks_target)
+        if video_path is not None:
+            copied = replace(
+                copied,
+                session=saved.session.with_video(video_path),
+                video=replace(saved.video, path=Path(os.path.abspath(video_path))),
+            )
+        return copied
+
+    def relocate_saved_run(self, saved: SavedResult, video_path: Path | str) -> SavedResult:
+        """Point a saved run's ``results.json``, ``session.json`` and prompt record at a relocated video, in place."""
+        try:
+            self._write_json(saved.path, relocated_document(saved.path, video_path))
+            session = saved.session.with_video(video_path)
+            self.write_session(session, saved.video.sha256)
+            record = self.output_dir / PROMPT_RECORD_NAME
+            if record.is_file():
+                data = json.loads(record.read_text(encoding="utf-8"))
+                data.setdefault("video", {})["path"] = os.path.abspath(video_path)
+                self._write_json(record, data)
+        except (OSError, ValueError) as error:
+            raise ExportError(f"cannot relocate the video of the run in {self.output_dir}: {error}") from error
+        return replace(saved, session=session, video=replace(saved.video, path=Path(os.path.abspath(video_path))))
 
     # ------------------------------------------------------------------ videos
     @staticmethod

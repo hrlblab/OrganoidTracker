@@ -604,3 +604,38 @@ def test_a_failed_replacement_keeps_the_previous_saved_run_and_its_files(
     assert sorted(p.name for p in out.glob("masks-*.npz")) == [saved.masks_path.name]
     assert not list(out.glob(".*.tmp"))
     assert (out / "raw_cyst_data.csv").read_bytes() == before["raw_cyst_data.csv"]  # exports untouched
+
+
+def test_a_relocated_export_reopens_and_exports_again_without_the_override(hard_run, small_video, tmp_path):
+    """Export with a relocated video, then export that export without naming the video again (review finding:
+    the copied results.json kept the missing path). The provenance keeps the original path."""
+    saved = load_saved_result(hard_run.output_dir)
+    original = saved.session.video.path
+    moved = tmp_path / "elsewhere" / "well.mp4"
+    moved.parent.mkdir()
+    shutil.move(str(small_video), str(moved))
+    try:
+        first = export_saved_result(saved, tmp_path / "first", videos=True, video_path=moved)
+        reopened = load_saved_result(first.output_dir)
+        assert reopened.session.video.path == moved and reopened.video.path == moved
+        assert reopened.provenance["video_path"] == str(original)  # where the masks came from
+        assert mask_digests(reopened.result) == mask_digests(saved.result)
+        assert load_session(first.output_dir / "prompts.json").video.path == moved
+        assert json.loads((first.output_dir / "session.json").read_text())["video"]["path"] == str(moved)
+
+        second = export_saved_result(reopened, tmp_path / "second", videos=True)  # no override needed
+        assert second.exit_code == 3
+        assert_same_exports(hard_run.output_dir, second.output_dir, videos=True)
+        assert load_saved_result(second.output_dir).session.video.path == moved
+
+        # in place: the run directory itself learns the new location
+        in_place = export_saved_result(saved, hard_run.output_dir, videos=True, overwrite=True, video_path=moved)
+        assert in_place.output_dir == hard_run.output_dir
+        again = load_saved_result(hard_run.output_dir)
+        assert again.session.video.path == moved and again.provenance["video_path"] == str(original)
+        assert load_session(hard_run.output_dir / "session.json").video.path == moved
+        assert load_session(hard_run.output_dir / "prompts.json").video.path == moved
+        third = export_saved_result(again, tmp_path / "third", videos=True)
+        assert_same_exports(hard_run.output_dir, third.output_dir, videos=True)
+    finally:
+        shutil.move(str(moved), str(small_video))

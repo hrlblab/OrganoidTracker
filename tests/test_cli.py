@@ -426,3 +426,39 @@ def test_export_failure_exits_1(tmp_path, small_disc, small_video, monkeypatch):
     (out / "organoid_analysis_report.pdf").mkdir(parents=True)
     assert cli.main(["export", "--run", str(run_dir), "--out", str(out), "--no-videos", "--log-level", "ERROR"]) == 1
     assert not (out / "run_manifest.json").exists() and (out / "results.json").is_file()
+
+
+def test_export_with_a_relocated_video_can_be_exported_again(tmp_path, small_disc, small_video, monkeypatch):
+    """A second reopen cycle: export with --video, then export that directory without --video (review finding)."""
+    run_dir, code = _run_dir(tmp_path, small_disc, small_video, monkeypatch)
+    assert code == 0
+    moved = tmp_path / "moved.mp4"
+    os.replace(small_video, moved)
+    try:
+        first = tmp_path / "first"
+        assert (
+            cli.main(
+                ["export", "--run", str(run_dir), "--out", str(first), "--video", str(moved), "--log-level", "ERROR"]
+            )
+            == 0
+        )
+        results = json.loads((first / "results.json").read_text())
+        assert results["session"]["video"]["path"] == str(moved) and results["video"]["path"] == str(moved)
+        assert results["provenance"]["video_path"] == str(small_video)
+        second = tmp_path / "second"
+        assert cli.main(["export", "--run", str(first), "--out", str(second), "--log-level", "ERROR"]) == 0
+        for name in ("raw_cyst_data.csv", "cyst_summary.csv", "organoid_summary.csv"):
+            assert (second / name).read_bytes() == (run_dir / name).read_bytes(), name
+        assert (second / "videos" / "multi_object_overlay.mp4").stat().st_size == (
+            run_dir / "videos" / "multi_object_overlay.mp4"
+        ).stat().st_size
+        # the run directory itself, relocated in place, exports again as well
+        assert (
+            cli.main(["export", "--run", str(run_dir), "--video", str(moved), "--overwrite", "--log-level", "ERROR"])
+            == 0
+        )
+        assert (
+            cli.main(["export", "--run", str(run_dir), "--out", str(tmp_path / "third"), "--log-level", "ERROR"]) == 0
+        )
+    finally:
+        os.replace(moved, small_video)

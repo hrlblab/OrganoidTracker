@@ -229,14 +229,19 @@ def export_saved_result(
 
     exporter.prepare(overwrite=overwrite, keep_results=in_place)
     result = saved.result
+    # A relocated video becomes the run's video locator in every file that names one (results.json,
+    # session.json, the prompt record), so that the exported run reopens without another relocation;
+    # the provenance keeps the path the tracker read.
+    relocated = Path(session.video.path) != Path(saved.session.video.path)
+    new_video = session.video.path if relocated else None
     if in_place:
-        copied = saved
+        copied = exporter.relocate_saved_run(saved, session.video.path) if relocated else saved
     else:
         exporter.write_session(session, saved.video.sha256)
         record = saved.directory / PROMPT_RECORD_NAME
         if record.is_file():
-            exporter.copy_prompt_record(record)
-        copied = exporter.copy_saved_result(saved)
+            exporter.copy_prompt_record(record, video_path=new_video)
+        copied = exporter.copy_saved_result(saved, video_path=new_video)
 
     analysis = AnalysisService(exporter.generator).analyze(
         result, session.annotations, session.calibration, session.timing, debug_mode=debug

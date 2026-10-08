@@ -327,6 +327,22 @@ def write_saved_result(
     )
 
 
+def relocated_document(results_path: Path | str, video_path: Path | str) -> dict[str, Any]:
+    """The results document with its video locators pointing at ``video_path``.
+
+    The session's and the video block's paths say where the file is; the provenance keeps the path the
+    tracker read, so a relocated copy still records where the masks came from.
+    """
+    try:
+        data = json.loads(Path(results_path).read_text(encoding="utf-8"))
+        absolute = os.path.abspath(video_path)
+        data["session"]["video"]["path"] = absolute
+        data["video"]["path"] = absolute
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise SavedResultError(f"cannot relocate the video of {results_path}: {error}") from error
+    return data
+
+
 def _write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
