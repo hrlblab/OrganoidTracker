@@ -28,9 +28,12 @@ from .saved_results import (
     MASKS_GLOB,
     RESULTS_NAME,
     SavedResult,
+    SavedResultError,
     discard_staged_result,
-    publish_staged_result,
+    publish_files,
     relocated_document,
+    remove_stale_mask_files,
+    saved_result_from_staged,
     stage_saved_result,
     write_saved_result,
 )
@@ -271,10 +274,10 @@ class ExportService:
     ) -> SavedResult:
         """Save a run's result, session and prompt record together (the window's Save Results).
 
-        A directory that already holds a saved run is refused unless ``replace_existing``. Everything
-        is staged under temporary names first; the previous saved run, with its manifest (which must not
-        describe the new files), stays in place until the replacement is complete, so a save that fails
-        leaves the previous run usable. Exported videos, tables and figures are never touched.
+        A directory that already holds a saved run is refused unless ``replace_existing``. Every file is
+        staged under a temporary name, then all of them are published in one step that restores the
+        previous run (its manifest included) if any rename fails: a save that fails at any point leaves
+        the previous run complete and usable. Exported videos, tables and figures are never touched.
         """
         existing = self.previous_saved_run()
         if existing and not replace_existing:
@@ -287,35 +290,43 @@ class ExportService:
         staged = stage_saved_result(
             self.output_dir, run_id=run_id, session=session, video=video, provenance=provenance, result=result
         )
-        token = uuid.uuid4().hex
-        session_temp = self.output_dir / f".{SESSION_NAME}.{token}.tmp"
-        record_temp = self.output_dir / f".{PROMPT_RECORD_NAME}.{token}.tmp"
+        temps: dict[str, Path] = {}
         try:
-            session_temp.write_text(
-                json.dumps(self.session_document(session, video.sha256), indent=2, default=str), encoding="utf-8"
-            )
-            record_temp.write_text(json.dumps(dict(prompt_record), indent=2, default=str), encoding="utf-8")
+            temps[SESSION_NAME] = self._stage_json(SESSION_NAME, self.session_document(session, video.sha256))
+            temps[PROMPT_RECORD_NAME] = self._stage_json(PROMPT_RECORD_NAME, dict(prompt_record))
         except OSError as error:
             discard_staged_result(staged)
-            session_temp.unlink(missing_ok=True)
-            record_temp.unlink(missing_ok=True)
+            self._discard_temps(temps)
             raise ExportError(f"cannot write the session or the prompt record in {self.output_dir}: {error}") from error
-        manifest = self.output_dir / RUN_MANIFEST_NAME
         try:
-            if manifest.is_file():
-                manifest.unlink()  # it described the previous run's files
-            saved = publish_staged_result(staged)
-            os.replace(session_temp, self.output_dir / SESSION_NAME)
-            os.replace(record_temp, self.output_dir / PROMPT_RECORD_NAME)
+            publish_files(
+                self.output_dir,
+                {
+                    RUN_MANIFEST_NAME: None,  # it described the previous run's files
+                    staged.masks_path.name: staged.masks_temp,
+                    RESULTS_NAME: staged.results_temp,
+                    SESSION_NAME: temps[SESSION_NAME],
+                    PROMPT_RECORD_NAME: temps[PROMPT_RECORD_NAME],
+                },
+            )
         except OSError as error:
-            session_temp.unlink(missing_ok=True)
-            record_temp.unlink(missing_ok=True)
-            raise ExportError(f"cannot publish the saved run in {self.output_dir}: {error}") from error
-        except Exception:
-            session_temp.unlink(missing_ok=True)
-            record_temp.unlink(missing_ok=True)
-            raise
-        return saved
+            discard_staged_result(staged)
+            self._discard_temps(temps)
+            raise ExportError(
+                f"cannot publish the saved run in {self.output_dir}: {error}; the previous saved run was kept"
+            ) from error
+        remove_stale_mask_files(self.output_dir, keep=staged.masks_path.name)
+        return saved_result_from_staged(staged)
+
+    def _stage_json(self, name: str, data: dict[str, Any]) -> Path:
+        temporary = self.output_dir / f".{name}.{uuid.uuid4().hex}.tmp"
+        temporary.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+        return temporary
+
+    @staticmethod
+    def _discard_temps(temps: Mapping[str, Path]) -> None:
+        for temporary in temps.values():
+            temporary.unlink(missing_ok=True)
 
     def copy_saved_result(self, saved: SavedResult, *, video_path: Path | str | None = None) -> SavedResult:
         """A copy of a saved result (its two files) into the output directory, byte-identical unless relocated.
@@ -347,17 +358,24 @@ class ExportService:
         return copied
 
     def relocate_saved_run(self, saved: SavedResult, video_path: Path | str) -> SavedResult:
-        """Point a saved run's ``results.json``, ``session.json`` and prompt record at a relocated video, in place."""
+        """Point a saved run's ``results.json``, ``session.json`` and prompt record at a relocated video, in place.
+
+        The three documents are staged and published in one step (see ``publish_files``): either all of
+        them name the new location or none does.
+        """
+        session = saved.session.with_video(video_path)
+        temps: dict[str, Path] = {}
         try:
-            self._write_json(saved.path, relocated_document(saved.path, video_path))
-            session = saved.session.with_video(video_path)
-            self.write_session(session, saved.video.sha256)
+            temps[RESULTS_NAME] = self._stage_json(RESULTS_NAME, relocated_document(saved.path, video_path))
+            temps[SESSION_NAME] = self._stage_json(SESSION_NAME, self.session_document(session, saved.video.sha256))
             record = self.output_dir / PROMPT_RECORD_NAME
             if record.is_file():
                 data = json.loads(record.read_text(encoding="utf-8"))
                 data.setdefault("video", {})["path"] = os.path.abspath(video_path)
-                self._write_json(record, data)
-        except (OSError, ValueError) as error:
+                temps[PROMPT_RECORD_NAME] = self._stage_json(PROMPT_RECORD_NAME, data)
+            publish_files(self.output_dir, dict(temps))
+        except (OSError, ValueError, SavedResultError) as error:
+            self._discard_temps(temps)
             raise ExportError(f"cannot relocate the video of the run in {self.output_dir}: {error}") from error
         return replace(saved, session=session, video=replace(saved.video, path=Path(os.path.abspath(video_path))))
 
