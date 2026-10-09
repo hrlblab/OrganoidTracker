@@ -854,3 +854,178 @@ def test_a_run_opened_inside_a_chooser_is_refused_and_the_next_request_uses_its_
     summary = json.loads((out / "analysis_summary.json").read_text())
     assert summary["experiment_info"]["conversion_factor_um_per_pixel"] == 2.0
     assert summary["experiment_info"]["time_lapse_days"] == 14.0
+
+
+def _prepare_tracking(app, monkeypatch, video, box, point):
+    """Driver steps that load the fake model and the video and place one organoid with one cyst box."""
+    from organoidtracker.gui_tk import main_window
+
+    def load_model():
+        app.device_var.set("cpu")
+        app.model_config_var.set("sam2_hiera_s")
+        app.load_selected_model()
+
+    def load_video():
+        monkeypatch.setattr(main_window.filedialog, "askopenfilename", lambda *a, **k: str(video))
+        app.load_video()
+
+    def annotate():
+        app.on_canvas_click(*point)
+        app.on_canvas_bbox(*box)
+
+    return (
+        TkDriver(app.root)
+        .step("model loaded", load_model, lambda: app.current_model is not None, 30)
+        .step("video loaded", load_video, lambda: app.current_video_path == str(video), 30)
+        .step("annotated", annotate, None, 5)
+    )
+
+
+@pytest.mark.parametrize("app", [{"frame_delay_s": 0.25}], indirect=True)
+def test_cancel_from_the_progress_dialog_keeps_the_tracked_frames(app, monkeypatch, small_disc, small_video, tmp_path):
+    """The dialog's Cancel button stops the run after the frame in progress; the tracked frames stay exportable and
+    saveable as a cancelled run; tracking again on the same video completes with the uninterrupted masks."""
+    from organoidtracker.gui_tk import main_window
+    from organoidtracker.services.saved_results import load_saved_result
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    save_dir = tmp_path / "saved"
+    state = {}
+
+    def dialog_showing_progress():
+        dialog = app.tracking_dialog
+        return dialog is not None and dialog.dialog is not None and dialog.progress_var.get() >= 100 * 2 / N
+
+    def press_cancel():
+        state["dialog"] = app.tracking_dialog
+        app.tracking_dialog.request_cancel()  # the button's command
+        assert (
+            "Cancelling" in app.status_label["text"] and str(app.tracking_dialog.cancel_button["state"]) == "disabled"
+        )
+
+    def cancelled():
+        return not app.tracking_in_progress and "cancelled" in app.status_label["text"]
+
+    def check_cancelled_state():
+        result = app.video_segments
+        assert result is not None and result.status == "cancelled" and 2 <= result.frames_done < N
+        assert result.tracked_frames == list(range(N - 1, N - 1 - result.frames_done, -1))
+        assert state["dialog"].dialog is None  # closed
+        for button in (app.track_btn, app.generate_btn, app.analysis_btn, app.save_results_btn):
+            assert str(button["state"]) == "normal", button
+        log = log_of(app)
+        assert "⏹ Cancel requested" in log and "⏹ Tracking cancelled after" in log and "treat exports as partial" in log
+        state["cancelled_digests"] = mask_digests(result)
+        state["run_id"] = app.tracking_run_id
+
+    def save():
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(save_dir))
+        app.save_results()
+
+    def track_again():
+        app.start_tracking()
+
+    def completed():
+        return not app.tracking_in_progress and app.video_segments is not None and app.video_segments.is_complete
+
+    (
+        _prepare_tracking(app, monkeypatch, small_video, box, (cx - 30, cy - 30))
+        .step("tracking started", app.start_tracking, dialog_showing_progress, 30)
+        .step("cancel pressed", press_cancel, cancelled, 30)
+        .step("cancelled state", check_cancelled_state, None, 5)
+        .step("saved", save, lambda: "Results saved" in app.status_label["text"], 30)
+        .step("tracked again", track_again, completed, 60)
+        .run()
+    )
+    saved = load_saved_result(save_dir)
+    assert saved.result.status == "cancelled" and mask_digests(saved.result) == state["cancelled_digests"]
+    assert saved.run_id == state["run_id"]
+    # the second run is a new run with every frame; its masks equal an uninterrupted run's (the fake is deterministic)
+    assert app.tracking_run_id != state["run_id"] and app.video_segments.frames_done == N
+    full = run_session(
+        equivalent_session(
+            small_video, [{"organoid_id": 1, "point": [cx - 30, cy - 30], "cysts": [{"cyst_id": 1, "bbox": list(box)}]}]
+        ),
+        tmp_path / "full",
+        videos=False,
+        tracking_service_factory=lambda spec: TrackingService(
+            FakeTracker(small_disc, enable_reverse_tracking=spec.reverse)
+        ),
+    )
+    assert mask_digests(app.video_segments) == mask_digests(full.result)
+    assert "✅ Tracking completed" in log_of(app)
+
+
+@pytest.mark.parametrize("app", [{"start_delay_s": 0.5, "frame_delay_s": 0.05}], indirect=True)
+def test_cancel_before_the_first_frame_leaves_no_results_and_tracking_again_works(
+    app, monkeypatch, small_disc, small_video
+):
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+
+    def start_and_cancel_at_once():
+        app.start_tracking()
+        assert app.tracking_in_progress
+        app.cancel_tracking()  # before the backend's first check (it pauses 0.5 s before it)
+        assert "Cancelling" in app.status_label["text"]
+
+    def cancelled():
+        return not app.tracking_in_progress and "cancelled" in app.status_label["text"]
+
+    def check_state():
+        assert app.video_segments is None and app.result_video is None
+        assert "before any mask was kept" in log_of(app)
+        for button in (app.generate_btn, app.analysis_btn, app.save_results_btn):
+            assert str(button["state"]) == "disabled", button
+        assert str(app.track_btn["state"]) == "normal"
+        app.cancel_tracking()  # nothing runs: a no-op
+        assert "No tracking is running" in app.status_label["text"]
+
+    def completed():
+        return not app.tracking_in_progress and app.video_segments is not None and app.video_segments.is_complete
+
+    (
+        _prepare_tracking(app, monkeypatch, small_video, box, (cx - 30, cy - 30))
+        .step("started and cancelled", start_and_cancel_at_once, cancelled, 30)
+        .step("no results", check_state, None, 5)
+        .step("tracked again", app.start_tracking, completed, 60)
+        .run()
+    )
+    assert app.video_segments.frames_done == N and str(app.save_results_btn["state"]) == "normal"
+
+
+def test_stale_tracking_callbacks_are_ignored(app, monkeypatch, small_disc, small_video, tmp_path):
+    """A completion or error posted by a run that is no longer the current one changes nothing and closes its dialog."""
+    from organoidtracker.core.tracking_result import TrackingResult
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+
+    class ClosableDialog:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    def stale_callbacks():
+        current = app.video_segments
+        digests = mask_digests(current)
+        stale_result = TrackingResult({0: {1: current[0][1]}}, status="completed", frames_total=N, frames_done=N)
+        dialog = ClosableDialog()
+        app.on_tracking_complete_success("old-run", app.tracking, dialog, stale_result, 0.0)
+        assert dialog.closed and app.video_segments is current and mask_digests(app.video_segments) == digests
+        other_service = TrackingService(FakeTracker(small_disc))
+        dialog = ClosableDialog()
+        app.on_tracking_complete_error(app.tracking_run_id, other_service, dialog, "late failure", 0.0)
+        assert dialog.closed and app.video_segments is current and str(app.track_btn["state"]) == "normal"
+        assert "Error during tracking" not in app.status_label["text"]
+        app._on_tracking_progress("old-run", dialog, 50, "late progress")  # nothing to update, no error
+        assert log_of(app).count("Ignored a stale tracking") == 2
+
+    (
+        _track_in_window(app, monkeypatch, small_video, box, point=(cx - 30, cy - 30))
+        .step("stale callbacks ignored", stale_callbacks, None, 5)
+        .run()
+    )
+    assert str(app.generate_btn["state"]) == "normal" and app.video_segments.is_complete

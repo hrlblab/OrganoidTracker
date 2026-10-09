@@ -16,7 +16,7 @@ class ProgressDialog:
     Modal progress dialog for showing operation progress
     """
 
-    def __init__(self, parent, title="Processing", message="Please wait..."):
+    def __init__(self, parent, title="Processing", message="Please wait...", on_cancel=None):
         """
         Initialize the progress dialog
 
@@ -24,9 +24,14 @@ class ProgressDialog:
             parent: Parent window
             title: Dialog title
             message: Initial message
+            on_cancel: Optional callback; when given, the dialog shows a Cancel button that calls it
+                once (the operation is expected to stop after the step in progress)
         """
         self.parent = parent
         self.dialog = None
+        self.on_cancel = on_cancel
+        self.cancel_button = None
+        self.cancel_requested = False
         self.progress_var = tk.DoubleVar()
         self.message_var = tk.StringVar(value=message)
         self.title = title
@@ -41,7 +46,7 @@ class ProgressDialog:
         # Create dialog window
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title(self.title)
-        self.dialog.geometry("400x150")
+        self.dialog.geometry("400x190" if self.on_cancel is not None else "400x150")
         self.dialog.resizable(False, False)
 
         # Center on parent
@@ -125,6 +130,10 @@ class ProgressDialog:
         self.progress_text = ttk.Label(main_frame, text="0%", font=("Arial", 9))
         self.progress_text.grid(row=2, column=0, sticky="ew")
 
+        if self.on_cancel is not None:
+            self.cancel_button = ttk.Button(main_frame, text="Cancel", command=self.request_cancel)
+            self.cancel_button.grid(row=3, column=0, pady=(10, 0))
+
         # Configure grid weights
         main_frame.columnconfigure(0, weight=1)
         self.dialog.columnconfigure(0, weight=1)
@@ -182,6 +191,20 @@ class ProgressDialog:
                 except tk.TclError:
                     # Dialog might have been destroyed
                     pass
+
+    def request_cancel(self):
+        """The Cancel button: once; the button is disabled and the message says the step in progress finishes."""
+        if self.cancel_requested:
+            return
+        self.cancel_requested = True
+        if self.cancel_button is not None:
+            try:
+                self.cancel_button.config(state="disabled")
+            except tk.TclError:
+                pass
+        self.message_var.set("Cancelling... finishing the frame in progress")
+        if self.on_cancel is not None:
+            self.on_cancel()
 
     def close(self):
         """Close the dialog"""
