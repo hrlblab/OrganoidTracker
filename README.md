@@ -194,7 +194,10 @@ interrupted propagation exactly is not supported (SAM 2 keeps an inference memor
 
 Exit status: 0 completed; 1 failed; 2 invalid input (session, settings, saved result, missing or different
 video); 3 the tracking stopped early and the exports are **partial** (the manifest, the summary and the PDF
-say so; `export` reports the status of the run it exports again).
+say so; `export` reports the status of the run it exports again); 4 the run was **cancelled**: the first Ctrl-C
+asks the tracking to stop after the frame in progress (SAM 2's per-frame inference is not interruptible), the
+tracked frames are saved, analyzed and exported with the status `cancelled`, and a second Ctrl-C aborts at once.
+A run cancelled before any mask was kept writes only the session and the prompt record.
 
 ## Output Files
 
@@ -211,7 +214,7 @@ After analysis, the following files are generated in `data/output_videos/`:
 
 ### Frame order and timing
 
-Frames are handled in chronological order throughout. With Reverse Tracking enabled, prompts are placed on the last frame and SAM2 propagates backwards in time; outputs are always written chronologically. The "Time Lapse (days)" value is the span from the first to the last frame, and days are numbered from 1 as in the paper's figures (seven daily frames spanning six days are days 1 to 7).
+Frames are handled in chronological order throughout. With Reverse Tracking enabled, prompts are placed on the last frame and SAM2 propagates backwards in time; outputs are always written chronologically. The tracking progress dialog has a Cancel button: the frame in progress finishes, the tracked frames stay available for videos, the report and Save Results (as a cancelled run), and tracking again on the same video produces the masks of an uninterrupted run. The "Time Lapse (days)" value is the span from the first to the last frame, and days are numbered from 1 as in the paper's figures (seven daily frames spanning six days are days 1 to 7).
 
 ### Running the tests
 

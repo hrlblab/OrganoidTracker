@@ -9,8 +9,9 @@
 
 Exit status: 0 the run completed; 1 it failed (no masks, export error); 2 the inputs were
 invalid (session file, settings file, saved result, missing or different video, bad arguments);
-3 the run stopped early and its exports are partial (they say so in every file). ``export``
-reports the status of the run it exports again.
+3 the run stopped early and its exports are partial (they say so in every file); 4 the run was
+cancelled (Ctrl-C: the frame in progress finishes, the tracked frames are saved and exported;
+a second Ctrl-C aborts at once). ``export`` reports the status of the run it exports again.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_INVALID = 2
 EXIT_PARTIAL = 3
+EXIT_CANCELLED = 4
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -133,12 +135,14 @@ def _validate(session_path: Path, video_override: Path | None) -> int:
 
 
 def _run(args: argparse.Namespace, config) -> int:
+    import signal
+    import threading
     from dataclasses import replace
 
     from .logging_config import configure_logging
     from .services.annotations import AnnotationError
     from .services.export_service import ExportError
-    from .services.pipeline import run_session
+    from .services.pipeline import RunCancelled, run_session
     from .services.saved_results import SavedResultError
     from .services.session import SessionError
     from .services.tracking_service import TrackingError
@@ -178,6 +182,20 @@ def _run(args: argparse.Namespace, config) -> int:
         else:
             logger.debug(f"[{phase}] {message}")
 
+    # The first Ctrl-C asks the propagation to stop after the frame in progress; a second one aborts at once
+    cancel = threading.Event()
+
+    def on_interrupt(signum, frame):
+        if cancel.is_set():
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+            raise KeyboardInterrupt
+        cancel.set()
+        logger.warning("Cancel requested: tracking stops after the frame in progress (press Ctrl-C again to abort)")
+
+    try:
+        previous_handler = signal.signal(signal.SIGINT, on_interrupt)
+    except ValueError:  # not the main thread: no handler, the run is simply not cancellable this way
+        previous_handler = None
     try:
         outcome = run_session(
             session,
@@ -187,7 +205,11 @@ def _run(args: argparse.Namespace, config) -> int:
             overwrite=args.overwrite,
             debug=args.debug,
             progress=progress,
+            cancel=cancel,
         )
+    except RunCancelled as error:
+        logger.warning(f"Tracking cancelled before any mask was kept ({error}); nothing was exported (exit status 4)")
+        return EXIT_CANCELLED
     except (SessionError, AnnotationError) as error:
         logger.error(f"Invalid input: {error}")
         return EXIT_INVALID
@@ -200,6 +222,9 @@ def _run(args: argparse.Namespace, config) -> int:
     except SavedResultError as error:
         logger.error(f"Saving the results failed: {error}")
         return EXIT_FAILURE
+    finally:
+        if previous_handler is not None:
+            signal.signal(signal.SIGINT, previous_handler)
     return _report_outcome(outcome)
 
 
@@ -209,7 +234,12 @@ def _report_outcome(outcome) -> int:
         f"Tracking {outcome.result.summary()}; {info.get('total_organoids')} organoids, "
         f"{info.get('total_cysts')} cysts with trajectories; outputs in {outcome.output_dir}"
     )
-    if not outcome.complete:
+    if outcome.status == "cancelled":
+        logger.warning(
+            f"The run was CANCELLED after {outcome.result.frames_done} of {outcome.result.frames_total} frames: "
+            "exports cover the tracked frames only (exit status 4)"
+        )
+    elif not outcome.complete:
         logger.warning("The run is PARTIAL: exports cover the tracked frames only (exit status 3)")
     return outcome.exit_code
 

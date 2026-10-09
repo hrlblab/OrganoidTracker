@@ -11,6 +11,7 @@ annotation frame, which is display index 0 of the backend.
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -36,7 +37,8 @@ class TrackingError(RuntimeError):
 
 
 class TrackingService:
-    """Lifecycle: idle -> preparing (model) -> ready (video, prompts) -> running -> completed | partial | failed."""
+    """Lifecycle: idle -> preparing (model) -> ready (video, prompts) -> running [-> cancelling]
+    -> completed | partial | cancelled | failed."""
 
     def __init__(self, tracker: BaseVideoTracker, run_id: str | None = None) -> None:
         self.tracker = tracker
@@ -45,6 +47,7 @@ class TrackingService:
         self.video: VideoSource | None = None
         self.annotations: AnnotationSet | None = None
         self.result: TrackingResult | None = None
+        self._cancel = threading.Event()  # set from any thread; polled by the backend between frames
 
     @classmethod
     def create(cls, spec: TrackingSpec, registry: Any | None = None) -> TrackingService:
@@ -159,15 +162,38 @@ class TrackingService:
         if hasattr(self.tracker, "debug_mode"):
             self.tracker.debug_mode = bool(enabled)
 
-    def run(self, progress: ProgressCallback | None = None) -> TrackingResult:
-        """Propagate the prompts; the result says whether the run completed or stopped early."""
+    def cancel(self) -> bool:
+        """Ask the running propagation to stop after the frame in progress; False when nothing runs."""
+        if self.state != "running":
+            return False
+        self._cancel.set()
+        self.state = "cancelling"
+        logger.info(f"Run {self.run_id}: cancel requested, stopping after the frame in progress")
+        return True
+
+    @property
+    def cancel_requested(self) -> bool:
+        return self._cancel.is_set()
+
+    def run(
+        self, progress: ProgressCallback | None = None, should_stop: Callable[[], bool] | None = None
+    ) -> TrackingResult:
+        """Propagate the prompts; the result says whether the run completed, stopped early or was cancelled.
+
+        A cancel request (:meth:`cancel`, or ``should_stop`` returning True) is honoured between frames.
+        """
         if self.video is None:
             raise TrackingError("open a video before tracking")
         if self.prompt_count() == 0:
             raise TrackingError("add at least one cyst box before tracking")
+        self._cancel.clear()
         self.state = "running"
+
+        def stop_requested() -> bool:
+            return self._cancel.is_set() or (should_stop is not None and should_stop())
+
         try:
-            result = self.tracker.run_tracking(progress)
+            result = self.tracker.run_tracking(progress, should_stop=stop_requested)
         except Exception as error:
             self.state = "failed"
             raise TrackingError(f"tracking failed: {error}") from error

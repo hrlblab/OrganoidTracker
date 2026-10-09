@@ -48,6 +48,13 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   analysis summary).
 
 ### Added
+- Tracking can be cancelled. The progress dialog's Cancel button and the command line's first Ctrl-C ask
+  the propagation to stop after the frame in progress (SAM 2's per-frame inference is not interruptible);
+  the tracked frames keep their masks and are saved, analyzed and exported like a partial run, labelled
+  `cancelled` in the saved result, the summary, the PDF and the manifest (exit status 4; a second Ctrl-C
+  aborts at once). A run cancelled before any mask was kept writes only the session and the prompt record.
+  Tracking again on the same loaded video reproduces an uninterrupted run. The window ignores completion and
+  progress callbacks of a run that is no longer the current one.
 - Every run saves its complete tracking result next to the exports, before any export is written:
   `results.json` (schema `organoidtracker.results/1`: run id and time, results version, software,
   environment, effective settings, the validated session including organoids without cysts, the video

@@ -56,7 +56,7 @@ MASKS_PREFIX = "masks-"
 MASKS_SUFFIX = ".npz"
 MASKS_GLOB = f"{MASKS_PREFIX}*{MASKS_SUFFIX}"
 MASKS_FORMAT = "packed-bits"  # numpy.packbits of the boolean mask, row-major, one array per (frame, object)
-STATUSES = (TrackingResult.COMPLETED, TrackingResult.PARTIAL)
+STATUSES = (TrackingResult.COMPLETED, TrackingResult.PARTIAL, TrackingResult.CANCELLED)
 TOP_LEVEL_KEYS = (
     "schema",
     "run_id",
@@ -611,9 +611,9 @@ def _tracking(value: Any, where: str, video: VideoSource) -> dict[str, Any]:
         raise SavedResultError(
             f"{where}: a completed run must have tracked every frame ({frames_done} of {frames_total})"
         )
-    if status == TrackingResult.PARTIAL and frames_done >= frames_total:
+    if status != TrackingResult.COMPLETED and frames_done >= frames_total:
         raise SavedResultError(
-            f"{where}: a partial run cannot have tracked every frame ({frames_done} of {frames_total})"
+            f"{where}: a {status} run cannot have tracked every frame ({frames_done} of {frames_total})"
         )
     presence: dict[int, dict[int, float]] = {}
     for frame_key, scores in presence_block.items():
