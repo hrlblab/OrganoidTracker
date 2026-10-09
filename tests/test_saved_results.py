@@ -442,14 +442,14 @@ def test_an_interrupted_or_failed_save_keeps_the_previous_result(hard_run, tmp_p
     assert {p.name: p.read_bytes() for p in store.iterdir()} == before
     assert mask_digests(load_saved_result(store).result) == mask_digests(previous.result)
 
-    # a crash after the mask file was renamed but before results.json: the old pair still loads, and the
-    # orphan is removed because the previous results.json does not name it
+    # a failure after the mask file was renamed, while results.json is placed: the previous pair is put back
+    # (the previous results.json names its own mask file) and the new mask file is removed again
     import os
 
     original_replace = os.replace
 
     def crash_on_the_json_rename(src, dst):
-        if str(dst).endswith(RESULTS_NAME):
+        if str(dst).endswith(RESULTS_NAME) and str(src).endswith(".tmp"):
             raise OSError("power cut")
         return original_replace(src, dst)
 
@@ -596,6 +596,26 @@ def test_a_failed_replacement_keeps_the_previous_saved_run_and_its_files(
         assert {p.name: p.read_bytes() for p in out.iterdir() if p.is_file()} == before, seam  # nothing changed
         assert mask_digests(load_saved_result(out).result) == mask_digests(hard_run.result)
 
+    # publication: a rename failing at any of the five files (review finding: the previous run was already partly
+    # replaced, results.json new next to the old session.json, the manifest and the previous masks gone)
+    import os
+
+    original_replace = os.replace
+    for victim in ("results.json", "session.json", "prompts.json", replacement.masks_path.name):
+
+        def fail_placing(src, dst, _victim=victim):
+            if Path(dst).name == _victim and str(src).endswith(".tmp"):
+                raise OSError(f"injected failure while publishing {_victim}")
+            return original_replace(src, dst)
+
+        monkeypatch.setattr(saved_results.os, "replace", fail_placing)
+        with pytest.raises(ExportError, match=f"publishing {victim}.*previous saved run was kept"):
+            save(replace_existing=True)
+        monkeypatch.undo()
+        assert {p.name: p.read_bytes() for p in out.iterdir() if p.is_file()} == before, victim  # manifest too
+        assert mask_digests(load_saved_result(out).result) == mask_digests(hard_run.result)
+        assert not list(out.glob(".*")), victim
+
     saved = save(replace_existing=True)
     assert saved.run_id == "replacement" and not (out / "run_manifest.json").exists()
     assert mask_digests(load_saved_result(out).result) == mask_digests(replacement.result)
@@ -606,7 +626,9 @@ def test_a_failed_replacement_keeps_the_previous_saved_run_and_its_files(
     assert (out / "raw_cyst_data.csv").read_bytes() == before["raw_cyst_data.csv"]  # exports untouched
 
 
-def test_a_relocated_export_reopens_and_exports_again_without_the_override(hard_run, small_video, tmp_path):
+def test_a_relocated_export_reopens_and_exports_again_without_the_override(
+    hard_run, small_video, tmp_path, monkeypatch
+):
     """Export with a relocated video, then export that export without naming the video again (review finding:
     the copied results.json kept the missing path). The provenance keeps the original path."""
     saved = load_saved_result(hard_run.output_dir)
@@ -628,7 +650,25 @@ def test_a_relocated_export_reopens_and_exports_again_without_the_override(hard_
         assert_same_exports(hard_run.output_dir, second.output_dir, videos=True)
         assert load_saved_result(second.output_dir).session.video.path == moved
 
-        # in place: the run directory itself learns the new location
+        # in place: the run directory itself learns the new location, in one step (a failed rename leaves the
+        # three documents as they were, all naming the old location)
+        import os
+
+        original_replace = os.replace
+
+        def fail_on_session(src, dst):
+            if Path(dst).name == "session.json" and str(src).endswith(".tmp"):
+                raise OSError("injected failure while relocating session.json")
+            return original_replace(src, dst)
+
+        monkeypatch.setattr(saved_results.os, "replace", fail_on_session)
+        with pytest.raises(ExportError, match="relocating session.json"):
+            export_saved_result(saved, hard_run.output_dir, videos=True, overwrite=True, video_path=moved)
+        monkeypatch.undo()
+        assert load_saved_result(hard_run.output_dir).session.video.path == original
+        assert load_session(hard_run.output_dir / "session.json").video.path == original
+        assert load_session(hard_run.output_dir / "prompts.json").video.path == original
+        assert not list(hard_run.output_dir.glob(".*"))
         in_place = export_saved_result(saved, hard_run.output_dir, videos=True, overwrite=True, video_path=moved)
         assert in_place.output_dir == hard_run.output_dir
         again = load_saved_result(hard_run.output_dir)

@@ -259,28 +259,63 @@ def stage_saved_result(
     return StagedResult(directory, masks_temp, masks_path, results_temp, document, run_id, session, video, result)
 
 
-def publish_staged_result(staged: StagedResult) -> SavedResult:
-    """Make a staged result the directory's saved result: the mask file first, then ``results.json``.
+def publish_files(directory: Path, replacements: Mapping[str, Path | None]) -> None:
+    """Put staged files in place as one step: every listed name gets its new content, or every one keeps its old.
 
-    A previous saved result stays readable until its ``results.json`` is replaced; a mask file is never
-    overwritten with different content because it is named after its content. Mask files the new
-    ``results.json`` does not name are removed afterwards.
+    ``replacements`` maps a file name to its staged file, or to None for a file that must go (a previous
+    manifest, which must never describe the new files). The previous files are set aside first, in the
+    given order, then the staged files are renamed in. When any rename fails, the files already placed
+    are removed and the previous ones put back, so the directory never holds a mix of two runs. Renames
+    within one directory are atomic; should a restore fail as well, the previous file stays beside under
+    its ``.previous`` name, which the error says.
     """
-    directory = staged.directory
+    token = uuid.uuid4().hex
+    set_aside: list[tuple[Path, Path]] = []
+    placed: list[Path] = []
     try:
-        os.replace(staged.masks_temp, staged.masks_path)
-        os.replace(staged.results_temp, directory / RESULTS_NAME)
+        for name, source in replacements.items():
+            target = directory / name
+            if target.is_file():
+                backup = directory / f".{name}.{token}.previous"
+                os.replace(target, backup)
+                set_aside.append((target, backup))
+            if source is not None:
+                os.replace(source, target)
+                placed.append(target)
     except OSError as error:
-        discard_staged_result(staged)
-        if staged.masks_path.name not in _referenced_mask_files(directory):
-            staged.masks_path.unlink(missing_ok=True)  # an orphan: the previous results.json names its own file
-        raise SavedResultError(f"cannot publish the saved result in {directory}: {error}") from error
+        left_aside = []
+        for target in reversed(placed):
+            try:
+                target.unlink(missing_ok=True)
+            except OSError:
+                pass
+        for target, backup in reversed(set_aside):
+            try:
+                os.replace(backup, target)
+            except OSError:
+                left_aside.append(backup.name)
+        if left_aside:
+            raise OSError(f"{error} (the previous files are kept beside as {', '.join(left_aside)})") from error
+        raise
+    for _target, backup in set_aside:
+        backup.unlink(missing_ok=True)
+
+
+def remove_stale_mask_files(directory: Path, keep: str) -> None:
+    """Drop the mask files a directory's ``results.json`` no longer names (best effort)."""
     for stale in directory.glob(MASKS_GLOB):
-        if stale.name != staged.masks_path.name:
-            stale.unlink(missing_ok=True)
+        if stale.name != keep:
+            try:
+                stale.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def saved_result_from_staged(staged: StagedResult) -> SavedResult:
+    """The ``SavedResult`` a published stage describes."""
     document = staged.document
     return SavedResult(
-        path=directory / RESULTS_NAME,
+        path=staged.directory / RESULTS_NAME,
         masks_path=staged.masks_path,
         run_id=staged.run_id,
         created=document["created"],
@@ -293,6 +328,18 @@ def publish_staged_result(staged: StagedResult) -> SavedResult:
         provenance=document["provenance"],
         result=staged.result,
     )
+
+
+def publish_staged_result(staged: StagedResult) -> SavedResult:
+    """Make a staged result the directory's saved result: both files in one step, the previous pair restored
+    on failure (see :func:`publish_files`); mask files the new ``results.json`` does not name go afterwards."""
+    try:
+        publish_files(staged.directory, {staged.masks_path.name: staged.masks_temp, RESULTS_NAME: staged.results_temp})
+    except OSError as error:
+        discard_staged_result(staged)
+        raise SavedResultError(f"cannot publish the saved result in {staged.directory}: {error}") from error
+    remove_stale_mask_files(staged.directory, keep=staged.masks_path.name)
+    return saved_result_from_staged(staged)
 
 
 def discard_staged_result(staged: StagedResult) -> None:

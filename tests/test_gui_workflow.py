@@ -12,6 +12,7 @@ import hashlib
 import json
 import sys
 import tkinter
+from pathlib import Path
 
 import pytest
 
@@ -684,19 +685,38 @@ def test_a_failed_save_over_a_saved_run_keeps_it(app, monkeypatch, small_disc, s
         assert "injected disk-full error" in app.status_label["text"]
         assert {p.name: p.read_bytes() for p in dest.iterdir() if p.is_file()} == before  # manifest included
         assert mask_digests(load_saved_result(dest).result) == mask_digests(previous.result)
-        monkeypatch.setattr(
-            saved_results,
-            "_write_npz",
-            saved_results._write_npz.__wrapped__
-            if hasattr(saved_results._write_npz, "__wrapped__")
-            else original_write_npz,
-        )
+        monkeypatch.setattr(saved_results, "_write_npz", original_write_npz)
+
+    import os
+
+    original_replace = os.replace
+
+    def failing_publication():
+        # the review's reproduction: every file is written, the rename of session.json fails while publishing
+        def fail_on_session(src, dst):
+            if Path(dst).name == "session.json" and str(src).endswith(".tmp"):
+                raise OSError("injected failure while publishing session.json")
+            return original_replace(src, dst)
+
+        monkeypatch.setattr(saved_results.os, "replace", fail_on_session)
+        save()
+
+    def publication_failed():
+        return "publishing session.json" in app.status_label["text"] and str(app.save_results_btn["state"]) == "normal"
+
+    def check_previous_intact_again():
+        assert {p.name: p.read_bytes() for p in dest.iterdir() if p.is_file()} == before  # nothing mixed, nothing lost
+        assert mask_digests(load_saved_result(dest).result) == mask_digests(previous.result)
+        assert not list(dest.glob(".*"))
+        monkeypatch.setattr(saved_results.os, "replace", original_replace)
 
     original_write_npz = saved_results._write_npz
     (
         _track_in_window(app, monkeypatch, small_video, box, point=(cx - 30, cy - 30))
         .step("failed save", failing_save, failed, 30)
         .step("previous run intact", check_previous_intact, None, 5)
+        .step("failed publication", failing_publication, publication_failed, 30)
+        .step("previous run intact again", check_previous_intact_again, None, 5)
         .step("replacing save", save, lambda: "Results saved" in app.status_label["text"], 30)
         .run()
     )
