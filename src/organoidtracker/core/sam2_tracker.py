@@ -431,8 +431,18 @@ class SAM2Tracker(BaseVideoTracker):
             return False
 
     # ------------------------------------------------------------------ tracking
-    def run_tracking(self, progress_callback: Callable[..., None] | None = None) -> TrackingResult:
-        """Propagate the prompts through the video and return masks keyed by chronological frame."""
+    def run_tracking(
+        self,
+        progress_callback: Callable[..., None] | None = None,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> TrackingResult:
+        """Propagate the prompts through the video and return masks keyed by chronological frame.
+
+        ``should_stop`` is polled before the first frame and after every frame: a cancel request
+        stops the propagation after the frame in progress (SAM 2's per-frame inference is not
+        interruptible) and the result's status is ``cancelled``, with whatever the tracked frames
+        produced. Running again on the same state reproduces an uninterrupted run.
+        """
         logger.info("Running object tracking...")
         if not self.prompts:
             raise ValueError("No prompts added. Add click or bbox prompts first.")
@@ -463,6 +473,10 @@ class SAM2Tracker(BaseVideoTracker):
             logger.debug(f"Memory dependence: {memory_frames} previous frames")
 
         processed_frames: list[int] = []
+        if should_stop is not None and should_stop():
+            result.status = TrackingResult.CANCELLED
+            logger.info("Tracking cancelled before the first frame")
+            return result
         try:
             for out_frame_idx, out_obj_ids, out_mask_logits in self.predictor.propagate_in_video(
                 self.inference_state,
@@ -498,12 +512,19 @@ class SAM2Tracker(BaseVideoTracker):
                     progress_callback(
                         result.frames_done, total_frames, f"Processing frame {result.frames_done}/{total_frames}"
                     )
+                if result.frames_done < total_frames and should_stop is not None and should_stop():
+                    result.status = TrackingResult.CANCELLED
+                    logger.info(f"Tracking cancelled after {result.frames_done}/{total_frames} frames")
+                    break
         except Exception as e:
             result.status = TrackingResult.PARTIAL
             result.error = f"{type(e).__name__}: {e}"
             logger.warning(f"Tracking stopped after {result.frames_done}/{total_frames} frames: {result.error}")
 
         if not result:
+            if result.is_cancelled:
+                logger.info(f"Tracking cancelled with no mask kept ({result.frames_done}/{total_frames} frames)")
+                return result
             if result.error:
                 raise RuntimeError(f"Tracking failed before producing any masks: {result.error}")
             raise RuntimeError("No tracking results obtained. Check model compatibility.")

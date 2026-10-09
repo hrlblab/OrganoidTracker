@@ -111,13 +111,19 @@ class BaseVideoTracker(ABC):
         pass
 
     @abstractmethod
-    def run_tracking(self, progress_callback: Callable[..., None] | None = None) -> dict[int, dict[int, Any]]:
+    def run_tracking(
+        self,
+        progress_callback: Callable[..., None] | None = None,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> dict[int, dict[int, Any]]:
         """
         Run object tracking across all video frames
 
         Args:
             progress_callback: Optional callback function for progress updates
             Signature: callback(current_frame, total_frames, message)
+            should_stop: Optional; polled between frames. When it returns True the propagation
+            stops after the frame in progress and the result's status is "cancelled".
 
         Returns:
             dict: Frame-wise segmentation results

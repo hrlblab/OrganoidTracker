@@ -98,6 +98,7 @@ class VideoTrackerApp:
         self.result_video = None  # the VideoSource the live results belong to (the backend's at tracking time)
         self.result_provenance: dict | None = None  # the backend's provenance at tracking time
         self._results_serial = 0  # bumped whenever the shown results change (ids of objects can be reused)
+        self._cancel_request: threading.Event | None = None  # the running tracking's cancel request
 
         # Progress dialog references
         self.tracking_dialog = None
@@ -729,6 +730,9 @@ class VideoTrackerApp:
         self.tracking_run_id = None
         self.result_video = None
         self.result_provenance = None
+        if self.tracking_in_progress and self.tracking_dialog is not None:
+            self.tracking_dialog.close()  # the run of the replaced backend is over for the window; its callback is stale
+            self.tracking_dialog = None
         self.tracking_in_progress = False
         self._results_changed()
         self.video_canvas.clear_markers()
@@ -817,6 +821,9 @@ class VideoTrackerApp:
         )
 
         if not file_path:
+            return
+        if self.tracking_in_progress:  # the chooser is modal: tracking may have started meanwhile
+            self.set_status("Tracking is running; cancel it or wait for it to finish before loading a video")
             return
 
         # The backend is about to hold another video: results tracked on the previous one (or reopened
@@ -1359,10 +1366,18 @@ class VideoTrackerApp:
             self.log_event("❌ Cannot start tracking - no prompts in model")
             return
 
+        if self.tracking_in_progress:
+            self.set_status("Tracking is already running")
+            return
+
         start_time = time.time()
 
         self.tracking_in_progress = True
         self.tracking_run_id = uuid.uuid4().hex[:12]  # identifies these results when they are saved
+        run_id = self.tracking_run_id
+        service = self.tracking
+        self._cancel_request = threading.Event()  # this run's cancel request; honoured even before the backend starts
+        cancel_request = self._cancel_request
         self.track_btn.config(state="disabled")
         self.save_results_btn.config(state="disabled")
         self.set_status("Running tracking... Please wait.")
@@ -1373,32 +1388,58 @@ class VideoTrackerApp:
         self.log_event(f"🎯 Starting tracking for {len(active_objects)} objects ({total_prompts} prompts)")
         self._write_prompt_record()
 
-        # Create progress dialog
-        self.tracking_dialog = ProgressDialog(self.root, "Running Object Tracking")
+        # Create progress dialog; its Cancel button asks the service to stop after the frame in progress
+        self.tracking_dialog = ProgressDialog(self.root, "Running Object Tracking", on_cancel=self.cancel_tracking)
+        dialog = self.tracking_dialog
 
         def tracking_thread():
+            # Everything posted back names the run, the service and the dialog it belongs to, so that the
+            # window can ignore callbacks of a run that is no longer the current one
             try:
-                # Progress callback
+
                 def progress_callback(current, total, message):
                     progress = (current / total) * 100 if total > 0 else 0
-                    self.post(self.tracking_dialog.update_progress, progress, message)
+                    self.post(self._on_tracking_progress, run_id, dialog, progress, message)
 
-                # Run tracking
-                self.video_segments = self.tracking.run(progress_callback)
-
-                # Ensure completion progress is shown
-                self.post(self.tracking_dialog.update_progress, 100, "Tracking completed!")
-
-                tracking_time = time.time() - start_time
-                self.post(self.on_tracking_complete_success, tracking_time)
+                result = service.run(progress_callback, should_stop=cancel_request.is_set)
+                final = "Tracking completed!" if result.is_complete else f"Tracking {result.status}"
+                self.post(self._on_tracking_progress, run_id, dialog, 100, final)
+                self.post(self.on_tracking_complete_success, run_id, service, dialog, result, time.time() - start_time)
 
             except Exception as e:
-                tracking_time = time.time() - start_time
-                self.post(self.on_tracking_complete_error, str(e), tracking_time)
+                self.post(self.on_tracking_complete_error, run_id, service, dialog, str(e), time.time() - start_time)
 
         # Start tracking in background thread
         threading.Thread(target=tracking_thread, daemon=True).start()
         self.tracking_dialog.show()
+
+    def cancel_tracking(self):
+        """Ask the running tracking to stop after the frame in progress (the progress dialog's Cancel button)."""
+        if not self.tracking_in_progress or self.tracking is None or self._cancel_request is None:
+            self.set_status("No tracking is running")
+            return
+        self._cancel_request.set()  # polled by the backend between frames, from before the first one
+        self.tracking.cancel()  # the service's own state, when its run has already begun
+        self.set_status("Cancelling... finishing the frame in progress")
+        self.log_event("⏹ Cancel requested: tracking stops after the frame in progress")
+
+    def _on_tracking_progress(self, run_id, dialog, progress, message):
+        if run_id != self.tracking_run_id:
+            return  # a stale run's progress
+        dialog.update_progress(progress, message)
+
+    def _stale_tracking_callback(self, run_id, service, dialog, kind: str) -> bool:
+        """True (and the callback's own dialog closed) when the callback belongs to a run that is no longer current."""
+        if run_id == self.tracking_run_id and service is self.tracking:
+            return False
+        if dialog is not None:
+            dialog.close()  # the superseded run's dialog, whether or not it is still the window's current reference
+            if self.tracking_dialog is dialog:
+                self.tracking_dialog = None
+        self.log_event(
+            f"🔁 Ignored a stale tracking {kind} of run {run_id}: the window moved on to another run or model"
+        )
+        return True
 
     def _write_prompt_record(self):
         """Save prompts, organoid associations and provenance so a run can be reproduced."""
@@ -1423,51 +1464,75 @@ class VideoTrackerApp:
         except Exception as e:
             self.log_event(f"⚠️ Could not save prompt record: {e}")
 
-    def on_tracking_complete_success(self, tracking_time):
-        """Handle successful tracking completion"""
+    def on_tracking_complete_success(self, run_id, service, dialog, result, tracking_time):
+        """Install the results of the current run (GUI thread); a stale run's completion is ignored."""
+        if self._stale_tracking_callback(run_id, service, dialog, "completion"):
+            return
         # Close progress dialog
-        if self.tracking_dialog:
-            self.tracking_dialog.close()
+        if dialog is not None:
+            dialog.close()
+        if self.tracking_dialog is dialog:
             self.tracking_dialog = None
 
         self.tracking_in_progress = False
         self.track_btn.config(state="normal")
+        self.video_segments = result if result else None
+        status = getattr(result, "status", "completed")
+        frames_total = getattr(result, "frames_total", "?")
+        frames_done = getattr(result, "frames_done", "?")
 
-        # The results belong to the video and backend state of this moment
-        self.result_video = self.tracking.video if self.tracking is not None else None
-        self.result_provenance = self.tracking.provenance() if self.tracking is not None else None
-        self._results_changed()
-
-        # Enable results buttons
-        self.generate_btn.config(state="normal")
-        self.analysis_btn.config(state="normal")
-        self.save_results_btn.config(state="normal")
-
-        # Update results info
         if self.video_segments:
-            num_frames = len(self.video_segments)
-            active_objects = self.tracking.active_object_ids()
+            # The results belong to the video and backend state of this moment
+            self.result_video = service.video
+            self.result_provenance = service.provenance()
+            self._results_changed()
 
-            status = getattr(self.video_segments, "status", "completed")
+            # Enable results buttons
+            self.generate_btn.config(state="normal")
+            self.analysis_btn.config(state="normal")
+            self.save_results_btn.config(state="normal")
+
+            num_frames = len(self.video_segments)
+            active_objects = service.active_object_ids()
             if status == "partial":
-                error = getattr(self.video_segments, "error", "unknown error")
+                error = getattr(result, "error", "unknown error")
                 self.log_event(f"⚠️ Tracking stopped early after {tracking_time:.2f}s: {error}")
-                self.log_event(
-                    f"⚠️ Results cover {num_frames} of {getattr(self.video_segments, 'frames_total', '?')} frames; treat exports as partial"
-                )
+                self.log_event(f"⚠️ Results cover {num_frames} of {frames_total} frames; treat exports as partial")
                 self.set_status("Tracking stopped early; results are partial. Check the log.")
+            elif status == "cancelled":
+                self.log_event(
+                    f"⏹ Tracking cancelled after {tracking_time:.2f}s: {frames_done} of {frames_total} frames tracked"
+                )
+                self.log_event(f"⚠️ Results cover {num_frames} of {frames_total} frames; treat exports as partial")
+                self.set_status("Tracking cancelled: the tracked frames can be exported or saved, or track again.")
             else:
                 self.log_event(f"✅ Tracking completed in {tracking_time:.2f}s")
                 self.set_status("Tracking completed! Ready to generate videos.")
             self.log_event(f"📊 Processed {num_frames} frames for {len(active_objects)} objects")
         else:
-            self.log_event("⚠️ Tracking completed but no results generated")
+            self.result_video = None
+            self.result_provenance = None
+            self._results_changed()
+            for button in (self.generate_btn, self.analysis_btn, self.save_results_btn):
+                button.config(state="disabled")
+            if status == "cancelled":
+                self.log_event(
+                    f"⏹ Tracking cancelled after {tracking_time:.2f}s before any mask was kept "
+                    f"({frames_done} of {frames_total} frames); track again when ready"
+                )
+                self.set_status("Tracking cancelled before any mask was kept. Track again when ready.")
+            else:
+                self.log_event("⚠️ Tracking completed but no results generated")
+                self.set_status("Tracking produced no results")
 
-    def on_tracking_complete_error(self, error_msg, tracking_time):
+    def on_tracking_complete_error(self, run_id, service, dialog, error_msg, tracking_time):
         """Handle tracking completion error"""
+        if self._stale_tracking_callback(run_id, service, dialog, "error"):
+            return
         # Close progress dialog
-        if self.tracking_dialog:
-            self.tracking_dialog.close()
+        if dialog is not None:
+            dialog.close()
+        if self.tracking_dialog is dialog:
             self.tracking_dialog = None
 
         self.tracking_in_progress = False
@@ -1475,7 +1540,6 @@ class VideoTrackerApp:
 
         self.set_status(f"Error during tracking: {error_msg}")
         self.log_event(f"❌ Tracking failed after {tracking_time:.2f}s: {error_msg}")
-        # Remove popup - already handled with status and log
 
     def generate_videos(self):
         """Generate output videos with timing"""
@@ -2129,7 +2193,8 @@ class VideoTrackerApp:
         tracking = analysis_summary.get("tracking") or {}
         if tracking and tracking.get("status") != "completed":
             self.log_event(
-                f"⚠️ PARTIAL TRACKING RUN: {tracking.get('frames_done')} of {tracking.get('frames_total')} frames "
+                f"⚠️ {str(tracking.get('status', 'partial')).upper()} TRACKING RUN: "
+                f"{tracking.get('frames_done')} of {tracking.get('frames_total')} frames "
                 f"were tracked ({tracking.get('error') or 'no error recorded'}); the report covers only those frames"
             )
 

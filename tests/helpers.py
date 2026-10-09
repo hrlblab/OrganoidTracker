@@ -96,6 +96,8 @@ class FakeTracker:
         fail_load=False,
         reject_prompts=False,
         checkpoint_path="/nonexistent/fake.pt",
+        frame_delay_s=0.0,
+        start_delay_s=0.0,
         **kwargs,
     ):
         import hashlib
@@ -110,6 +112,8 @@ class FakeTracker:
         self.grow = grow
         self.fail_load = fail_load
         self.reject_prompts = reject_prompts
+        self.frame_delay_s = frame_delay_s  # slows each frame down so that a cancel request can arrive mid-run
+        self.start_delay_s = start_delay_s  # a pause before the first check, so that a request can precede any frame
         self.kwargs = kwargs
         self.video_frames = None
         self.video_path = None
@@ -190,7 +194,9 @@ class FakeTracker:
         r = self.disc.radius + self.grow * k
         return (xx - (cx + 5 * (obj_id - 1))) ** 2 + (yy - cy) ** 2 <= r * r
 
-    def run_tracking(self, progress_callback=None):
+    def run_tracking(self, progress_callback=None, should_stop=None):
+        import time
+
         from organoidtracker.core.masks import PackedMask
         from organoidtracker.core.tracking_result import TrackingResult
 
@@ -203,11 +209,18 @@ class FakeTracker:
             annotation_frame=self.annotation_frame_index,
             frame_map=self.frame_map,
         )
+        if self.start_delay_s:
+            time.sleep(self.start_delay_s)
+        if should_stop is not None and should_stop():
+            result.status = TrackingResult.CANCELLED
+            return result
         for frame_idx in order:
             if self.partial_after is not None and result.frames_done >= self.partial_after:
                 result.status = TrackingResult.PARTIAL
                 result.error = "RuntimeError: synthetic interruption"
                 break
+            if self.frame_delay_s:
+                time.sleep(self.frame_delay_s)
             frame_masks = {}
             for obj_id in sorted(self.prompts):
                 if (
@@ -226,7 +239,12 @@ class FakeTracker:
             result.frames_done += 1
             if progress_callback:
                 progress_callback(result.frames_done, n, f"Processing frame {result.frames_done}/{n}")
+            if result.frames_done < n and should_stop is not None and should_stop():
+                result.status = TrackingResult.CANCELLED
+                break
         if not result:
+            if result.status == TrackingResult.CANCELLED:
+                return result
             raise RuntimeError("No tracking results obtained. Check model compatibility.")
         return result
 

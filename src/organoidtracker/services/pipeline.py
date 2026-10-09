@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -26,7 +27,7 @@ from .session import Session, SessionError, TrackingSpec
 from .tracking_service import TrackingService
 from .video_frames import load_video_frames, sha256_file
 
-__all__ = ["RunOutcome", "check_video", "export_saved_result", "run_session", "sha256_file"]
+__all__ = ["RunCancelled", "RunOutcome", "check_video", "export_saved_result", "run_session", "sha256_file"]
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,16 @@ TrackingServiceFactory = Callable[[TrackingSpec], TrackingService]
 
 EXIT_COMPLETED = 0
 EXIT_PARTIAL = 3
+EXIT_CANCELLED = 4
+
+
+class RunCancelled(RuntimeError):
+    """The run was cancelled before any mask was kept: nothing was saved, analyzed or exported."""
+
+    def __init__(self, result: TrackingResult, output_dir: Path) -> None:
+        super().__init__(f"tracking cancelled after {result.frames_done} of {result.frames_total} frames, no mask kept")
+        self.result = result
+        self.output_dir = output_dir
 
 
 @dataclass
@@ -58,7 +69,9 @@ class RunOutcome:
 
     @property
     def exit_code(self) -> int:
-        return EXIT_COMPLETED if self.complete else EXIT_PARTIAL
+        if self.complete:
+            return EXIT_COMPLETED
+        return EXIT_CANCELLED if self.status == TrackingResult.CANCELLED else EXIT_PARTIAL
 
 
 def check_video(session: Session) -> str:
@@ -85,13 +98,17 @@ def run_session(
     debug: bool = False,
     progress: PhaseProgress | None = None,
     tracking_service_factory: TrackingServiceFactory | None = None,
+    cancel: threading.Event | None = None,
 ) -> RunOutcome:
     """Track, analyze and export one session into ``output_dir``.
 
     Raises ``SessionError`` for an unusable input, ``ExportError`` for an unusable output
     directory or a failed export, ``TrackingError`` when the backend fails before producing
     any mask. A run that stopped early returns normally with ``status == "partial"``: its
-    exports are written and every one of them says so.
+    exports are written and every one of them says so. ``cancel`` (set from any thread, for
+    example by a signal handler) stops the propagation after the frame in progress: with masks
+    kept the run returns with ``status == "cancelled"`` and its exports, otherwise it raises
+    ``RunCancelled`` and nothing beyond the session and the prompt record is written.
     """
     timings: dict[str, float] = {}
     exporter = ExportService(output_dir)
@@ -131,10 +148,15 @@ def run_session(
     )
 
     started = time.perf_counter()
-    result = service.run(_phase("tracking", progress))
+    result = service.run(_phase("tracking", progress), should_stop=cancel.is_set if cancel is not None else None)
     timings["tracking_s"] = round(time.perf_counter() - started, 3)
+    if result.is_cancelled and not result:
+        logger.warning(f"Tracking cancelled before any mask was kept ({result.summary()}); nothing to export")
+        raise RunCancelled(result, exporter.output_dir)
     if result.is_partial:
         logger.warning(f"Tracking stopped early: {result.summary()}; the exports cover the tracked frames only")
+    elif result.is_cancelled:
+        logger.warning(f"Tracking cancelled: {result.summary()}; the exports cover the tracked frames only")
 
     # The complete experiment goes to disk before any export, so that a failed export loses nothing
     started = time.perf_counter()

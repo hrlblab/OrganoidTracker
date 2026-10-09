@@ -368,9 +368,10 @@ class OrganoidAnalysisReportGenerator:
             if run is not None and run["status"] != "completed":
                 notice_style = ParagraphStyle("Notice", parent=styles["Normal"], textColor=colors.red, fontSize=11)
                 error_text = f" ({run['error']})" if run.get("error") else ""
+                label = "Cancelled" if run["status"] == "cancelled" else "Partial"
                 story.append(
                     Paragraph(
-                        f"<b>Partial tracking run:</b> {run['frames_done']} of {run['frames_total']} frames were "
+                        f"<b>{label} tracking run:</b> {run['frames_done']} of {run['frames_total']} frames were "
                         f"tracked{error_text}. Measurements cover only the tracked frames.",
                         notice_style,
                     )

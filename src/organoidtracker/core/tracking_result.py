@@ -14,8 +14,9 @@ class TrackingResult(dict):
     """``{frame_idx: {obj_id: mask}}`` plus run metadata."""
 
     COMPLETED = "completed"
-    PARTIAL = "partial"
+    PARTIAL = "partial"  # an error stopped the propagation
     FAILED = "failed"
+    CANCELLED = "cancelled"  # a cancel request stopped it between frames
 
     def __init__(
         self,
@@ -50,6 +51,10 @@ class TrackingResult(dict):
     @property
     def is_partial(self) -> bool:
         return self.status == self.PARTIAL
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self.status == self.CANCELLED
 
     def object_ids(self) -> list[int]:
         ids = set()
