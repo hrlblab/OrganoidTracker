@@ -730,6 +730,9 @@ class VideoTrackerApp:
         self.tracking_run_id = None
         self.result_video = None
         self.result_provenance = None
+        if self.tracking_in_progress and self.tracking_dialog is not None:
+            self.tracking_dialog.close()  # the run of the replaced backend is over for the window; its callback is stale
+            self.tracking_dialog = None
         self.tracking_in_progress = False
         self._results_changed()
         self.video_canvas.clear_markers()
@@ -1429,8 +1432,10 @@ class VideoTrackerApp:
         """True (and the callback's own dialog closed) when the callback belongs to a run that is no longer current."""
         if run_id == self.tracking_run_id and service is self.tracking:
             return False
-        if dialog is not None and dialog is not self.tracking_dialog:
-            dialog.close()
+        if dialog is not None:
+            dialog.close()  # the superseded run's dialog, whether or not it is still the window's current reference
+            if self.tracking_dialog is dialog:
+                self.tracking_dialog = None
         self.log_event(
             f"🔁 Ignored a stale tracking {kind} of run {run_id}: the window moved on to another run or model"
         )

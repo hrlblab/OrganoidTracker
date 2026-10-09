@@ -1029,3 +1029,111 @@ def test_stale_tracking_callbacks_are_ignored(app, monkeypatch, small_disc, smal
         .run()
     )
     assert str(app.generate_btn["state"]) == "normal" and app.video_segments.is_complete
+
+
+@pytest.mark.parametrize("app", [{"frame_delay_s": 0.15}], indirect=True)
+def test_a_reload_finishing_before_a_cancelled_runs_callback_closes_its_dialog(
+    app, monkeypatch, small_disc, small_video
+):
+    """Review finding at 51c1cdf: start a model reload, track and cancel on the old model, let the reload finish before
+    the tracking callback arrives. The stale callback was ignored but its dialog stayed open and held the grab."""
+    import threading
+
+    reload_release = threading.Event()
+    result_ready = threading.Event()
+    callback_release = threading.Event()
+    state = {}
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+
+    def begin_reload():
+        old = app.tracking
+        new = TrackingService(FakeTracker(small_disc))
+        state.update(old=old, new=new)
+        real_load = new.load_model
+        real_run = old.run
+
+        def held_load():
+            assert reload_release.wait(15)
+            real_load()
+
+        def held_result(*args, **kwargs):
+            result = real_run(*args, **kwargs)
+            state["result"] = result
+            result_ready.set()
+            assert callback_release.wait(15)
+            return result
+
+        monkeypatch.setattr(new, "load_model", held_load)
+        monkeypatch.setattr(old, "run", held_result)
+        monkeypatch.setattr(TrackingService, "create", classmethod(lambda cls, spec, registry=None: new))
+        app.load_selected_model()
+
+    def tracking_has_frames():
+        return app.tracking_dialog is not None and app.tracking_dialog.progress_var.get() >= 25
+
+    def cancel():
+        state["dialog"] = app.tracking_dialog
+        app.tracking_dialog.request_cancel()
+
+    def reload_installed():
+        return app.tracking is state["new"]
+
+    def check_dialog_closed_by_the_reload():
+        # the reload discarded the old backend's run: its dialog is gone before the stale callback even arrives
+        assert state["dialog"].dialog is None and app.tracking_dialog is None
+        assert not app.tracking_in_progress and app.video_segments is None
+        assert app.root.grab_current() is None
+
+    def check_stale_callback():
+        assert state["result"].is_cancelled and app.tracking is state["new"]
+        assert state["dialog"].dialog is None and app.tracking_dialog is None and app.video_segments is None
+        assert str(app.track_btn["state"]) == "disabled"  # no video on the new backend yet
+
+    try:
+        (
+            _prepare_tracking(app, monkeypatch, small_video, box, (cx - 30, cy - 30))
+            .step("reload pending", begin_reload, None, 5)
+            .step("tracking has frames", app.start_tracking, tracking_has_frames, 10)
+            .step("cancelled result pending delivery", cancel, result_ready.is_set, 10)
+            .step("reload installed", reload_release.set, reload_installed, 10)
+            .step("dialog closed by the reload", check_dialog_closed_by_the_reload, None, 5)
+            .step(
+                "stale completion delivered",
+                callback_release.set,
+                lambda: "Ignored a stale tracking completion" in log_of(app),
+                10,
+            )
+            .step("still closed", check_stale_callback, None, 5)
+            .run()
+        )
+    finally:
+        reload_release.set()
+        callback_release.set()
+
+
+def test_a_stale_callback_closes_a_dialog_that_is_still_the_current_reference(
+    app, monkeypatch, small_disc, small_video
+):
+    """The narrower case of the same finding: a stale callback whose dialog is still the window's reference."""
+    from organoidtracker.core.tracking_result import TrackingResult
+    from organoidtracker.gui_tk.progress_dialog import ProgressDialog
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+
+    def stale_with_current_dialog():
+        dialog = ProgressDialog(app.root, "stale")
+        dialog.show()
+        app.tracking_dialog = dialog  # as left behind by a run whose state was discarded elsewhere
+        current = app.video_segments
+        stale = TrackingResult({0: {1: current[0][1]}}, status="cancelled", frames_total=N, frames_done=1)
+        app.on_tracking_complete_success("old-run", app.tracking, dialog, stale, 0.0)
+        assert dialog.dialog is None and app.tracking_dialog is None and app.video_segments is current
+        assert app.root.grab_current() is None
+
+    (
+        _track_in_window(app, monkeypatch, small_video, box, point=(cx - 30, cy - 30))
+        .step("stale callback with the current dialog", stale_with_current_dialog, None, 5)
+        .run()
+    )
