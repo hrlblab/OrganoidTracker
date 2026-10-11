@@ -217,7 +217,7 @@ After analysis, the following files are generated in `data/output_videos/`:
 - `organoid_analysis_report.pdf` - Publication-ready report
 - `analysis_summary.json` - Complete session metadata
 - `visualizations/` - Individual plots and figures
-- `prompts/<video>_<timestamp>.json` - Prompts, organoid associations and provenance of each tracking run
+- `prompts/<video>_<timestamp>_<run id>.json` - Prompts, organoid associations and provenance of each tracking run
 - `runs/<video>_<timestamp>_<run id>/` - The saved result of each tracking run in the window (see Review Results)
 
 ### Frame order and timing

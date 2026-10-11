@@ -116,7 +116,7 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   `config.py` (default `2.1`; `2` is the family used for the paper's figures).
 - `run_tracking` returns a `TrackingResult` whose status distinguishes completed from partial
   runs; the GUI reports a run that stopped early instead of logging success.
-- A prompt and provenance record (`data/output_videos/prompts/<video>_<timestamp>.json`) with
+- A prompt and provenance record (`data/output_videos/prompts/<video>_<timestamp>_<run id>.json`) with
   organoid points, cyst boxes, video hash, frame map, direction, model family, checkpoint hash
   and software versions, written when tracking starts.
 - SAM2's object presence score is recorded per object and frame.

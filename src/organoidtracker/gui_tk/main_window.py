@@ -1478,7 +1478,9 @@ class VideoTrackerApp:
                 tk_value(self.time_lapse_var),
                 tk_value(self.conversion_factor_var),
             )
-            path = write_prompt_record(record, default_prompt_record_path(str(self.current_video_path)))
+            path = write_prompt_record(
+                record, default_prompt_record_path(str(self.current_video_path), run_id=self.tracking_run_id)
+            )
             self.log_event(f"💾 Prompt record saved: {path}")
         except Exception as e:
             self.log_event(f"⚠️ Could not save prompt record: {e}")

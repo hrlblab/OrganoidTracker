@@ -1213,6 +1213,7 @@ def test_every_tracking_run_is_saved_automatically_and_exports_like_the_window(
     assert saved.video.sha256 == hashlib.sha256(small_video.read_bytes()).hexdigest()
     assert saved.provenance["backend"] == "fake"
     assert f"Run {first_id} saved automatically" in log_of(app) and "❌" not in log_of(app)
+    assert len(list((tmp_path / "data" / "output_videos" / "prompts").glob(f"*_{first_id}.json"))) == 1
 
     # the public consumer: the command line exports the saved run without a model, as the window exported it
     out = tmp_path / "exported"
@@ -1436,6 +1437,10 @@ def test_the_automatic_save_writes_its_own_run_while_the_window_moves_on(
     assert saved.run_id == first["run_id"] and mask_digests(saved.result) == first["digests"]
     assert saved.video.sha256 == hashlib.sha256(small_video.read_bytes()).hexdigest()
     assert Path(saved.session.video.path).resolve() == small_video.resolve()
+    record = json.loads((saved.directory / "prompts.json").read_text())
+    assert Path(record["video"]["path"]).resolve() == small_video.resolve()
+    assert record["video"]["sha256"] == saved.video.sha256 and [o["organoid_id"] for o in record["organoids"]] == [1]
+    assert list(record["prompts"]) == ["1"] and len(record["prompts"]["1"]) == 1
     assert app.video_segments is None and app.current_video_path == str(other_video)
     assert "Video loaded!" in app.status_label["text"]  # the save's completion did not touch the status
     assert f"Run {first['run_id']} saved automatically" in log_of(app)
