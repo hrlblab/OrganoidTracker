@@ -55,6 +55,8 @@ class LogPanelHandler(logging.Handler):
         self.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
 
     def emit(self, record: logging.LogRecord) -> None:
+        if getattr(record, "in_window_log", False):
+            return  # the window wrote it to its log itself, whatever the panel's level
         try:
             self.app.post(self.app.log_event, self.format(record))
         except Exception:  # the Tk main loop has gone away
@@ -1979,6 +1981,7 @@ class VideoTrackerApp:
         run, problem = self._capture_saved_run()
         if run is None:
             self.set_status(f"Cannot save: {problem}")
+            self.log_event(f"❌ Cannot save the results: {problem}")
             return
         start_time = time.time()
         self.save_results_btn.config(state="disabled")
@@ -2051,8 +2054,10 @@ class VideoTrackerApp:
         """
         run, problem = self._capture_saved_run()
         if run is None:
-            logger.warning(
-                f"Run {self.tracking_run_id} was not saved automatically: {problem}; correct it, then use Save Results..."
+            self._note(
+                "⚠️",
+                f"Run {self.tracking_run_id} was not saved automatically: {problem}; correct it, then use Save Results...",
+                logging.WARNING,
             )
             return
         run_id = run["run_id"]
@@ -2071,16 +2076,21 @@ class VideoTrackerApp:
 
     def on_run_autosaved(self, run_id, saved, elapsed):
         self.autosaves_in_progress.discard(run_id)
-        logger.info(f"Run {run_id} saved automatically to {saved.directory}")
-        self.log_event(f"💾 Run {run_id} saved automatically in {elapsed:.2f}s to {saved.directory}")
+        self._note("💾", f"Run {run_id} saved automatically in {elapsed:.2f}s to {saved.directory}")
         self.log_event(
-            f'   Reopen it with Open Results..., or export it without a model: organoidtracker export --run "{saved.directory}"'
+            "   Reopen it with Open Results..., or export it again without a model: "
+            f'organoidtracker export --run "{saved.directory}" --out DIR'
         )
 
     def on_run_autosave_error(self, run_id, directory, error_msg):
         self.autosaves_in_progress.discard(run_id)
         hint = " Use Save Results... to save it." if run_id == self.tracking_run_id and self.opened is None else ""
-        logger.warning(f"Run {run_id} was not saved automatically to {directory}: {error_msg}.{hint}")
+        self._note("⚠️", f"Run {run_id} was not saved automatically to {directory}: {error_msg}.{hint}", logging.WARNING)
+
+    def _note(self, symbol: str, message: str, level: int = logging.INFO) -> None:
+        """A line in the window log (shown whatever the panel's level) and in the application log."""
+        self.log_event(f"{symbol} {message}")
+        logger.log(level, message, extra={"in_window_log": True})
 
     def set_status(self, message):
         """Update status bar"""

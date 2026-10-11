@@ -10,6 +10,8 @@ Windows runs one Tk interpreter per process (the smoke test holds it), so these 
 import csv
 import hashlib
 import json
+import logging
+import shlex
 import sys
 import tkinter
 from pathlib import Path
@@ -1005,6 +1007,7 @@ def test_cancel_before_the_first_frame_leaves_no_results_and_tracking_again_work
         assert str(app.track_btn["state"]) == "normal"
         app.cancel_tracking()  # nothing runs: a no-op
         assert "No tracking is running" in app.status_label["text"]
+        assert app.autosaves_in_progress == set() and "saved automatically" not in log_of(app)
         assert saved_runs(app) == []  # no mask was kept, so nothing was saved
 
     def completed():
@@ -1049,7 +1052,9 @@ def test_stale_tracking_callbacks_are_ignored(app, monkeypatch, small_disc, smal
         assert "Error during tracking" not in app.status_label["text"]
         app._on_tracking_progress("old-run", dialog, 50, "late progress")  # nothing to update, no error
         assert log_of(app).count("Ignored a stale tracking") == 2
-        assert saved_runs(app) == [saved_run(app, app.tracking_run_id)]  # the stale completion saved nothing
+        assert app.autosaves_in_progress == set()  # a save would have been registered synchronously
+        assert log_of(app).count("saved automatically") == 1  # the run's own save, nothing else
+        assert saved_runs(app) == [saved_run(app, app.tracking_run_id)]
 
     (
         _track_in_window(app, monkeypatch, small_video, box, point=(cx - 30, cy - 30))
@@ -1216,6 +1221,12 @@ def test_every_tracking_run_is_saved_automatically_and_exports_like_the_window(
         assert (out / name).read_bytes() == (report_dir / name).read_bytes(), name
     for name in ("multi_object_overlay.mp4", "multi_object_mask.mp4", "multi_object_side_by_side.mp4"):
         assert (out / "videos" / name).stat().st_size == (videos_dir / name).stat().st_size, name
+    # the command the window prints, as printed (review finding: it lacked --out and exited 2)
+    (hint,) = [line for line in log_of(app).splitlines() if f'--run "{run_dir}"' in line]
+    command = shlex.split(hint.split("without a model: ", 1)[1])
+    assert command[:2] == ["organoidtracker", "export"] and command[-1] == "DIR"
+    assert cli.main([*command[1:-1], str(tmp_path / "as-printed"), "--log-level", "WARNING"]) == 0
+    assert (tmp_path / "as-printed" / "cyst_summary.csv").read_bytes() == (report_dir / "cyst_summary.csv").read_bytes()
 
     first_files = {p.name: p.read_bytes() for p in run_dir.iterdir()}
 
@@ -1291,6 +1302,7 @@ def test_a_failed_automatic_save_leaves_no_run_and_keeps_the_results(
     box = tuple(int(v) for v in small_disc.box(N - 1))
     root = Path(app.run_root).resolve()
     original_write_npz = saved_results._write_npz
+    app.log_handler.setLevel(logging.ERROR)  # review finding: the warning went only through the panel's handler
     if failure == "mask file write":
         monkeypatch.setattr(
             saved_results,
@@ -1346,6 +1358,11 @@ def test_invalid_analysis_inputs_skip_the_automatic_save(
 
     def correct_and_save():
         assert saved_runs(app) == [] and str(app.save_results_btn["state"]) == "normal"
+        assert log_of(app).count("was not saved automatically") == 1
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(save_dir))
+        app.save_results()  # still invalid: refused before anything is written
+        assert "Cannot save:" in app.status_label["text"] and "❌ Cannot save the results" in log_of(app)
+        assert not save_dir.exists()
         app.conversion_factor_var.set(1.6934)
         monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(save_dir))
         app.save_results()
