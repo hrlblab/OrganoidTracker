@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import shutil
+import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
@@ -83,9 +84,22 @@ REQUIRED_FIGURES = (
 
 ProgressCallback = Callable[[int, int, str], None]
 
+# Where the window saves every tracking run, each in a new directory (relative to the working directory)
+DEFAULT_RUN_ROOT = Path("data") / "output_videos" / "runs"
+
 
 class ExportError(RuntimeError):
     """The output directory cannot be used or an export step failed."""
+
+
+def new_run_directory(video_path: str | Path, run_id: str, root: str | Path = DEFAULT_RUN_ROOT) -> Path:
+    """The directory of one tracking run, ``<root>/<video stem>_<YYYYmmdd-HHMMSS>_<run id>``, as an absolute path.
+
+    Nothing is created (:meth:`ExportService.save_new_run` does that). A relative ``root`` is resolved now,
+    so a later change of the working directory cannot move the run.
+    """
+    name = f"{Path(str(video_path)).stem}_{time.strftime('%Y%m%d-%H%M%S')}_{run_id}"
+    return Path(os.path.abspath(Path(root) / name))
 
 
 class ExportService:
@@ -317,6 +331,41 @@ class ExportService:
             ) from error
         remove_stale_mask_files(self.output_dir, keep=staged.masks_path.name)
         return saved_result_from_staged(staged)
+
+    def save_new_run(
+        self,
+        *,
+        run_id: str,
+        session: Session,
+        video: VideoSource,
+        provenance: Mapping[str, Any],
+        result: TrackingResult,
+        prompt_record: Mapping[str, Any],
+    ) -> SavedResult:
+        """Save a run as :meth:`save_run` does, into an output directory that is created for it.
+
+        The directory must not exist yet: an existing one is never used, so nothing is ever replaced. When
+        the save fails before ``results.json`` is in place, the directory is removed again, so no
+        half-written run remains (the staged files are already gone).
+        """
+        try:
+            self.output_dir.parent.mkdir(parents=True, exist_ok=True)
+            self.output_dir.mkdir()
+        except OSError as error:
+            raise ExportError(f"cannot create the run directory {self.output_dir}: {error}") from error
+        try:
+            return self.save_run(
+                run_id=run_id,
+                session=session,
+                video=video,
+                provenance=provenance,
+                result=result,
+                prompt_record=prompt_record,
+            )
+        except Exception:
+            if not (self.output_dir / RESULTS_NAME).is_file():
+                shutil.rmtree(self.output_dir, ignore_errors=True)
+            raise
 
     def _stage_json(self, name: str, data: dict[str, Any]) -> Path:
         temporary = self.output_dir / f".{name}.{uuid.uuid4().hex}.tmp"

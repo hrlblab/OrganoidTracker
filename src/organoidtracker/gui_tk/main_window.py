@@ -26,7 +26,7 @@ from ..core.model_registry import get_model_registry
 from ..core.sam2_tracker import checkpoint_filename
 from ..services.analysis_service import AnalysisService
 from ..services.annotations import AnnotationError, AnnotationSet, CystAnnotation
-from ..services.export_service import ExportError, ExportService
+from ..services.export_service import DEFAULT_RUN_ROOT, ExportError, ExportService, new_run_directory
 from ..services.prompt_record import build_prompt_record
 from ..services.saved_results import SavedResult, load_saved_result
 from ..services.session import Calibration, SessionError, Timing, TrackingSpec, session_from_document
@@ -99,6 +99,8 @@ class VideoTrackerApp:
         self.result_provenance: dict | None = None  # the backend's provenance at tracking time
         self._results_serial = 0  # bumped whenever the shown results change (ids of objects can be reused)
         self._cancel_request: threading.Event | None = None  # the running tracking's cancel request
+        self.run_root = DEFAULT_RUN_ROOT  # every live tracking run is saved below it, in a directory of its own
+        self.autosaves_in_progress: set[str] = set()  # run ids whose automatic save is still being written
 
         # Progress dialog references
         self.tracking_dialog = None
@@ -1509,6 +1511,7 @@ class VideoTrackerApp:
                 self.log_event(f"✅ Tracking completed in {tracking_time:.2f}s")
                 self.set_status("Tracking completed! Ready to generate videos.")
             self.log_event(f"📊 Processed {num_frames} frames for {len(active_objects)} objects")
+            self._autosave_results()
         else:
             self.result_video = None
             self.result_provenance = None
@@ -1953,41 +1956,17 @@ class VideoTrackerApp:
             ):
                 return
 
-        # Read the Tk variables and the annotations on the GUI thread before starting the worker
-        try:
-            time_lapse_days = float(self.time_lapse_var.get())
-            conversion_factor = float(self.conversion_factor_var.get())
-        except (tk.TclError, ValueError) as error:
-            self.set_status(f"Cannot save: check the time lapse and the conversion factor ({error})")
+        run, problem = self._capture_saved_run()
+        if run is None:
+            self.set_status(f"Cannot save: {problem}")
             return
-        organoid_data = {
-            oid: {"point": info["point"], "cysts": list(info["cysts"])} for oid, info in self.organoid_data.items()
-        }
-        result = self.video_segments
-        service = self.tracking
-        video = self.result_video  # the video the results were tracked on, checked by _ready_for_export
-        provenance = self.result_provenance or service.provenance()
-        run_id = self.tracking_run_id or service.run_id
-        video_path = self.current_video_path
         start_time = time.time()
         self.save_results_btn.config(state="disabled")
         self.set_status("Saving the results... Please wait.")
 
         def save_thread():
             try:
-                record = build_prompt_record(
-                    service.tracker, video_path, organoid_data, time_lapse_days, conversion_factor
-                )
-                session = session_from_document(record)
-                saved = exporter.save_run(
-                    run_id=run_id,
-                    session=session,
-                    video=video,
-                    provenance=provenance,
-                    result=result,
-                    prompt_record=record,
-                    replace_existing=replace_existing,
-                )
+                saved = exporter.save_run(**run, replace_existing=replace_existing)
                 self.post(self.on_results_saved, saved, time.time() - start_time)
             except Exception as error:
                 self.post(self.on_results_save_error, str(error), time.time() - start_time)
@@ -2009,6 +1988,79 @@ class VideoTrackerApp:
         self.save_results_btn.config(state="normal")
         self.set_status(f"Saving the results failed: {error_msg}")
         self.log_event(f"❌ Saving the results failed after {elapsed:.2f}s: {error_msg}")
+
+    def _capture_saved_run(self) -> tuple[dict | None, str | None]:
+        """What saving the shown live results needs, read on the GUI thread: ``save_run``'s arguments.
+
+        The Tk variables, the annotations and the backend's prompts are read here because a worker must not
+        read them while the window moves on. Returns (None, the reason) when the analysis inputs are invalid
+        or the record cannot be built.
+        """
+        try:
+            time_lapse_days = float(self.time_lapse_var.get())
+            conversion_factor = float(self.conversion_factor_var.get())
+        except (tk.TclError, ValueError) as error:
+            return None, f"check the time lapse and the conversion factor ({error})"
+        organoid_data = {
+            oid: {"point": info["point"], "cysts": list(info["cysts"])} for oid, info in self.organoid_data.items()
+        }
+        service = self.tracking
+        try:
+            record = build_prompt_record(
+                service.tracker, self.current_video_path, organoid_data, time_lapse_days, conversion_factor
+            )
+            session = session_from_document(record)  # SessionError for a non-positive time lapse or calibration
+        except Exception as error:
+            return None, str(error)
+        return {
+            "run_id": self.tracking_run_id or service.run_id,
+            "session": session,
+            "video": self.result_video,  # the video the results were tracked on, checked by _ready_for_export
+            "provenance": self.result_provenance or service.provenance(),
+            "result": self.video_segments,
+            "prompt_record": record,
+        }, None
+
+    def _autosave_results(self) -> None:
+        """Save the live results just installed into a new run directory below ``run_root``.
+
+        A safety net: every tracking run that kept masks is on disk even if it is never saved or exported, with
+        the files Save Results writes. The worker gets only what is read here, so the window may move on
+        (another video, model or run) while it writes, and its completion only logs. The thread is not a
+        daemon: closing the window right after tracking lets the save finish.
+        """
+        run, problem = self._capture_saved_run()
+        if run is None:
+            logger.warning(
+                f"Run {self.tracking_run_id} was not saved automatically: {problem}; correct it, then use Save Results..."
+            )
+            return
+        run_id = run["run_id"]
+        exporter = ExportService(new_run_directory(self.current_video_path, run_id, self.run_root))
+        self.autosaves_in_progress.add(run_id)
+        start_time = time.time()
+
+        def autosave_thread():
+            try:
+                saved = exporter.save_new_run(**run)
+                self.post(self.on_run_autosaved, run_id, saved, time.time() - start_time)
+            except Exception as error:
+                self.post(self.on_run_autosave_error, run_id, exporter.output_dir, str(error))
+
+        threading.Thread(target=autosave_thread, name=f"autosave-{run_id}", daemon=False).start()
+
+    def on_run_autosaved(self, run_id, saved, elapsed):
+        self.autosaves_in_progress.discard(run_id)
+        logger.info(f"Run {run_id} saved automatically to {saved.directory}")
+        self.log_event(f"💾 Run {run_id} saved automatically in {elapsed:.2f}s to {saved.directory}")
+        self.log_event(
+            f'   Reopen it with Open Results..., or export it without a model: organoidtracker export --run "{saved.directory}"'
+        )
+
+    def on_run_autosave_error(self, run_id, directory, error_msg):
+        self.autosaves_in_progress.discard(run_id)
+        hint = " Use Save Results... to save it." if run_id == self.tracking_run_id and self.opened is None else ""
+        logger.warning(f"Run {run_id} was not saved automatically to {directory}: {error_msg}.{hint}")
 
     def set_status(self, message):
         """Update status bar"""

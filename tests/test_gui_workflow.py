@@ -44,10 +44,14 @@ def small_video(small_disc, tmp_path_factory):
 
 
 @pytest.fixture
-def app(monkeypatch, small_disc, request):
-    """A window whose backend is the fake tracker; ``request.param`` holds the fake's keyword arguments."""
+def app(monkeypatch, small_disc, request, tmp_path):
+    """A window whose backend is the fake tracker; ``request.param`` holds the fake's keyword arguments.
+
+    It runs in the test's directory: the window writes prompt records and saved runs below ``data/`` there.
+    """
     from organoidtracker.gui_tk.main_window import VideoTrackerApp
 
+    monkeypatch.chdir(tmp_path)
     fake_kwargs = getattr(request, "param", {})
     monkeypatch.setattr(
         TrackingService,
@@ -71,6 +75,19 @@ def app(monkeypatch, small_disc, request):
 
 def log_of(app) -> str:
     return app.output_info_text.get("1.0", "end")
+
+
+def saved_runs(app) -> list[Path]:
+    """The run directories the window saved automatically (below its run root, in the test's directory)."""
+    root = Path(app.run_root).resolve()
+    return sorted(root.iterdir()) if root.is_dir() else []
+
+
+def saved_run(app, run_id) -> Path:
+    """The one directory the window saved run ``run_id`` into."""
+    found = [path for path in saved_runs(app) if path.name.endswith(f"_{run_id}")]
+    assert len(found) == 1, (run_id, saved_runs(app))
+    return found[0]
 
 
 def read_csv(path):
@@ -129,7 +146,10 @@ def workflow(
 
     def tracked():
         return (
-            not app.tracking_in_progress and app.video_segments is not None and str(app.track_btn["state"]) == "normal"
+            not app.tracking_in_progress
+            and app.video_segments is not None
+            and str(app.track_btn["state"]) == "normal"
+            and not app.autosaves_in_progress
         )
 
     def videos_written():
@@ -609,6 +629,7 @@ def test_window_opens_a_saved_run_without_a_model_and_exports_it(app, monkeypatc
     assert app.opened is None and app.video_segments is None and not app.organoid_data
     assert "set aside" in log_of(app) and str(app.generate_btn["state"]) == "disabled"
     assert str(app.track_btn["state"]) == "normal"
+    assert saved_runs(app) == []  # opening a saved run saves nothing
 
 
 def _track_in_window(app, monkeypatch, video, box, point=None):
@@ -631,7 +652,10 @@ def _track_in_window(app, monkeypatch, video, box, point=None):
 
     def tracked():
         return (
-            not app.tracking_in_progress and app.video_segments is not None and str(app.track_btn["state"]) == "normal"
+            not app.tracking_in_progress
+            and app.video_segments is not None
+            and str(app.track_btn["state"]) == "normal"
+            and not app.autosaves_in_progress
         )
 
     return (
@@ -981,6 +1005,7 @@ def test_cancel_before_the_first_frame_leaves_no_results_and_tracking_again_work
         assert str(app.track_btn["state"]) == "normal"
         app.cancel_tracking()  # nothing runs: a no-op
         assert "No tracking is running" in app.status_label["text"]
+        assert saved_runs(app) == []  # no mask was kept, so nothing was saved
 
     def completed():
         return not app.tracking_in_progress and app.video_segments is not None and app.video_segments.is_complete
@@ -993,6 +1018,8 @@ def test_cancel_before_the_first_frame_leaves_no_results_and_tracking_again_work
         .run()
     )
     assert app.video_segments.frames_done == N and str(app.save_results_btn["state"]) == "normal"
+    TkDriver(app.root).step("saved", None, lambda: not app.autosaves_in_progress, 30).run()
+    assert saved_runs(app) == [saved_run(app, app.tracking_run_id)]  # only the run that kept masks
 
 
 def test_stale_tracking_callbacks_are_ignored(app, monkeypatch, small_disc, small_video, tmp_path):
@@ -1022,6 +1049,7 @@ def test_stale_tracking_callbacks_are_ignored(app, monkeypatch, small_disc, smal
         assert "Error during tracking" not in app.status_label["text"]
         app._on_tracking_progress("old-run", dialog, 50, "late progress")  # nothing to update, no error
         assert log_of(app).count("Ignored a stale tracking") == 2
+        assert saved_runs(app) == [saved_run(app, app.tracking_run_id)]  # the stale completion saved nothing
 
     (
         _track_in_window(app, monkeypatch, small_video, box, point=(cx - 30, cy - 30))
@@ -1137,3 +1165,260 @@ def test_a_stale_callback_closes_a_dialog_that_is_still_the_current_reference(
         .step("stale callback with the current dialog", stale_with_current_dialog, None, 5)
         .run()
     )
+
+
+# ------------------------------------------------------------------------------------ automatic save
+def test_every_tracking_run_is_saved_automatically_and_exports_like_the_window(
+    app, monkeypatch, small_disc, small_video, tmp_path
+):
+    """The run is on disk right after tracking, without a dialog; reopened and exported without a model it gives the
+    window's own tables and videos; tracking again saves a second run and leaves the first as it was."""
+    from organoidtracker import cli
+    from organoidtracker.services.saved_results import load_saved_result
+
+    cx, cy = small_disc.centers[N - 1]
+    box1 = tuple(int(v) for v in small_disc.box(N - 1))
+    videos_dir, report_dir = workflow(
+        app,
+        monkeypatch,
+        small_video,
+        tmp_path / "gui",
+        boxes=[((cx - 30, cy - 30), [box1])],
+        extra_empty_point=(5, 5),
+        time_lapse=14.0,
+        conversion=1.6934,
+    )
+    first_id = app.tracking_run_id
+    run_dir = saved_run(app, first_id)
+    assert run_dir.parent == tmp_path / "data" / "output_videos" / "runs" and run_dir.name.startswith("disc_")
+    assert sorted(p.name for p in run_dir.iterdir() if not p.name.startswith("masks-")) == [
+        "prompts.json",
+        "results.json",
+        "session.json",
+    ]
+    assert len(list(run_dir.glob("masks-*.npz"))) == 1
+    saved = load_saved_result(run_dir)
+    assert saved.run_id == first_id and saved.result.status == "completed" and saved.result.frames_done == N
+    assert mask_digests(saved.result) == mask_digests(app.video_segments)
+    assert saved.session.annotations.organoid_data() == {
+        1: {"point": (cx - 30, cy - 30), "cysts": [{"cyst_id": 1, "bbox": box1}]},
+        2: {"point": (5, 5), "cysts": []},
+    }
+    assert saved.session.timing.time_lapse_days == 14.0 and saved.session.calibration.um_per_pixel == 1.6934
+    assert saved.video.sha256 == hashlib.sha256(small_video.read_bytes()).hexdigest()
+    assert saved.provenance["backend"] == "fake"
+    assert f"Run {first_id} saved automatically" in log_of(app) and "❌" not in log_of(app)
+
+    # the public consumer: the command line exports the saved run without a model, as the window exported it
+    out = tmp_path / "exported"
+    assert cli.main(["export", "--run", str(run_dir), "--out", str(out), "--log-level", "WARNING"]) == 0
+    for name in ("raw_cyst_data.csv", "cyst_summary.csv", "organoid_summary.csv"):
+        assert (out / name).read_bytes() == (report_dir / name).read_bytes(), name
+    for name in ("multi_object_overlay.mp4", "multi_object_mask.mp4", "multi_object_side_by_side.mp4"):
+        assert (out / "videos" / name).stat().st_size == (videos_dir / name).stat().st_size, name
+
+    first_files = {p.name: p.read_bytes() for p in run_dir.iterdir()}
+
+    def tracked_again():
+        return not app.tracking_in_progress and app.tracking_run_id != first_id and not app.autosaves_in_progress
+
+    TkDriver(app.root).step("tracked again", app.start_tracking, tracked_again, 60).run()
+    second = saved_run(app, app.tracking_run_id)
+    assert saved_runs(app) == sorted([run_dir, second])
+    assert load_saved_result(second).run_id == app.tracking_run_id
+    assert {p.name: p.read_bytes() for p in run_dir.iterdir()} == first_files
+
+
+@pytest.mark.parametrize("app", [{"partial_after": 3}], indirect=True)
+def test_a_partial_run_is_saved_as_partial(app, monkeypatch, small_disc, small_video, tmp_path):
+    from organoidtracker import cli
+    from organoidtracker.services.saved_results import load_saved_result
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    _track_in_window(app, monkeypatch, small_video, box, point=(cx - 30, cy - 30)).run()
+    saved = load_saved_result(saved_run(app, app.tracking_run_id))
+    assert saved.result.status == "partial" and saved.result.frames_done == 3
+    assert saved.result.tracked_frames == [N - 1, N - 2, N - 3]
+    assert mask_digests(saved.result) == mask_digests(app.video_segments)
+    out = tmp_path / "exported"
+    assert cli.main(["export", "--run", str(saved.directory), "--out", str(out), "--log-level", "ERROR"]) == 3
+
+
+@pytest.mark.parametrize("app", [{"frame_delay_s": 0.2}], indirect=True)
+def test_a_cancelled_run_is_saved_as_cancelled(app, monkeypatch, small_disc, small_video, tmp_path):
+    from organoidtracker import cli
+    from organoidtracker.services.saved_results import load_saved_result
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+
+    def two_frames_done():
+        dialog = app.tracking_dialog
+        return dialog is not None and dialog.dialog is not None and dialog.progress_var.get() >= 100 * 2 / N
+
+    def cancelled_and_saved():
+        return (
+            not app.tracking_in_progress and "cancelled" in app.status_label["text"] and not app.autosaves_in_progress
+        )
+
+    (
+        _prepare_tracking(app, monkeypatch, small_video, box, (cx - 30, cy - 30))
+        .step("tracking started", app.start_tracking, two_frames_done, 30)
+        .step("cancelled", app.cancel_tracking, cancelled_and_saved, 30)
+        .run()
+    )
+    result = app.video_segments
+    assert result.status == "cancelled" and 2 <= result.frames_done < N
+    saved = load_saved_result(saved_run(app, app.tracking_run_id))
+    assert saved.result.status == "cancelled" and saved.result.frames_done == result.frames_done
+    assert mask_digests(saved.result) == mask_digests(result)
+    out = tmp_path / "exported"
+    assert cli.main(["export", "--run", str(saved.directory), "--out", str(out), "--log-level", "ERROR"]) == 4
+
+
+@pytest.mark.parametrize("failure", ["mask file write", "run root is a file"])
+def test_a_failed_automatic_save_leaves_no_run_and_keeps_the_results(
+    app, monkeypatch, small_disc, small_video, tmp_path, failure
+):
+    """The results stay shown and exportable, a warning names the error, nothing half-written remains, the status is
+    the tracking's; Save Results then saves the run."""
+    from organoidtracker.gui_tk import main_window
+    from organoidtracker.services import saved_results
+    from organoidtracker.services.saved_results import load_saved_result
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    root = Path(app.run_root).resolve()
+    original_write_npz = saved_results._write_npz
+    if failure == "mask file write":
+        monkeypatch.setattr(
+            saved_results,
+            "_write_npz",
+            lambda handle, arrays: (_ for _ in ()).throw(OSError("injected disk-full error")),
+        )
+        expected = "injected disk-full error"
+    else:
+        root.parent.mkdir(parents=True)
+        root.write_text("a file where the run directories go\n")
+        expected = "cannot create the run directory"
+    save_dir = tmp_path / "saved"
+
+    def check_results_kept():
+        assert app.video_segments is not None and app.video_segments.is_complete
+        for button in (app.track_btn, app.generate_btn, app.analysis_btn, app.save_results_btn):
+            assert str(button["state"]) == "normal", button
+        assert "Tracking completed!" in app.status_label["text"]
+        if failure == "mask file write":
+            assert root.is_dir() and saved_runs(app) == []  # the new directory was removed again
+            assert not list(root.rglob("*"))
+        else:
+            assert root.read_text() == "a file where the run directories go\n"
+        monkeypatch.setattr(saved_results, "_write_npz", original_write_npz)
+
+    def save():
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(save_dir))
+        app.save_results()
+
+    (
+        _track_in_window(app, monkeypatch, small_video, box, point=(cx - 30, cy - 30))
+        .step("warning shown", None, lambda: "was not saved automatically" in log_of(app), 10)
+        .step("results kept", check_results_kept, None, 5)
+        .step("saved by hand", save, lambda: "Results saved" in app.status_label["text"], 30)
+        .run()
+    )
+    assert expected in log_of(app) and "Use Save Results... to save it." in log_of(app)
+    assert mask_digests(load_saved_result(save_dir).result) == mask_digests(app.video_segments)
+
+
+@pytest.mark.parametrize("conversion", [0.0, "not a number"])
+def test_invalid_analysis_inputs_skip_the_automatic_save(
+    app, monkeypatch, small_disc, small_video, tmp_path, conversion
+):
+    """Nothing is saved and a warning says why; once the input is corrected, Save Results saves the run."""
+    from organoidtracker.gui_tk import main_window
+    from organoidtracker.services.saved_results import load_saved_result
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    save_dir = tmp_path / "saved"
+    app.conversion_factor_var.set(conversion)
+
+    def correct_and_save():
+        assert saved_runs(app) == [] and str(app.save_results_btn["state"]) == "normal"
+        app.conversion_factor_var.set(1.6934)
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(save_dir))
+        app.save_results()
+
+    (
+        _track_in_window(app, monkeypatch, small_video, box, point=(cx - 30, cy - 30))
+        .step("warning shown", None, lambda: "was not saved automatically" in log_of(app), 10)
+        .step("saved after the correction", correct_and_save, lambda: "Results saved" in app.status_label["text"], 30)
+        .run()
+    )
+    reason = (
+        "um_per_pixel: expected a positive number" if conversion == 0.0 else "check the time lapse and the conversion"
+    )
+    assert reason in log_of(app)
+    saved = load_saved_result(save_dir)
+    assert saved.session.calibration.um_per_pixel == 1.6934 and saved.run_id == app.tracking_run_id
+    assert saved_runs(app) == []
+
+
+def test_the_automatic_save_writes_its_own_run_while_the_window_moves_on(
+    app, monkeypatch, small_disc, small_video, tmp_path
+):
+    """The save is held in its worker while another video is loaded; released, it writes the first run (its video and
+    masks) and changes nothing in the window. Its thread is not a daemon, so closing the window lets it finish."""
+    import threading
+
+    from organoidtracker.gui_tk import main_window
+    from organoidtracker.services import export_service
+    from organoidtracker.services.saved_results import load_saved_result
+
+    other_video = DiscVideo(n_frames=N, size=128, radius=14, start=30, step=10).write(tmp_path / "other.mp4")
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    entered, release = threading.Event(), threading.Event()
+    original_stage = export_service.stage_saved_result
+
+    def held_stage(*args, **kwargs):
+        entered.set()
+        release.wait(30)
+        return original_stage(*args, **kwargs)
+
+    monkeypatch.setattr(export_service, "stage_saved_result", held_stage)
+    first = {}
+
+    def tracked_and_held():
+        return not app.tracking_in_progress and app.video_segments is not None and entered.is_set()
+
+    def check_held_and_load_another_video():
+        first["run_id"] = app.tracking_run_id
+        first["digests"] = mask_digests(app.video_segments)
+        assert app.autosaves_in_progress == {first["run_id"]}
+        (thread,) = [t for t in threading.enumerate() if t.name == f"autosave-{first['run_id']}"]
+        assert thread.daemon is False
+        monkeypatch.setattr(main_window.filedialog, "askopenfilename", lambda *a, **k: str(other_video))
+        app.load_video()
+
+    def other_video_loaded():
+        return app.current_video_path == str(other_video) and str(app.track_btn["state"]) == "normal"
+
+    try:
+        (
+            _prepare_tracking(app, monkeypatch, small_video, box, (cx - 30, cy - 30))
+            .step("tracked, save held", app.start_tracking, tracked_and_held, 60)
+            .step("another video loaded", check_held_and_load_another_video, other_video_loaded, 30)
+            .step("save released", release.set, lambda: not app.autosaves_in_progress, 30)
+            .run()
+        )
+    finally:
+        release.set()
+    saved = load_saved_result(saved_run(app, first["run_id"]))
+    assert saved.run_id == first["run_id"] and mask_digests(saved.result) == first["digests"]
+    assert saved.video.sha256 == hashlib.sha256(small_video.read_bytes()).hexdigest()
+    assert Path(saved.session.video.path).resolve() == small_video.resolve()
+    assert app.video_segments is None and app.current_video_path == str(other_video)
+    assert "Video loaded!" in app.status_label["text"]  # the save's completion did not touch the status
+    assert f"Run {first['run_id']} saved automatically" in log_of(app)

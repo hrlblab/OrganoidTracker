@@ -141,6 +141,11 @@ types are checked at startup. A legacy `user_config.py` is still read for now, w
 6. **Review Results**
    - Generated outputs saved to `data/output_videos/`
    - Includes tracking videos, analysis reports, and raw data
+   - Every tracking run that kept masks is saved automatically, right after tracking, in a directory of
+     its own: `data/output_videos/runs/<video>_<timestamp>_<run id>/` with `results.json`, the mask file,
+     `session.json` and `prompts.json`. It reopens with "Open Results..." and exports again with
+     `organoidtracker export --run <directory>`, even if it was never exported or saved by hand;
+     "Save Results..." writes a copy into a directory of your choice.
 
 
 ### Headless runs (command line)
@@ -211,6 +216,7 @@ After analysis, the following files are generated in `data/output_videos/`:
 - `analysis_summary.json` - Complete session metadata
 - `visualizations/` - Individual plots and figures
 - `prompts/<video>_<timestamp>.json` - Prompts, organoid associations and provenance of each tracking run
+- `runs/<video>_<timestamp>_<run id>/` - The saved result of each tracking run in the window (see Review Results)
 
 ### Frame order and timing
 
