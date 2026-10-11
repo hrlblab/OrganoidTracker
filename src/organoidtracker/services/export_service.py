@@ -308,9 +308,11 @@ class ExportService:
         try:
             temps[SESSION_NAME] = self._stage_json(SESSION_NAME, self.session_document(session, video.sha256))
             temps[PROMPT_RECORD_NAME] = self._stage_json(PROMPT_RECORD_NAME, dict(prompt_record))
-        except OSError as error:
+        except Exception as error:  # whatever stops the staging, nothing staged is left behind
             discard_staged_result(staged)
             self._discard_temps(temps)
+            if not isinstance(error, OSError):
+                raise
             raise ExportError(f"cannot write the session or the prompt record in {self.output_dir}: {error}") from error
         try:
             publish_files(
@@ -344,9 +346,9 @@ class ExportService:
     ) -> SavedResult:
         """Save a run as :meth:`save_run` does, into an output directory that is created for it.
 
-        The directory must not exist yet: an existing one is never used, so nothing is ever replaced. When
-        the save fails before ``results.json`` is in place, the directory is removed again, so no
-        half-written run remains (the staged files are already gone).
+        The directory must not exist yet: an existing one is never used, so nothing is ever replaced. A save
+        that fails removes what it staged, and then the directory if it is empty, so no half-written run
+        remains; files anyone else put there meanwhile are left alone.
         """
         try:
             self.output_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -363,13 +365,19 @@ class ExportService:
                 prompt_record=prompt_record,
             )
         except Exception:
-            if not (self.output_dir / RESULTS_NAME).is_file():
-                shutil.rmtree(self.output_dir, ignore_errors=True)
+            try:
+                self.output_dir.rmdir()  # only when empty
+            except OSError:
+                pass
             raise
 
     def _stage_json(self, name: str, data: dict[str, Any]) -> Path:
         temporary = self.output_dir / f".{name}.{uuid.uuid4().hex}.tmp"
-        temporary.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+        try:
+            temporary.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+        except BaseException:
+            temporary.unlink(missing_ok=True)  # a partly written temporary is not left behind
+            raise
         return temporary
 
     @staticmethod
