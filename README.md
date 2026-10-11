@@ -220,11 +220,14 @@ Frames are handled in chronological order throughout. With Reverse Tracking enab
 
 ```bash
 uv run pytest                      # unit tests; model tests run when checkpoints/sam2.1_hiera_tiny.pt exists
-uv run pytest -m gui               # opens and closes the main window (needs a display)
+uv run pytest -m gui               # the window tests (needs a display, see below)
 uv run ruff check && uv run ruff format --check
 ```
 
 The suite uses synthetic videos only; the same checks run in GitHub Actions on Linux and Windows.
+On a Linux desktop the window tests never open windows on your screen: the test session starts a
+private virtual display (install Xvfb: `sudo apt install xvfb`) and, without Xvfb, skips them with
+that reason. `OT_GUI_ON_DESKTOP=1 uv run pytest -m gui` runs them on the desktop instead.
 Install the pre-commit hooks with `uv run pre-commit install`.
 
 ### Citation

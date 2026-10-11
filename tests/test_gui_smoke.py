@@ -7,14 +7,17 @@ or no usable Tcl installation is available; any other error while the window is 
 widget option, a missing attribute) fails the test.
 """
 
+import os
 import tkinter
 
 import pytest
 
 # Messages with which Tk reports an unavailable display or an unusable Tcl/Tk installation.
-ENVIRONMENT_ERRORS = (
+DISPLAY_ERRORS = (
     "no display name and no $display environment variable",
     "couldn't connect to display",
+)
+ENVIRONMENT_ERRORS = DISPLAY_ERRORS + (
     "can't find a usable init.tcl",
     "can't find a usable tk.tcl",
     "tcl wasn't installed properly",
@@ -23,11 +26,17 @@ ENVIRONMENT_ERRORS = (
 
 
 def environment_skip_reason(error: BaseException) -> str | None:
-    """A skip reason when ``error`` says Tk cannot run in this environment, else None (a real failure)."""
+    """A skip reason when ``error`` says Tk cannot run in this environment, else None (a real failure).
+
+    When the test session started its own display (``OT_PRIVATE_DISPLAY``, see conftest.py), not reaching it is a
+    failure of that display, never a reason to skip: the window tests would otherwise pass without running.
+    """
     message = str(error).lower()
-    if isinstance(error, tkinter.TclError) and any(pattern in message for pattern in ENVIRONMENT_ERRORS):
-        return f"Tk cannot start here: {error}"
-    return None
+    if not isinstance(error, tkinter.TclError) or not any(pattern in message for pattern in ENVIRONMENT_ERRORS):
+        return None
+    if os.environ.get("OT_PRIVATE_DISPLAY") and any(pattern in message for pattern in DISPLAY_ERRORS):
+        return None
+    return f"Tk cannot start here: {error}"
 
 
 @pytest.fixture
@@ -62,8 +71,19 @@ def test_main_window_opens_and_closes(app):
         "Can't find a usable init.tcl in the following directories: {C:/x/tcl8.6}",
     ],
 )
-def test_environment_errors_are_skips(message):
+def test_environment_errors_are_skips(message, monkeypatch):
+    monkeypatch.delenv("OT_PRIVATE_DISPLAY", raising=False)
     assert environment_skip_reason(tkinter.TclError(message)) is not None
+
+
+def test_an_unreachable_private_display_is_a_failure_not_a_skip(monkeypatch):
+    """Regression: the session's own Xvfb died, Tk could not connect, and every window test skipped with exit 0."""
+    monkeypatch.setenv("OT_PRIVATE_DISPLAY", ":5")
+    assert environment_skip_reason(tkinter.TclError('couldn\'t connect to display ":5"')) is None
+    assert environment_skip_reason(tkinter.TclError("no display name and no $DISPLAY environment variable")) is None
+    assert (
+        environment_skip_reason(tkinter.TclError("Can't find a usable init.tcl in: {x}")) is not None
+    )  # not the display
 
 
 @pytest.mark.parametrize(
