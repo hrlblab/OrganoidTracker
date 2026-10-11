@@ -1657,3 +1657,45 @@ def test_a_report_requested_while_the_run_is_being_saved_updates_it_afterwards(
     assert log.index("saved automatically") < log.index("now holds the inputs of the analysis report")
     assert len(calls) == 2
     assert load_saved_result(saved_run(app, app.tracking_run_id)).session.timing.time_lapse_days == 14.0
+
+
+def test_a_manual_save_runs_in_a_thread_the_interpreter_waits_for(app, monkeypatch, small_disc, small_video, tmp_path):
+    """Review finding (sibling path): Save Results ran in a daemon thread, which the interpreter abandons at exit, so
+    closing the window during a save could cut its publication short. Like the automatic save, it is not a daemon."""
+    import threading
+
+    from organoidtracker.gui_tk import main_window
+    from organoidtracker.services import export_service
+    from organoidtracker.services.saved_results import load_saved_result
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    save_dir = tmp_path / "saved"
+    entered, release = threading.Event(), threading.Event()
+    original_stage = export_service.stage_saved_result
+
+    def held_stage(*args, **kwargs):
+        entered.set()
+        release.wait(30)
+        return original_stage(*args, **kwargs)
+
+    def save():
+        monkeypatch.setattr(export_service, "stage_saved_result", held_stage)  # the automatic save is done by now
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(save_dir))
+        app.save_results()
+
+    def check_the_thread_and_release():
+        (thread,) = [t for t in threading.enumerate() if t.name == f"save-results-{app.tracking_run_id}"]
+        assert thread.daemon is False
+        release.set()
+
+    try:
+        (
+            _track_in_window(app, monkeypatch, small_video, box, point=(cx - 30, cy - 30))
+            .step("saving", save, entered.is_set, 30)
+            .step("saved", check_the_thread_and_release, lambda: "Results saved" in app.status_label["text"], 30)
+            .run()
+        )
+    finally:
+        release.set()
+    assert mask_digests(load_saved_result(save_dir).result) == mask_digests(app.video_segments)

@@ -2002,7 +2002,8 @@ class VideoTrackerApp:
             except Exception as error:
                 self.post(self.on_results_save_error, str(error), time.time() - start_time)
 
-        threading.Thread(target=save_thread, daemon=True).start()
+        # Not a daemon: the interpreter waits for it at exit, so closing the window cannot cut a publication short
+        threading.Thread(target=save_thread, name=f"save-results-{run['run_id']}", daemon=False).start()
 
     def on_results_saved(self, saved, elapsed):
         self.save_results_btn.config(state="normal")
