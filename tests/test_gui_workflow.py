@@ -1512,3 +1512,143 @@ def test_a_run_whose_video_was_replaced_while_it_ran_is_discarded(app, monkeypat
     assert app.video_segments is None and app.result_video is None and app.autosaves_in_progress == set()
     assert "the video changed while it was tracked" in log_of(app) and saved_runs(app) == []
     assert str(app.save_results_btn["state"]) == "disabled" and str(app.track_btn["state"]) == "normal"
+
+
+def test_the_saved_run_follows_the_inputs_of_its_analysis_report(app, monkeypatch, small_disc, small_video, tmp_path):
+    """Review finding: the analysis inputs are usually set after tracking, so the saved run held those of the end of
+    tracking and exporting it disagreed with the window's report. The report now rewrites the saved run with the
+    inputs and organoids it used (the mask file stays); Save Results refuses the run's own directory."""
+    from organoidtracker import cli
+    from organoidtracker.gui_tk import main_window
+    from organoidtracker.services.saved_results import load_saved_result
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    first_report, second_report = tmp_path / "report-1", tmp_path / "report-2"
+    first_report.mkdir()
+    second_report.mkdir()
+    app.time_lapse_var.set(6.0)  # the values when tracking ends
+    app.conversion_factor_var.set(1.0)
+    state = {}
+
+    def check_first_save():
+        state["run_dir"] = run_dir = saved_run(app, app.tracking_run_id)
+        state["masks"] = sorted(p.name for p in run_dir.glob("masks-*.npz"))
+        saved = load_saved_result(run_dir)
+        assert saved.session.timing.time_lapse_days == 6.0 and saved.session.calibration.um_per_pixel == 1.0
+
+    def report_into(directory, time_lapse):
+        def request():
+            app.time_lapse_var.set(time_lapse)
+            app.conversion_factor_var.set(2.0)
+            monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(directory))
+            app.generate_analysis_report()
+
+        return request
+
+    def add_empty_organoid_and_report():
+        app.on_canvas_click(5, 5)  # an organoid without cysts, added after tracking
+        report_into(first_report, 14.0)()
+
+    def reports_done(count):
+        def done():
+            return (
+                str(app.analysis_btn["state"]) == "normal"
+                and log_of(app).count("now holds the inputs of the analysis report") == count
+                and not app.autosaves_in_progress
+            )
+
+        return done
+
+    def check_first_update_and_refuse_save_results():
+        run_dir = state["run_dir"]
+        saved = load_saved_result(run_dir)
+        assert saved.session.timing.time_lapse_days == 14.0 and saved.session.calibration.um_per_pixel == 2.0
+        assert saved.session.annotations.organoid_data() == {
+            1: {"point": (cx - 30, cy - 30), "cysts": [{"cyst_id": 1, "bbox": box}]},
+            2: {"point": (5, 5), "cysts": []},
+        }
+        assert sorted(p.name for p in run_dir.glob("masks-*.npz")) == state["masks"]  # the masks did not change
+        assert mask_digests(saved.result) == mask_digests(app.video_segments) and saved.run_id == app.tracking_run_id
+        record = json.loads((run_dir / "prompts.json").read_text())
+        assert record["analysis_inputs"]["time_lapse_days"] == 14.0 and len(record["organoids"]) == 2
+        out = tmp_path / "exported"
+        assert (
+            cli.main(["export", "--run", str(run_dir), "--out", str(out), "--no-videos", "--log-level", "WARNING"]) == 0
+        )
+        for name in ("raw_cyst_data.csv", "cyst_summary.csv", "organoid_summary.csv"):
+            assert (out / name).read_bytes() == (first_report / name).read_bytes(), name
+        state["files"] = {p.name: p.read_bytes() for p in run_dir.iterdir()}
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(run_dir))
+        app.save_results()
+        assert "run's own directory" in app.status_label["text"]
+        assert {p.name: p.read_bytes() for p in run_dir.iterdir()} == state["files"]
+
+    (
+        _track_in_window(app, monkeypatch, small_video, box, point=(cx - 30, cy - 30))
+        .step("first save", check_first_save, None, 5)
+        .step("first report", add_empty_organoid_and_report, reports_done(1), 120)
+        .step("saved run updated, Save Results refused", check_first_update_and_refuse_save_results, None, 30)
+        .step("second report", report_into(second_report, 10.0), reports_done(2), 120)
+        .run()
+    )
+    assert load_saved_result(state["run_dir"]).session.timing.time_lapse_days == 10.0  # the latest report's inputs
+
+
+def test_a_report_requested_while_the_run_is_being_saved_updates_it_afterwards(
+    app, monkeypatch, small_disc, small_video, tmp_path
+):
+    """One write per run directory at a time: the update waits for the first save, then the report's inputs win."""
+    import threading
+
+    from organoidtracker.gui_tk import main_window
+    from organoidtracker.services import export_service
+    from organoidtracker.services.saved_results import load_saved_result
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    report_dir = tmp_path / "report"
+    report_dir.mkdir()
+    entered, release = threading.Event(), threading.Event()
+    original_stage = export_service.stage_saved_result
+    calls = []
+
+    def first_save_held(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            entered.set()
+            release.wait(30)
+        return original_stage(*args, **kwargs)
+
+    monkeypatch.setattr(export_service, "stage_saved_result", first_save_held)
+    app.time_lapse_var.set(6.0)
+
+    def tracked_and_held():
+        return not app.tracking_in_progress and app.video_segments is not None and entered.is_set()
+
+    def report_while_held():
+        app.time_lapse_var.set(14.0)
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(report_dir))
+        app.generate_analysis_report()
+        assert app.tracking_run_id in app._run_directory_updates and len(calls) == 1  # waiting, not writing
+
+    def report_done():
+        return str(app.analysis_btn["state"]) == "normal" and "analysis report generated successfully" in log_of(app)
+
+    def both_written():
+        return not app.autosaves_in_progress and "now holds the inputs of the analysis report" in log_of(app)
+
+    try:
+        (
+            _prepare_tracking(app, monkeypatch, small_video, box, (cx - 30, cy - 30))
+            .step("tracked, save held", app.start_tracking, tracked_and_held, 60)
+            .step("report while the save is held", report_while_held, report_done, 120)
+            .step("save released", release.set, both_written, 30)
+            .run()
+        )
+    finally:
+        release.set()
+    log = log_of(app)
+    assert log.index("saved automatically") < log.index("now holds the inputs of the analysis report")
+    assert len(calls) == 2
+    assert load_saved_result(saved_run(app, app.tracking_run_id)).session.timing.time_lapse_days == 14.0

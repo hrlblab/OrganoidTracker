@@ -52,9 +52,12 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   directory `data/output_videos/runs/<video>_<timestamp>_<run id>/` holding the files Save Results writes
   (`results.json`, the mask file, `session.json`, `prompts.json`). A run that is never exported or saved by hand
   can still be reopened with Open Results or exported again with `organoidtracker export --run`; completed,
-  partial and cancelled runs keep their status. An existing directory is never used. If the save fails, or the
-  time lapse or conversion factor is invalid, the results stay in the window, a warning says why and no partial
-  run is left; Save Results still writes a copy wherever chosen.
+  partial and cancelled runs keep their status. An existing directory is never used. Generating the analysis
+  report keeps the saved run in step with it: its session, prompt record and result are rewritten with the time
+  lapse, conversion factor and organoids the report used (the masks stay), so exporting the saved run again
+  reproduces the report. If the save fails, or the time lapse or conversion factor is invalid, the results stay
+  in the window, a warning says why and no partial run is left; Save Results still writes a copy into any other
+  directory.
 - Tracking can be cancelled. The progress dialog's Cancel button and the command line's first Ctrl-C ask
   the propagation to stop after the frame in progress (SAM 2's per-frame inference is not interruptible);
   the tracked frames keep their masks and are saved, analyzed and exported like a partial run, labelled

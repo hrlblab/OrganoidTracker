@@ -104,7 +104,9 @@ class VideoTrackerApp:
         self._tracking_video = None  # the VideoSource the running (or last) tracking run started on
         self.video_loading = False  # a video is being loaded into the backend: tracking must wait for it
         self.run_root = DEFAULT_RUN_ROOT  # every live tracking run is saved below it, in a directory of its own
-        self.autosaves_in_progress: set[str] = set()  # run ids whose automatic save is still being written
+        self.run_directories: dict[str, Path] = {}  # run id -> the directory its automatic save writes and updates
+        self.autosaves_in_progress: set[str] = set()  # run ids whose directory is being written (save or update)
+        self._run_directory_updates: dict[str, tuple[dict, str]] = {}  # the latest update waiting for that write
 
         # Progress dialog references
         self.tracking_dialog = None
@@ -1958,6 +1960,10 @@ class VideoTrackerApp:
         ):
             return
         target = Path(directory)
+        if target.resolve() in {path.resolve() for path in self.run_directories.values()}:
+            self.set_status("That is a run's own directory, saved automatically; choose another directory for a copy")
+            self.log_event(f"❌ Saving refused: the window saves and updates {target} itself")
+            return
         exporter = ExportService(target)
         existing = exporter.previous_saved_run()
         replace_existing = False
@@ -2061,31 +2067,81 @@ class VideoTrackerApp:
             )
             return
         run_id = run["run_id"]
-        exporter = ExportService(new_run_directory(self.current_video_path, run_id, self.run_root))
+        self.run_directories[run_id] = new_run_directory(self.current_video_path, run_id, self.run_root)
+        self._write_run_directory(run_id, run, None)
+
+    def _update_run_directory(self, run: dict, what: str) -> None:
+        """Rewrite a saved run's directory with the analysis inputs and annotations ``what`` used.
+
+        The mask file stays; the session, prompt record and ``results.json`` change, so that exporting the saved
+        run again reproduces what the window produced. A write in progress finishes first, and of the requests
+        made meanwhile only the latest is written.
+        """
+        run_id = run["run_id"]
+        if run_id not in self.run_directories:
+            return  # never saved automatically, or its save failed
+        if run_id in self.autosaves_in_progress:
+            self._run_directory_updates[run_id] = (run, what)
+            return
+        self._write_run_directory(run_id, run, what)
+
+    def _write_run_directory(self, run_id: str, run: dict, what: str | None) -> None:
+        """Write ``run`` into its directory in a worker: the first save (``what`` None) or an update."""
+        exporter = ExportService(self.run_directories[run_id])
         self.autosaves_in_progress.add(run_id)
         start_time = time.time()
 
-        def autosave_thread():
+        def write_thread():
             try:
-                saved = exporter.save_new_run(**run)
-                self.post(self.on_run_autosaved, run_id, saved, time.time() - start_time)
+                if what is None:
+                    saved = exporter.save_new_run(**run)
+                else:
+                    saved = exporter.save_run(**run, replace_existing=True)
+                self.post(self.on_run_directory_written, run_id, saved, what, time.time() - start_time)
             except Exception as error:
-                self.post(self.on_run_autosave_error, run_id, exporter.output_dir, str(error))
+                self.post(self.on_run_directory_error, run_id, exporter.output_dir, what, str(error))
 
-        threading.Thread(target=autosave_thread, name=f"autosave-{run_id}", daemon=False).start()
+        threading.Thread(target=write_thread, name=f"autosave-{run_id}", daemon=False).start()
 
-    def on_run_autosaved(self, run_id, saved, elapsed):
+    def on_run_directory_written(self, run_id, saved, what, elapsed):
         self.autosaves_in_progress.discard(run_id)
-        self._note("💾", f"Run {run_id} saved automatically in {elapsed:.2f}s to {saved.directory}")
-        self.log_event(
-            "   Reopen it with Open Results..., or export it again without a model: "
-            f'organoidtracker export --run "{saved.directory}" --out DIR'
+        if what is None:
+            self._note("💾", f"Run {run_id} saved automatically in {elapsed:.2f}s to {saved.directory}")
+            self.log_event(
+                "   Reopen it with Open Results..., or export it again without a model: "
+                f'organoidtracker export --run "{saved.directory}" --out DIR'
+            )
+        else:
+            session = saved.session
+            self._note(
+                "💾",
+                f"Run {run_id} in {saved.directory} now holds the inputs of {what}: time lapse "
+                f"{session.timing.time_lapse_days} days, {session.calibration.um_per_pixel} µm/pixel, "
+                f"{len(session.annotations.organoid_data())} organoids",
+            )
+        self._next_run_directory_update(run_id)
+
+    def on_run_directory_error(self, run_id, directory, what, error_msg):
+        self.autosaves_in_progress.discard(run_id)
+        if what is None:  # the run has no directory, so there is nothing to keep in step
+            self.run_directories.pop(run_id, None)
+            self._run_directory_updates.pop(run_id, None)
+            hint = " Use Save Results... to save it." if run_id == self.tracking_run_id and self.opened is None else ""
+            self._note(
+                "⚠️", f"Run {run_id} was not saved automatically to {directory}: {error_msg}.{hint}", logging.WARNING
+            )
+            return
+        self._note(
+            "⚠️",
+            f"Run {run_id} in {directory} keeps its previous inputs: writing those of {what} failed: {error_msg}",
+            logging.WARNING,
         )
+        self._next_run_directory_update(run_id)
 
-    def on_run_autosave_error(self, run_id, directory, error_msg):
-        self.autosaves_in_progress.discard(run_id)
-        hint = " Use Save Results... to save it." if run_id == self.tracking_run_id and self.opened is None else ""
-        self._note("⚠️", f"Run {run_id} was not saved automatically to {directory}: {error_msg}.{hint}", logging.WARNING)
+    def _next_run_directory_update(self, run_id: str) -> None:
+        pending = self._run_directory_updates.pop(run_id, None)
+        if pending is not None:
+            self._write_run_directory(run_id, *pending)
 
     def _note(self, symbol: str, message: str, level: int = logging.INFO) -> None:
         """A line in the window log (shown whatever the panel's level) and in the application log."""
@@ -2205,6 +2261,12 @@ class VideoTrackerApp:
             self.set_status("The time lapse and the conversion factor must be positive")
             self.log_event("❌ Invalid analysis parameters")
             return
+
+        if self.opened is None:
+            # The saved run follows the inputs and annotations of its report, so that exporting it again agrees
+            run, _problem = self._capture_saved_run()
+            if run is not None:
+                self._update_run_directory(run, "the analysis report")
 
         start_time = time.time()
 

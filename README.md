@@ -144,8 +144,10 @@ types are checked at startup. A legacy `user_config.py` is still read for now, w
    - Every tracking run that kept masks is saved automatically, right after tracking, in a directory of
      its own: `data/output_videos/runs/<video>_<timestamp>_<run id>/` with `results.json`, the mask file,
      `session.json` and `prompts.json`. It reopens with "Open Results..." and exports again with
-     `organoidtracker export --run <directory> --out <new directory>`, even if it was never exported or saved by hand;
-     "Save Results..." writes a copy into a directory of your choice.
+     `organoidtracker export --run <directory> --out <new directory>`, even if it was never exported or saved by hand.
+     Generating the analysis report updates it with the time lapse, conversion factor and organoids the report
+     used, so that exporting it again reproduces the report; "Save Results..." writes a copy into a directory of
+     your choice.
 
 
 ### Headless runs (command line)
