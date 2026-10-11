@@ -380,6 +380,62 @@ def _save(directory, outcome, result=None):
     )
 
 
+# What a run saved before the 22 settings no code ever read were removed (2026-10-10) recorded for them
+PRUNED_SETTINGS_AS_RECORDED = {
+    "DEFAULT_TOTAL_ORGANOIDS": 13,
+    "DEFAULT_VIDEO_QUALITY": "mid",
+    "DEBUG_MODE_ENABLED": False,
+    "ENABLE_COMPREHENSIVE_REPORTS": True,
+    "FIGURE_SIZE": [10, 6],
+    "SUPPRESS_MATPLOTLIB_WARNINGS": True,
+    "FALLBACK_FOR_OPTIONAL_DEPS": True,
+    "PLOT_COLORS": {"primary": [70, 130, 180], "secondary": [220, 20, 60], "accent": [255, 165, 0]},
+    "GENERATE_DEBUG_FRAMES": False,
+    "AUTO_SAVE_ANALYSIS_DATA": True,
+    "INCLUDE_SESSION_METADATA": True,
+    "CSV_ENCODING": "utf-8",
+    "JSON_ENSURE_ASCII": False,
+    "PDF_PAGE_SIZE": "A4",
+    "MAX_VIDEO_FRAMES": None,
+    "MEMORY_OPTIMIZATION": True,
+    "GARBAGE_COLLECTION_FREQUENCY": 10,
+    "TORCH_DEVICE_OVERRIDE": None,
+    "SAM2_MODEL_CACHE": True,
+    "ENABLE_MODEL_VALIDATION": True,
+    "ENABLE_PERFORMANCE_LOGGING": False,
+    "LOG_ANALYSIS_DETAILS": True,
+}
+
+
+def test_a_run_saved_before_the_settings_were_pruned_reopens_and_exports(hard_run, tmp_path):
+    """Its settings block keeps the removed names as recorded; the export's own settings are today's."""
+    from organoidtracker.settings import REMOVED_SETTINGS
+
+    assert {name.lower() for name in PRUNED_SETTINGS_AS_RECORDED} == REMOVED_SETTINGS
+    saved = hard_run.saved_result
+    recorded = {**saved.settings, **PRUNED_SETTINGS_AS_RECORDED}
+    store = tmp_path / "saved-before"
+    write_saved_result(
+        store,
+        run_id=saved.run_id,
+        session=saved.session,
+        video=saved.video,
+        provenance=saved.provenance,
+        result=saved.result,
+        settings=recorded,
+        environment=saved.environment,
+    )
+    reopened = load_saved_result(store)
+    assert reopened.settings == recorded
+    again = export_saved_result(reopened, tmp_path / "again", videos=False)
+    assert again.exit_code == 3  # the run is partial
+    assert_same_exports(hard_run.output_dir, again.output_dir, videos=False)
+    manifest = json.loads(again.manifest_path.read_text())
+    assert manifest["source"]["settings"] == recorded
+    assert set(manifest["settings"]).isdisjoint(PRUNED_SETTINGS_AS_RECORDED)
+    assert set(json.loads(hard_run.manifest_path.read_text())["settings"]).isdisjoint(PRUNED_SETTINGS_AS_RECORDED)
+
+
 def test_saving_the_same_result_again_is_idempotent_and_a_changed_result_replaces_it(hard_run, tmp_path):
     store = tmp_path / "store"
     first = _save(store, hard_run)
