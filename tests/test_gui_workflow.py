@@ -1422,3 +1422,76 @@ def test_the_automatic_save_writes_its_own_run_while_the_window_moves_on(
     assert app.video_segments is None and app.current_video_path == str(other_video)
     assert "Video loaded!" in app.status_label["text"]  # the save's completion did not touch the status
     assert f"Run {first['run_id']} saved automatically" in log_of(app)
+
+
+def test_tracking_is_refused_while_a_video_loads(app, monkeypatch, small_disc, small_video, tmp_path):
+    """Review finding: Track stayed enabled while a video loaded, so a run could share the backend with the loader and
+    be saved under the new video. Track is now disabled and refused until the video has loaded."""
+    import threading
+
+    from organoidtracker.gui_tk import main_window
+
+    other_video = DiscVideo(n_frames=N, size=128, radius=14, start=30, step=10).write(tmp_path / "other.mp4")
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    release = threading.Event()
+    original_open = TrackingService.open_video
+
+    def held_open(service, path):
+        if Path(path) == other_video:
+            release.wait(30)
+        return original_open(service, path)
+
+    monkeypatch.setattr(TrackingService, "open_video", held_open)
+    first = {}
+
+    def load_another_video_and_track():
+        first["run_id"] = app.tracking_run_id
+        monkeypatch.setattr(main_window.filedialog, "askopenfilename", lambda *a, **k: str(other_video))
+        app.load_video()
+        assert app.video_loading and str(app.track_btn["state"]) == "disabled"
+        app.start_tracking()  # what the button would do if it were pressed
+        assert not app.tracking_in_progress and "A video is loading" in app.status_label["text"]
+        release.set()
+
+    def other_video_loaded():
+        return app.current_video_path == str(other_video) and not app.video_loading
+
+    try:
+        (
+            _track_in_window(app, monkeypatch, small_video, box, point=(cx - 30, cy - 30))
+            .step("track refused while loading", load_another_video_and_track, other_video_loaded, 30)
+            .run()
+        )
+    finally:
+        release.set()
+    assert app.tracking_run_id is None and app.video_segments is None
+    assert saved_runs(app) == [saved_run(app, first["run_id"])] and app.autosaves_in_progress == set()
+    assert "Cannot start tracking - a video is loading" in log_of(app)
+
+
+@pytest.mark.parametrize("app", [{"frame_delay_s": 0.2}], indirect=True)
+def test_a_run_whose_video_was_replaced_while_it_ran_is_discarded(app, monkeypatch, small_disc, small_video):
+    """Defense in depth for the same finding: a completion whose backend holds another video by then is neither
+    installed nor saved."""
+    import dataclasses
+
+    cx, cy = small_disc.centers[N - 1]
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+
+    def one_frame_done():
+        dialog = app.tracking_dialog
+        return dialog is not None and dialog.dialog is not None and dialog.progress_var.get() >= 100 / N
+
+    def replace_the_video():  # what a concurrent load would have done to the backend
+        app.tracking.video = dataclasses.replace(app.tracking.video)
+
+    (
+        _prepare_tracking(app, monkeypatch, small_video, box, (cx - 30, cy - 30))
+        .step("tracking", app.start_tracking, one_frame_done, 30)
+        .step("finished", replace_the_video, lambda: not app.tracking_in_progress, 30)
+        .run()
+    )
+    assert app.video_segments is None and app.result_video is None and app.autosaves_in_progress == set()
+    assert "the video changed while it was tracked" in log_of(app) and saved_runs(app) == []
+    assert str(app.save_results_btn["state"]) == "disabled" and str(app.track_btn["state"]) == "normal"

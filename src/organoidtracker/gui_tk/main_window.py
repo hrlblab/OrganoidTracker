@@ -99,6 +99,8 @@ class VideoTrackerApp:
         self.result_provenance: dict | None = None  # the backend's provenance at tracking time
         self._results_serial = 0  # bumped whenever the shown results change (ids of objects can be reused)
         self._cancel_request: threading.Event | None = None  # the running tracking's cancel request
+        self._tracking_video = None  # the VideoSource the running (or last) tracking run started on
+        self.video_loading = False  # a video is being loaded into the backend: tracking must wait for it
         self.run_root = DEFAULT_RUN_ROOT  # every live tracking run is saved below it, in a directory of its own
         self.autosaves_in_progress: set[str] = set()  # run ids whose automatic save is still being written
 
@@ -840,6 +842,9 @@ class VideoTrackerApp:
 
             self.set_status("Loading video... Please wait.")
             self.load_video_btn.config(state="disabled")
+            # The loader replaces the backend's video and prompts: a run started now would share the backend with it
+            self.video_loading = True
+            self.track_btn.config(state="disabled")
             self.log_event(f"🎬 Loading video: {Path(file_path).name}")
 
             # Load video in thread to prevent GUI freeze
@@ -868,6 +873,7 @@ class VideoTrackerApp:
 
     def on_video_loaded_success(self, file_path, video_info, load_time):
         """Handle successful video loading"""
+        self.video_loading = False
         self.load_video_btn.config(state="normal")
         self._close_opened_result()  # a video loaded through the backend replaces a reopened run
         self.current_video_path = file_path
@@ -920,7 +926,8 @@ class VideoTrackerApp:
         self.log_event(f"✅ Video loaded in {load_time:.2f}s ({video_info.get('num_frames', '?')} frames)")
 
     def on_video_loaded_error(self, error_msg, load_time):
-        """Handle video loading error"""
+        """Handle video loading error (tracking stays disabled until a video has loaded)"""
+        self.video_loading = False
         self.load_video_btn.config(state="normal")
         self.set_status(f"Error loading video: {error_msg}")
         self.log_event(f"❌ Video loading failed after {load_time:.2f}s: {error_msg}")
@@ -1372,12 +1379,18 @@ class VideoTrackerApp:
             self.set_status("Tracking is already running")
             return
 
+        if self.video_loading:
+            self.set_status("A video is loading; track when it has loaded")
+            self.log_event("❌ Cannot start tracking - a video is loading")
+            return
+
         start_time = time.time()
 
         self.tracking_in_progress = True
         self.tracking_run_id = uuid.uuid4().hex[:12]  # identifies these results when they are saved
         run_id = self.tracking_run_id
         service = self.tracking
+        self._tracking_video = service.video  # checked again at completion
         self._cancel_request = threading.Event()  # this run's cancel request; honoured even before the backend starts
         cancel_request = self._cancel_request
         self.track_btn.config(state="disabled")
@@ -1478,6 +1491,13 @@ class VideoTrackerApp:
 
         self.tracking_in_progress = False
         self.track_btn.config(state="normal")
+        if service.video is not self._tracking_video:
+            # The backend holds another video than the one this run started on: its masks must not be shown,
+            # exported or saved under that video's identity
+            self._invalidate_results("the video changed while tracking ran")
+            self.log_event(f"❌ Results of run {run_id} discarded: the video changed while it was tracked")
+            self.set_status("The video changed while tracking ran; its results were discarded. Track again.")
+            return
         self.video_segments = result if result else None
         status = getattr(result, "status", "completed")
         frames_total = getattr(result, "frames_total", "?")

@@ -172,6 +172,8 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   with this repository's Apache-2.0 license. SAM2 is the only backend.
 
 ### Fixed
+- Start Tracking stayed enabled while a video was loading, so a run could share the tracker with the loader; it is
+  now disabled and refused until the video has loaded, and a run whose video was replaced while it ran is discarded.
 - Worker threads updated the window with `after()` calls, which Tcl/Tk 9 (bundled with the
   uv-managed interpreters) never delivers from another thread: the window never learned that the
   model had loaded or that tracking had finished. Workers now post their updates to a queue that the
