@@ -118,6 +118,9 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   tiny checkpoint and skip when it is absent.
 
 ### Changed
+- On a Linux desktop the window tests run on a private Xvfb display that the test session starts, so a test run
+  never opens windows on the screen or takes the focus from other applications; without Xvfb they are skipped
+  with that reason (`OT_GUI_ON_DESKTOP=1` runs them on the desktop). CI is unchanged.
 - The Tk application runs its workflow through the shared services: the backend is created, loaded
   and prompted through the tracking service, the videos and the analysis report are written by the
   export service with the same measurements and files as a headless run of the same session, and a
