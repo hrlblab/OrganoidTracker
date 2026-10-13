@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import shutil
+import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
@@ -83,9 +84,22 @@ REQUIRED_FIGURES = (
 
 ProgressCallback = Callable[[int, int, str], None]
 
+# Where the window saves every tracking run, each in a new directory (relative to the working directory)
+DEFAULT_RUN_ROOT = Path("data") / "output_videos" / "runs"
+
 
 class ExportError(RuntimeError):
     """The output directory cannot be used or an export step failed."""
+
+
+def new_run_directory(video_path: str | Path, run_id: str, root: str | Path = DEFAULT_RUN_ROOT) -> Path:
+    """The directory of one tracking run, ``<root>/<video stem>_<YYYYmmdd-HHMMSS>_<run id>``, as an absolute path.
+
+    Nothing is created (:meth:`ExportService.save_new_run` does that). A relative ``root`` is resolved now,
+    so a later change of the working directory cannot move the run.
+    """
+    name = f"{Path(str(video_path)).stem}_{time.strftime('%Y%m%d-%H%M%S')}_{run_id}"
+    return Path(os.path.abspath(Path(root) / name))
 
 
 class ExportService:
@@ -294,9 +308,11 @@ class ExportService:
         try:
             temps[SESSION_NAME] = self._stage_json(SESSION_NAME, self.session_document(session, video.sha256))
             temps[PROMPT_RECORD_NAME] = self._stage_json(PROMPT_RECORD_NAME, dict(prompt_record))
-        except OSError as error:
+        except Exception as error:  # whatever stops the staging, nothing staged is left behind
             discard_staged_result(staged)
             self._discard_temps(temps)
+            if not isinstance(error, OSError):
+                raise
             raise ExportError(f"cannot write the session or the prompt record in {self.output_dir}: {error}") from error
         try:
             publish_files(
@@ -318,9 +334,50 @@ class ExportService:
         remove_stale_mask_files(self.output_dir, keep=staged.masks_path.name)
         return saved_result_from_staged(staged)
 
+    def save_new_run(
+        self,
+        *,
+        run_id: str,
+        session: Session,
+        video: VideoSource,
+        provenance: Mapping[str, Any],
+        result: TrackingResult,
+        prompt_record: Mapping[str, Any],
+    ) -> SavedResult:
+        """Save a run as :meth:`save_run` does, into an output directory that is created for it.
+
+        The directory must not exist yet: an existing one is never used, so nothing is ever replaced. A save
+        that fails removes what it staged, and then the directory if it is empty, so no half-written run
+        remains; files anyone else put there meanwhile are left alone.
+        """
+        try:
+            self.output_dir.parent.mkdir(parents=True, exist_ok=True)
+            self.output_dir.mkdir()
+        except OSError as error:
+            raise ExportError(f"cannot create the run directory {self.output_dir}: {error}") from error
+        try:
+            return self.save_run(
+                run_id=run_id,
+                session=session,
+                video=video,
+                provenance=provenance,
+                result=result,
+                prompt_record=prompt_record,
+            )
+        except Exception:
+            try:
+                self.output_dir.rmdir()  # only when empty
+            except OSError:
+                pass
+            raise
+
     def _stage_json(self, name: str, data: dict[str, Any]) -> Path:
         temporary = self.output_dir / f".{name}.{uuid.uuid4().hex}.tmp"
-        temporary.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+        try:
+            temporary.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+        except BaseException:
+            temporary.unlink(missing_ok=True)  # a partly written temporary is not left behind
+            raise
         return temporary
 
     @staticmethod

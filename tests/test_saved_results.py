@@ -735,3 +735,103 @@ def test_a_relocated_export_reopens_and_exports_again_without_the_override(
         assert_same_exports(hard_run.output_dir, third.output_dir, videos=True)
     finally:
         shutil.move(str(moved), str(small_video))
+
+
+# ------------------------------------------------------------------------------------ new run directories
+def _run_arguments(outcome):
+    saved = outcome.saved_result
+    return {
+        "run_id": saved.run_id,
+        "session": saved.session,
+        "video": saved.video,
+        "provenance": saved.provenance,
+        "result": saved.result,
+        "prompt_record": {"schema": "organoidtracker.prompts/1", "note": "test"},
+    }
+
+
+def test_a_run_directory_is_named_after_the_video_and_the_run_and_resolved_at_once(tmp_path, monkeypatch):
+    from organoidtracker.services.export_service import new_run_directory
+
+    path = new_run_directory("/videos/well.mp4", "abc123", tmp_path / "runs")
+    assert path.parent == tmp_path / "runs" and path.name.startswith("well_") and path.name.endswith("_abc123")
+    assert not path.exists()
+    monkeypatch.chdir(tmp_path)
+    relative = new_run_directory("disc.mp4", "def456")  # the default root, below the working directory
+    assert relative.is_absolute() and relative.parent == tmp_path / "data" / "output_videos" / "runs"
+
+
+def test_a_new_run_directory_is_created_for_the_run_and_never_reused(hard_run, tmp_path):
+    from organoidtracker.services.export_service import ExportService, new_run_directory
+
+    target = new_run_directory("disc.mp4", hard_run.saved_result.run_id, tmp_path / "runs")
+    saved = ExportService(target).save_new_run(**_run_arguments(hard_run))
+    assert saved.directory == target
+    assert sorted(p.name for p in target.iterdir() if not p.name.startswith("masks-")) == [
+        "prompts.json",
+        "results.json",
+        "session.json",
+    ]
+    assert mask_digests(load_saved_result(target).result) == mask_digests(hard_run.result)
+    before = {p.name: p.read_bytes() for p in target.iterdir()}
+    with pytest.raises(ExportError, match="cannot create the run directory"):
+        ExportService(target).save_new_run(**_run_arguments(hard_run))
+    assert {p.name: p.read_bytes() for p in target.iterdir()} == before
+
+
+@pytest.mark.parametrize("failure", ["mask file", "publication", "unexpected error", "session staging"])
+def test_a_failed_save_into_a_new_run_directory_removes_it(hard_run, tmp_path, monkeypatch, failure):
+    """Nothing staged is left behind, whatever stops the save (an error that is not a disk error included), and the
+    empty directory goes."""
+    from organoidtracker.services.export_service import ExportService, new_run_directory
+
+    if failure == "mask file":
+        monkeypatch.setattr(
+            saved_results, "_write_npz", lambda handle, arrays: (_ for _ in ()).throw(OSError("injected disk-full"))
+        )
+    elif failure == "unexpected error":
+        monkeypatch.setattr(
+            saved_results, "_write_npz", lambda handle, arrays: (_ for _ in ()).throw(RuntimeError("injected bug"))
+        )
+    elif failure == "session staging":
+        original_write_text = Path.write_text
+
+        def write_half_then_fail(path, data, *args, **kwargs):
+            if path.name.startswith(".session.json."):
+                original_write_text(path, data[: len(data) // 2], *args, **kwargs)
+                raise OSError("injected disk-full while staging session.json")
+            return original_write_text(path, data, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "write_text", write_half_then_fail)
+    else:
+        original_replace = saved_results.os.replace
+
+        def fail_on_results(src, dst):
+            if Path(dst).name == RESULTS_NAME:
+                raise OSError("injected failure while publishing results.json")
+            return original_replace(src, dst)
+
+        monkeypatch.setattr(saved_results.os, "replace", fail_on_results)
+    root = tmp_path / "runs"
+    target = new_run_directory("disc.mp4", "abc123", root)
+    with pytest.raises((ExportError, SavedResultError, RuntimeError), match="injected"):
+        ExportService(target).save_new_run(**_run_arguments(hard_run))
+    assert not target.exists() and root.is_dir() and not list(root.iterdir())
+
+
+def test_a_failed_save_into_a_new_run_directory_keeps_what_it_did_not_write(hard_run, tmp_path, monkeypatch):
+    """Review finding: the failed save removed the whole directory, with what another save had staged there."""
+    from organoidtracker.services.export_service import ExportService, new_run_directory
+
+    target = new_run_directory("disc.mp4", "abc123", tmp_path / "runs")
+    other = target / ".session.json.0123456789abcdef.tmp"
+
+    def another_save_stages_then_disk_full(handle, arrays):
+        other.write_text("staged by another save\n")
+        raise OSError("injected disk-full")
+
+    monkeypatch.setattr(saved_results, "_write_npz", another_save_stages_then_disk_full)
+    with pytest.raises(SavedResultError, match="injected"):
+        ExportService(target).save_new_run(**_run_arguments(hard_run))
+    assert sorted(p.name for p in target.iterdir()) == [other.name]
+    assert other.read_text() == "staged by another save\n"

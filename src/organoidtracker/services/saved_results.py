@@ -252,9 +252,11 @@ def stage_saved_result(
             },
         }
         _write_text(results_temp, json.dumps(document, indent=2, default=str))
-    except OSError as error:
+    except BaseException as error:  # whatever stops the write, no temporary is left behind
         masks_temp.unlink(missing_ok=True)
         results_temp.unlink(missing_ok=True)
+        if not isinstance(error, OSError):
+            raise
         raise SavedResultError(f"cannot write the saved result in {directory}: {error}") from error
     return StagedResult(directory, masks_temp, masks_path, results_temp, document, run_id, session, video, result)
 

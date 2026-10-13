@@ -48,6 +48,16 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   analysis summary).
 
 ### Added
+- The window saves every tracking run that kept masks right after tracking, without a dialog, into a new
+  directory `data/output_videos/runs/<video>_<timestamp>_<run id>/` holding the files Save Results writes
+  (`results.json`, the mask file, `session.json`, `prompts.json`). A run that is never exported or saved by hand
+  can still be reopened with Open Results or exported again with `organoidtracker export --run`; completed,
+  partial and cancelled runs keep their status. An existing directory is never used. Generating the analysis
+  report keeps the saved run in step with it: its session, prompt record and result are rewritten with the time
+  lapse, conversion factor and organoids the report used (the masks stay), so exporting the saved run again
+  reproduces the report. If the save fails, or the time lapse or conversion factor is invalid, the results stay
+  in the window, a warning says why and no partial run is left; Save Results still writes a copy into any other
+  directory.
 - Tracking can be cancelled. The progress dialog's Cancel button and the command line's first Ctrl-C ask
   the propagation to stop after the frame in progress (SAM 2's per-frame inference is not interruptible);
   the tracked frames keep their masks and are saved, analyzed and exported like a partial run, labelled
@@ -106,7 +116,7 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   `config.py` (default `2.1`; `2` is the family used for the paper's figures).
 - `run_tracking` returns a `TrackingResult` whose status distinguishes completed from partial
   runs; the GUI reports a run that stopped early instead of logging success.
-- A prompt and provenance record (`data/output_videos/prompts/<video>_<timestamp>.json`) with
+- A prompt and provenance record (`data/output_videos/prompts/<video>_<timestamp>_<run id>.json`) with
   organoid points, cyst boxes, video hash, frame map, direction, model family, checkpoint hash
   and software versions, written when tracking starts.
 - SAM2's object presence score is recorded per object and frame.
@@ -175,6 +185,10 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   with this repository's Apache-2.0 license. SAM2 is the only backend.
 
 ### Fixed
+- Closing the window while Save Results was writing could stop the save between two renames; the save now finishes
+  before the application exits.
+- Start Tracking stayed enabled while a video was loading, so a run could share the tracker with the loader; it is
+  now disabled and refused until the video has loaded, and a run whose video was replaced while it ran is discarded.
 - Worker threads updated the window with `after()` calls, which Tcl/Tk 9 (bundled with the
   uv-managed interpreters) never delivers from another thread: the window never learned that the
   model had loaded or that tracking had finished. Workers now post their updates to a queue that the

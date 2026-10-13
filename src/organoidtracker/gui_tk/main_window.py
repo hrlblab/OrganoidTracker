@@ -26,7 +26,7 @@ from ..core.model_registry import get_model_registry
 from ..core.sam2_tracker import checkpoint_filename
 from ..services.analysis_service import AnalysisService
 from ..services.annotations import AnnotationError, AnnotationSet, CystAnnotation
-from ..services.export_service import ExportError, ExportService
+from ..services.export_service import DEFAULT_RUN_ROOT, ExportError, ExportService, new_run_directory
 from ..services.prompt_record import build_prompt_record
 from ..services.saved_results import SavedResult, load_saved_result
 from ..services.session import Calibration, SessionError, Timing, TrackingSpec, session_from_document
@@ -55,6 +55,8 @@ class LogPanelHandler(logging.Handler):
         self.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
 
     def emit(self, record: logging.LogRecord) -> None:
+        if getattr(record, "in_window_log", False):
+            return  # the window wrote it to its log itself, whatever the panel's level
         try:
             self.app.post(self.app.log_event, self.format(record))
         except Exception:  # the Tk main loop has gone away
@@ -99,6 +101,12 @@ class VideoTrackerApp:
         self.result_provenance: dict | None = None  # the backend's provenance at tracking time
         self._results_serial = 0  # bumped whenever the shown results change (ids of objects can be reused)
         self._cancel_request: threading.Event | None = None  # the running tracking's cancel request
+        self._tracking_video = None  # the VideoSource the running (or last) tracking run started on
+        self.video_loading = False  # a video is being loaded into the backend: tracking must wait for it
+        self.run_root = DEFAULT_RUN_ROOT  # every live tracking run is saved below it, in a directory of its own
+        self.run_directories: dict[str, Path] = {}  # run id -> the directory its automatic save writes and updates
+        self.autosaves_in_progress: set[str] = set()  # run ids whose directory is being written (save or update)
+        self._run_directory_updates: dict[str, tuple[dict, str]] = {}  # the latest update waiting for that write
 
         # Progress dialog references
         self.tracking_dialog = None
@@ -838,6 +846,9 @@ class VideoTrackerApp:
 
             self.set_status("Loading video... Please wait.")
             self.load_video_btn.config(state="disabled")
+            # The loader replaces the backend's video and prompts: a run started now would share the backend with it
+            self.video_loading = True
+            self.track_btn.config(state="disabled")
             self.log_event(f"🎬 Loading video: {Path(file_path).name}")
 
             # Load video in thread to prevent GUI freeze
@@ -866,6 +877,7 @@ class VideoTrackerApp:
 
     def on_video_loaded_success(self, file_path, video_info, load_time):
         """Handle successful video loading"""
+        self.video_loading = False
         self.load_video_btn.config(state="normal")
         self._close_opened_result()  # a video loaded through the backend replaces a reopened run
         self.current_video_path = file_path
@@ -918,7 +930,8 @@ class VideoTrackerApp:
         self.log_event(f"✅ Video loaded in {load_time:.2f}s ({video_info.get('num_frames', '?')} frames)")
 
     def on_video_loaded_error(self, error_msg, load_time):
-        """Handle video loading error"""
+        """Handle video loading error (tracking stays disabled until a video has loaded)"""
+        self.video_loading = False
         self.load_video_btn.config(state="normal")
         self.set_status(f"Error loading video: {error_msg}")
         self.log_event(f"❌ Video loading failed after {load_time:.2f}s: {error_msg}")
@@ -1370,12 +1383,18 @@ class VideoTrackerApp:
             self.set_status("Tracking is already running")
             return
 
+        if self.video_loading:
+            self.set_status("A video is loading; track when it has loaded")
+            self.log_event("❌ Cannot start tracking - a video is loading")
+            return
+
         start_time = time.time()
 
         self.tracking_in_progress = True
         self.tracking_run_id = uuid.uuid4().hex[:12]  # identifies these results when they are saved
         run_id = self.tracking_run_id
         service = self.tracking
+        self._tracking_video = service.video  # checked again at completion
         self._cancel_request = threading.Event()  # this run's cancel request; honoured even before the backend starts
         cancel_request = self._cancel_request
         self.track_btn.config(state="disabled")
@@ -1459,7 +1478,9 @@ class VideoTrackerApp:
                 tk_value(self.time_lapse_var),
                 tk_value(self.conversion_factor_var),
             )
-            path = write_prompt_record(record, default_prompt_record_path(str(self.current_video_path)))
+            path = write_prompt_record(
+                record, default_prompt_record_path(str(self.current_video_path), run_id=self.tracking_run_id)
+            )
             self.log_event(f"💾 Prompt record saved: {path}")
         except Exception as e:
             self.log_event(f"⚠️ Could not save prompt record: {e}")
@@ -1476,6 +1497,13 @@ class VideoTrackerApp:
 
         self.tracking_in_progress = False
         self.track_btn.config(state="normal")
+        if service.video is not self._tracking_video:
+            # The backend holds another video than the one this run started on: its masks must not be shown,
+            # exported or saved under that video's identity
+            self._invalidate_results("the video changed while tracking ran")
+            self.log_event(f"❌ Results of run {run_id} discarded: the video changed while it was tracked")
+            self.set_status("The video changed while tracking ran; its results were discarded. Track again.")
+            return
         self.video_segments = result if result else None
         status = getattr(result, "status", "completed")
         frames_total = getattr(result, "frames_total", "?")
@@ -1509,6 +1537,7 @@ class VideoTrackerApp:
                 self.log_event(f"✅ Tracking completed in {tracking_time:.2f}s")
                 self.set_status("Tracking completed! Ready to generate videos.")
             self.log_event(f"📊 Processed {num_frames} frames for {len(active_objects)} objects")
+            self._autosave_results()
         else:
             self.result_video = None
             self.result_provenance = None
@@ -1933,6 +1962,10 @@ class VideoTrackerApp:
         ):
             return
         target = Path(directory)
+        if target.resolve() in {path.resolve() for path in self.run_directories.values()}:
+            self.set_status("That is a run's own directory, saved automatically; choose another directory for a copy")
+            self.log_event(f"❌ Saving refused: the window saves and updates {target} itself")
+            return
         exporter = ExportService(target)
         existing = exporter.previous_saved_run()
         replace_existing = False
@@ -1953,46 +1986,24 @@ class VideoTrackerApp:
             ):
                 return
 
-        # Read the Tk variables and the annotations on the GUI thread before starting the worker
-        try:
-            time_lapse_days = float(self.time_lapse_var.get())
-            conversion_factor = float(self.conversion_factor_var.get())
-        except (tk.TclError, ValueError) as error:
-            self.set_status(f"Cannot save: check the time lapse and the conversion factor ({error})")
+        run, problem = self._capture_saved_run()
+        if run is None:
+            self.set_status(f"Cannot save: {problem}")
+            self.log_event(f"❌ Cannot save the results: {problem}")
             return
-        organoid_data = {
-            oid: {"point": info["point"], "cysts": list(info["cysts"])} for oid, info in self.organoid_data.items()
-        }
-        result = self.video_segments
-        service = self.tracking
-        video = self.result_video  # the video the results were tracked on, checked by _ready_for_export
-        provenance = self.result_provenance or service.provenance()
-        run_id = self.tracking_run_id or service.run_id
-        video_path = self.current_video_path
         start_time = time.time()
         self.save_results_btn.config(state="disabled")
         self.set_status("Saving the results... Please wait.")
 
         def save_thread():
             try:
-                record = build_prompt_record(
-                    service.tracker, video_path, organoid_data, time_lapse_days, conversion_factor
-                )
-                session = session_from_document(record)
-                saved = exporter.save_run(
-                    run_id=run_id,
-                    session=session,
-                    video=video,
-                    provenance=provenance,
-                    result=result,
-                    prompt_record=record,
-                    replace_existing=replace_existing,
-                )
+                saved = exporter.save_run(**run, replace_existing=replace_existing)
                 self.post(self.on_results_saved, saved, time.time() - start_time)
             except Exception as error:
                 self.post(self.on_results_save_error, str(error), time.time() - start_time)
 
-        threading.Thread(target=save_thread, daemon=True).start()
+        # Not a daemon: the interpreter waits for it at exit, so closing the window cannot cut a publication short
+        threading.Thread(target=save_thread, name=f"save-results-{run['run_id']}", daemon=False).start()
 
     def on_results_saved(self, saved, elapsed):
         self.save_results_btn.config(state="normal")
@@ -2009,6 +2020,136 @@ class VideoTrackerApp:
         self.save_results_btn.config(state="normal")
         self.set_status(f"Saving the results failed: {error_msg}")
         self.log_event(f"❌ Saving the results failed after {elapsed:.2f}s: {error_msg}")
+
+    def _capture_saved_run(self) -> tuple[dict | None, str | None]:
+        """What saving the shown live results needs, read on the GUI thread: ``save_run``'s arguments.
+
+        The Tk variables, the annotations and the backend's prompts are read here because a worker must not
+        read them while the window moves on. Returns (None, the reason) when the analysis inputs are invalid
+        or the record cannot be built.
+        """
+        try:
+            time_lapse_days = float(self.time_lapse_var.get())
+            conversion_factor = float(self.conversion_factor_var.get())
+        except (tk.TclError, ValueError) as error:
+            return None, f"check the time lapse and the conversion factor ({error})"
+        organoid_data = {
+            oid: {"point": info["point"], "cysts": list(info["cysts"])} for oid, info in self.organoid_data.items()
+        }
+        service = self.tracking
+        try:
+            record = build_prompt_record(
+                service.tracker, self.current_video_path, organoid_data, time_lapse_days, conversion_factor
+            )
+            session = session_from_document(record)  # SessionError for a non-positive time lapse or calibration
+        except Exception as error:
+            return None, str(error)
+        return {
+            "run_id": self.tracking_run_id or service.run_id,
+            "session": session,
+            "video": self.result_video,  # the video the results were tracked on, checked by _ready_for_export
+            "provenance": self.result_provenance or service.provenance(),
+            "result": self.video_segments,
+            "prompt_record": record,
+        }, None
+
+    def _autosave_results(self) -> None:
+        """Save the live results just installed into a new run directory below ``run_root``.
+
+        A safety net: every tracking run that kept masks is on disk even if it is never saved or exported, with
+        the files Save Results writes. The worker gets only what is read here, so the window may move on
+        (another video, model or run) while it writes, and its completion only logs. The thread is not a
+        daemon: closing the window right after tracking lets the save finish.
+        """
+        run, problem = self._capture_saved_run()
+        if run is None:
+            self._note(
+                "⚠️",
+                f"Run {self.tracking_run_id} was not saved automatically: {problem}; correct it, then use Save Results...",
+                logging.WARNING,
+            )
+            return
+        run_id = run["run_id"]
+        self.run_directories[run_id] = new_run_directory(self.current_video_path, run_id, self.run_root)
+        self._write_run_directory(run_id, run, None)
+
+    def _update_run_directory(self, run: dict, what: str) -> None:
+        """Rewrite a saved run's directory with the analysis inputs and annotations ``what`` used.
+
+        The mask file stays; the session, prompt record and ``results.json`` change, so that exporting the saved
+        run again reproduces what the window produced. A write in progress finishes first, and of the requests
+        made meanwhile only the latest is written.
+        """
+        run_id = run["run_id"]
+        if run_id not in self.run_directories:
+            return  # never saved automatically, or its save failed
+        if run_id in self.autosaves_in_progress:
+            self._run_directory_updates[run_id] = (run, what)
+            return
+        self._write_run_directory(run_id, run, what)
+
+    def _write_run_directory(self, run_id: str, run: dict, what: str | None) -> None:
+        """Write ``run`` into its directory in a worker: the first save (``what`` None) or an update."""
+        exporter = ExportService(self.run_directories[run_id])
+        self.autosaves_in_progress.add(run_id)
+        start_time = time.time()
+
+        def write_thread():
+            try:
+                if what is None:
+                    saved = exporter.save_new_run(**run)
+                else:
+                    saved = exporter.save_run(**run, replace_existing=True)
+                self.post(self.on_run_directory_written, run_id, saved, what, time.time() - start_time)
+            except Exception as error:
+                self.post(self.on_run_directory_error, run_id, exporter.output_dir, what, str(error))
+
+        threading.Thread(target=write_thread, name=f"autosave-{run_id}", daemon=False).start()
+
+    def on_run_directory_written(self, run_id, saved, what, elapsed):
+        self.autosaves_in_progress.discard(run_id)
+        if what is None:
+            self._note("💾", f"Run {run_id} saved automatically in {elapsed:.2f}s to {saved.directory}")
+            self.log_event(
+                "   Reopen it with Open Results..., or export it again without a model: "
+                f'organoidtracker export --run "{saved.directory}" --out DIR'
+            )
+        else:
+            session = saved.session
+            self._note(
+                "💾",
+                f"Run {run_id} in {saved.directory} now holds the inputs of {what}: time lapse "
+                f"{session.timing.time_lapse_days} days, {session.calibration.um_per_pixel} µm/pixel, "
+                f"{len(session.annotations.organoid_data())} organoids",
+            )
+        self._next_run_directory_update(run_id)
+
+    def on_run_directory_error(self, run_id, directory, what, error_msg):
+        self.autosaves_in_progress.discard(run_id)
+        if what is None:  # the run has no directory, so there is nothing to keep in step
+            self.run_directories.pop(run_id, None)
+            self._run_directory_updates.pop(run_id, None)
+            hint = " Use Save Results... to save it." if run_id == self.tracking_run_id and self.opened is None else ""
+            self._note(
+                "⚠️", f"Run {run_id} was not saved automatically to {directory}: {error_msg}.{hint}", logging.WARNING
+            )
+            return
+        self._note(
+            "⚠️",
+            f"Run {run_id} in {directory} keeps its previous inputs: writing those of {what} failed: {error_msg}",
+            logging.WARNING,
+        )
+        self._next_run_directory_update(run_id)
+
+    def _next_run_directory_update(self, run_id: str) -> None:
+        pending = self._run_directory_updates.pop(run_id, None)
+        if pending is not None:
+            self._write_run_directory(run_id, *pending)
+
+    def _note(self, symbol: str, message: str, level: int = logging.INFO) -> None:
+        """A line in the window log (shown whatever the panel's level) and in the application log."""
+        self.log_event(f"{symbol} {message}")
+        logger.log(level, message, extra={"in_window_log": True})
 
     def set_status(self, message):
         """Update status bar"""
@@ -2123,6 +2264,12 @@ class VideoTrackerApp:
             self.set_status("The time lapse and the conversion factor must be positive")
             self.log_event("❌ Invalid analysis parameters")
             return
+
+        if self.opened is None:
+            # The saved run follows the inputs and annotations of its report, so that exporting it again agrees
+            run, _problem = self._capture_saved_run()
+            if run is not None:
+                self._update_run_directory(run, "the analysis report")
 
         start_time = time.time()
 

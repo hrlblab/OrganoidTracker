@@ -7,6 +7,7 @@ application and the command line write the same record through this module.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import time
@@ -65,7 +66,8 @@ def build_prompt_record(
             }
             for organoid_id, info in organoid_data.items()
         ],
-        "prompts": {str(obj_id): prompts for obj_id, prompts in getattr(model, "prompts", {}).items()},
+        # a copy: the backend keeps appending to its own prompt lists, and the record may be written later
+        "prompts": {str(obj_id): copy.deepcopy(prompts) for obj_id, prompts in getattr(model, "prompts", {}).items()},
         "analysis_inputs": {
             "time_lapse_days": time_lapse_days,
             "conversion_factor_um_per_pixel": conversion_factor,
@@ -74,9 +76,15 @@ def build_prompt_record(
     }
 
 
-def default_prompt_record_path(video_path: str | Path, directory: Path = DEFAULT_PROMPT_RECORD_DIR) -> Path:
-    """``data/output_videos/prompts/<video stem>_<timestamp>.json``, the application's convention."""
-    return Path(directory) / f"{Path(str(video_path)).stem}_{time.strftime('%Y%m%d-%H%M%S')}.json"
+def default_prompt_record_path(
+    video_path: str | Path, directory: Path = DEFAULT_PROMPT_RECORD_DIR, run_id: str | None = None
+) -> Path:
+    """``data/output_videos/prompts/<video stem>_<timestamp>[_<run id>].json``, the application's convention.
+
+    With the run id two runs started within the same second get two records.
+    """
+    name = f"{Path(str(video_path)).stem}_{time.strftime('%Y%m%d-%H%M%S')}"
+    return Path(directory) / (f"{name}_{run_id}.json" if run_id else f"{name}.json")
 
 
 def write_prompt_record(record: dict[str, Any], path: str | Path) -> Path:

@@ -16,7 +16,11 @@ from organoidtracker.services.analysis_service import AnalysisService
 from organoidtracker.services.annotations import AnnotationError
 from organoidtracker.services.export_service import ExportError, ExportService
 from organoidtracker.services.pipeline import EXIT_PARTIAL, run_session
-from organoidtracker.services.prompt_record import PROMPT_RECORD_SCHEMA, build_prompt_record
+from organoidtracker.services.prompt_record import (
+    PROMPT_RECORD_SCHEMA,
+    build_prompt_record,
+    default_prompt_record_path,
+)
 from organoidtracker.services.session import (
     Calibration,
     Session,
@@ -326,6 +330,29 @@ def test_prompt_record_round_trips_into_a_session(small_disc, small_video):
     )
     assert session.annotations.cyst_ids() == [1]
     assert session.video == VideoReference(Path(str(small_video)), tracker.video_sha256)
+
+
+def test_the_prompt_record_holds_a_copy_of_the_prompts(small_disc, small_video):
+    """Review finding: the record held the backend's own prompt lists, which it appends to; a record written later
+    (the window's automatic save does so in a worker) could then list prompts the run never had."""
+    tracker = FakeTracker(small_disc)
+    assert tracker.load_model()
+    tracker.load_video(str(small_video))
+    assert tracker.add_bbox_prompt(*small_disc.box(N - 1), obj_id=1)
+    record = build_prompt_record(tracker, str(small_video), {}, 6.0, 1.6934)
+    before = json.loads(json.dumps(record))
+    assert tracker.add_bbox_prompt(1, 2, 30, 40, obj_id=1)  # appended to the backend's list for object 1
+    tracker.prompts[1][0]["x1"] = 999
+    assert json.loads(json.dumps(record)) == before and len(record["prompts"]["1"]) == 1
+
+
+def test_each_prompt_record_is_named_after_its_run(tmp_path):
+    """Review finding: records were named by the second only, so two runs started within it shared one."""
+    first = default_prompt_record_path("/videos/well.mp4", tmp_path, run_id="aaa111")
+    second = default_prompt_record_path("/videos/well.mp4", tmp_path, run_id="bbb222")
+    assert first != second and first.parent == tmp_path
+    assert first.name.startswith("well_") and first.name.endswith("_aaa111.json")
+    assert default_prompt_record_path("/videos/well.mp4", tmp_path).name.count("_") == 1  # without a run id
 
 
 def test_prompt_record_replays_explicit_timestamps_exactly(small_disc, small_video, tmp_path):
