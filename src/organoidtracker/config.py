@@ -15,7 +15,15 @@ import importlib.util
 import logging
 
 from .paths import user_config_path
-from .settings import SETTINGS_FILENAME, Settings, SettingsError, coerce_setting, load_settings, settings_path
+from .settings import (
+    REMOVED_SETTINGS,
+    SETTINGS_FILENAME,
+    Settings,
+    SettingsError,
+    coerce_setting,
+    load_settings,
+    settings_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +54,8 @@ if _user_config_file is not None:
                 # a recognized setting gets the same type check as a TOML value
                 value = coerce_setting(attr.lower(), value, f"{_user_config_file}: {attr}")
                 setattr(SETTINGS, attr.lower(), value)
+            elif attr.lower() in REMOVED_SETTINGS:
+                logger.warning(f"{_user_config_file}: {attr} was removed (no code ever read it) and is ignored")
             else:
                 logger.warning(f"{_user_config_file}: {attr} is not a known setting; nothing reads it")
             globals()[attr] = value

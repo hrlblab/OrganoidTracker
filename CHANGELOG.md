@@ -150,6 +150,16 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
 - `decord` is no longer required; the predictor is fed the frames the application decodes.
 
 ### Removed
+- 22 settings that no code ever read, here or in the original release: `default_total_organoids`,
+  `default_video_quality`, `debug_mode_enabled`, `enable_comprehensive_reports`, `figure_size`,
+  `suppress_matplotlib_warnings`, `fallback_for_optional_deps`, `plot_colors`, `generate_debug_frames`,
+  `auto_save_analysis_data`, `include_session_metadata`, `csv_encoding`, `json_ensure_ascii`, `pdf_page_size`,
+  `max_video_frames`, `memory_optimization`, `garbage_collection_frequency`, `torch_device_override`,
+  `sam2_model_cache`, `enable_model_validation`, `enable_performance_logging` and `log_analysis_details`, with
+  their `config.py` constants. Setting them never changed anything (figure sizes are fixed in the plotting code,
+  the device is chosen in the window or the session, every frame is read). A settings file or `user_config.py` that still sets
+  one loads with a warning and the value is ignored; a later release will refuse them like any unknown key. Run
+  manifests and saved results no longer list them; saved runs that do still open and export.
 - `analysis/data_reconstruction.py` (`DataReconstructionEngine`), the source of the invented cysts.
 - `environment.yml` (conda); the uv lock and `requirements.txt` replace it.
 - `user_config_example.py`; `organoidtracker.example.toml` replaces it. An existing `user_config.py`
