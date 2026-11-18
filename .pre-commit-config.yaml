@@ -9,9 +9,9 @@ repos:
       - id: check-toml
       - id: check-yaml
       - id: end-of-file-fixer
-        exclude: ^src/sam2/
+        exclude: ^(src/sam2/|packaging/licenses/)
       - id: trailing-whitespace
-        exclude: ^src/sam2/
+        exclude: ^(src/sam2/|packaging/licenses/)
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.10
     hooks:

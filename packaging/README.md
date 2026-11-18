@@ -15,6 +15,9 @@ Build from a clean commit for a release. The bundle's `_internal/organoidtracker
 records the revision, dirty state and runtime; result provenance reads that revision. The spec gathers
 Hydra YAML configs, model modules, package metadata, dependency license files and a package inventory.
 It excludes checkpoints, videos, research outputs, Tk and the optional Transformers backend.
+Qt's installed wheels do not contain standalone license texts. The recipe therefore also includes
+the unmodified texts from the matching official Qt for Python source tag in `licenses/qt`, with
+their source URLs and hashes. It includes the interpreter's license when supplied by the runtime.
 
 Run from a writable workspace, with checkpoints outside the bundle:
 

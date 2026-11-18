@@ -3,6 +3,7 @@ import importlib.metadata
 import json
 import platform
 import subprocess
+import sysconfig
 from pathlib import Path
 
 import torch
@@ -26,11 +27,20 @@ info_path = metadata_dir / '_build_info.json'
 info_path.write_text(json.dumps(build_info, indent=2), encoding='utf-8')
 datas = collect_data_files('sam2') + collect_data_files('organoidtracker')
 datas += [(str(root / 'LICENSE'), '.'), (str(root / 'NOTICE'), '.'), (str(info_path), 'organoidtracker')]
+qt_notices = root / 'packaging' / 'licenses' / 'qt'
+qt_sources = json.loads((qt_notices / 'sources.json').read_text(encoding='utf-8'))
+if importlib.metadata.version('pyside6') != qt_sources['ref'].removeprefix('v'):
+    raise RuntimeError('Update the recorded Qt license texts to match the locked PySide6 version.')
+datas += [(str(path), 'licenses/qt') for path in qt_notices.iterdir() if path.is_file()]
+python_license = Path(sysconfig.get_path('stdlib')) / 'LICENSE.txt'
+if python_license.is_file():
+    datas.append((str(python_license), 'licenses/python'))
 packages = []
 for distribution in importlib.metadata.distributions():
     name = distribution.metadata['Name']
     packages.append({'name': name, 'version': distribution.version,
-                     'license_expression': distribution.metadata.get('License-Expression')})
+                     'license_expression': distribution.metadata.get('License-Expression'),
+                     'license_metadata': distribution.metadata.get('License')})
     # Include the actual license/notice files supplied by installed distributions, including
     # the Qt bindings and native dependencies. No lab data or model weights enter the bundle.
     for file in distribution.files or []:
