@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from helpers import DiscVideo, FakeTracker, expected_growth_per_day
+from organoidtracker import RESULTS_VERSION
 from organoidtracker.analysis.csv_import import experiment_from_csv
 from organoidtracker.services.analysis_service import AnalysisService
 from organoidtracker.services.annotations import AnnotationError
@@ -108,7 +109,7 @@ def test_complete_run_produces_every_export_and_a_truthful_manifest(small_disc, 
 
     manifest = json.loads((out / "run_manifest.json").read_text())
     assert manifest["schema"] == "organoidtracker.run/1" and manifest["status"] == "completed" and manifest["complete"]
-    assert manifest["results_version"] == 2
+    assert manifest["results_version"] == RESULTS_VERSION
     tracking = manifest["tracking"]
     assert (
         tracking["frames_total"] == N
@@ -142,7 +143,7 @@ def test_complete_run_produces_every_export_and_a_truthful_manifest(small_disc, 
     assert [float(r["Time_Days"]) for r in rows] == [1.0 + k for k in range(N)]  # 7 days over 8 frames, day 1 first
 
     record = json.loads((out / "prompts.json").read_text())
-    assert record["schema"] == PROMPT_RECORD_SCHEMA and record["results_version"] == 2
+    assert record["schema"] == PROMPT_RECORD_SCHEMA and record["results_version"] == RESULTS_VERSION
     assert record["prompts"]["1"][0]["frame_idx"] == N - 1 and record["analysis_inputs"]["time_lapse_days"] == 7.0
     assert record["organoids"][0]["cysts"][0]["cyst_id"] == 1
 

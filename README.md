@@ -224,6 +224,20 @@ After analysis, the following files are generated in `data/output_videos/`:
 
 Frames are handled in chronological order throughout. With Reverse Tracking enabled, prompts are placed on the last frame and SAM2 propagates backwards in time; outputs are always written chronologically. The tracking progress dialog has a Cancel button: the frame in progress finishes, the tracked frames stay available for videos, the report and Save Results (as a cancelled run), and tracking again on the same video produces the masks of an uninterrupted run. The "Time Lapse (days)" value is the span from the first to the last frame, and days are numbered from 1 as in the paper's figures (seven daily frames spanning six days are days 1 to 7).
 
+### Measurement conventions
+
+Area counts foreground pixels and multiplies by the square of the micrometers-per-pixel calibration.
+Circularity uses the largest external contour's polygon area and perimeter, as `4πA/P²`, clipped to
+`[0, 1]`; disconnected components and holes therefore affect area and circularity differently.
+Formation percentage and cyst density use every annotated organoid as the denominator. These are
+per-frame measurements; a missing mask does not establish biological absence.
+
+Cyst growth is the mean of the area-change-per-day slopes between consecutive measured time points.
+The organoid summary instead reports the endpoint slope of summed cyst area; the JSON growth statistics
+summarize each organoid's mean cyst growth. The heatmap groups cysts at the 33rd and 67th percentiles.
+Raw CSV values retain floating-point precision for re-analysis; summary tables round values for display.
+Keep the raw CSV, organoid summary and analysis JSON together when re-plotting.
+
 ### Running the tests
 
 ```bash

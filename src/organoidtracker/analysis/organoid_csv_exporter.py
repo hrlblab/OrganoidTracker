@@ -48,12 +48,12 @@ class OrganoidCSVExporter:
                         "Organoid_ID": organoid_id,
                         "Cyst_ID": cyst_id,
                         "Frame": frame_idx,
-                        "Time_Days": round(time_days, 3),
-                        "Area_um2": round(area_um2, 2),
-                        "Circularity": round(frame_data.circularity, 4),
-                        "Centroid_X": round(frame_data.centroid[0], 1),
-                        "Centroid_Y": round(frame_data.centroid[1], 1),
-                        "Radius_um": round(frame_data.get_radius_um(experiment.conversion_factor_um_per_pixel), 2),
+                        "Time_Days": time_days,
+                        "Area_um2": area_um2,
+                        "Circularity": frame_data.circularity,
+                        "Centroid_X": frame_data.centroid[0],
+                        "Centroid_Y": frame_data.centroid[1],
+                        "Radius_um": frame_data.get_radius_um(experiment.conversion_factor_um_per_pixel),
                     }
 
                     data_rows.append(row)
@@ -66,7 +66,9 @@ class OrganoidCSVExporter:
             try:
                 # Use pandas for better formatting control
                 df = pd.DataFrame(data_rows)
-                df.to_csv(output_path, index=False, encoding=self.encoding, float_format="%.4f")
+                # This table is also the re-analysis input. Rounding here can collapse
+                # distinct timestamps and change calibrated areas and growth rates.
+                df.to_csv(output_path, index=False, encoding=self.encoding)
 
                 logger.info(f"Raw data exported: {len(data_rows)} rows")
                 return output_path
@@ -95,12 +97,13 @@ class OrganoidCSVExporter:
                 if not cyst.frame_data:
                     continue
 
-                # Calculate aggregate metrics
+                # The CSV importer accepts arbitrary row order; initial/final refer to
+                # chronological frames, never to dictionary insertion order.
+                observations = [cyst.frame_data[frame] for frame in sorted(cyst.frame_data)]
                 areas_um2 = [
-                    frame_data.get_area_um2(experiment.conversion_factor_um_per_pixel)
-                    for frame_data in cyst.frame_data.values()
+                    frame_data.get_area_um2(experiment.conversion_factor_um_per_pixel) for frame_data in observations
                 ]
-                circularities = [frame_data.circularity for frame_data in cyst.frame_data.values()]
+                circularities = [frame_data.circularity for frame_data in observations]
 
                 # Growth metrics (μm² per day over the experiment's time axis)
                 growth_rate = experiment.growth_rate_per_day(cyst)

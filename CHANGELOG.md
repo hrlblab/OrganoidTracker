@@ -10,6 +10,11 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
 ## [Unreleased]
 
 ### Scientific behavior
+- Raw CSV measurements retain floating-point precision, so short or irregular time intervals,
+  calibrated areas and circularity survive CSV reload without deliberate rounding. Cyst-summary
+  initial and final areas now follow chronological frame order even after raw CSV rows are reordered.
+  These corrections are results version 3. Tracking masks and measurement formulas are unchanged;
+  older saved results can still be exported, with their original results version recorded as the source.
 - Reverse tracking now does what the paper describes: the prompt is placed on the last
   chronological frame and SAM2 propagates backwards in time. The released code applied the
   prompt to the first frame and tracked forward, then mirrored the output indices. Results,

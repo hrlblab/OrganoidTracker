@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from helpers import DiscVideo, FakeTracker, expected_growth_per_day, read_video
+from organoidtracker import RESULTS_VERSION
 from organoidtracker.core.masks import PackedMask
 from organoidtracker.services import saved_results
 from organoidtracker.services.export_service import ExportError
@@ -135,7 +136,7 @@ def test_a_run_saves_a_result_that_reloads_bit_for_bit(hard_run):
         "masks_file": saved.masks_path.name,
         "run_id": manifest["run_id"],
         "created": saved.created,
-        "results_version": 2,
+        "results_version": RESULTS_VERSION,
     }
     assert manifest["produced_by"] == "run" and manifest["source"] is None
     for name in ("results.json", saved.masks_path.name):
@@ -162,7 +163,7 @@ def test_a_run_saves_a_result_that_reloads_bit_for_bit(hard_run):
     assert reloaded.session.video.path == original.video.path and reloaded.session.video.sha256 == original.video.sha256
     assert reloaded.video == hard_run.saved_result.video
     assert reloaded.video.frame_map == tuple(range(N)) and (reloaded.video.height, reloaded.video.width) == (128, 128)
-    assert reloaded.run_id == manifest["run_id"] and reloaded.results_version == 2
+    assert reloaded.run_id == manifest["run_id"] and reloaded.results_version == RESULTS_VERSION
     assert reloaded.provenance["backend"] == "fake" and "SAM2_MIN_MASK_AREA" in reloaded.settings
     assert "python" in reloaded.environment and reloaded.software["organoidtracker"]
 
@@ -177,7 +178,9 @@ def test_export_reproduces_the_run_byte_for_byte_without_the_tracker(hard_run, t
     original = json.loads(hard_run.manifest_path.read_text())
     assert manifest["produced_by"] == "export" and manifest["status"] == "partial" and not manifest["complete"]
     assert manifest["source"]["run_directory"] == str(hard_run.output_dir)
-    assert manifest["source"]["run_created"] == saved.created and manifest["source"]["results_version"] == 2
+    assert (
+        manifest["source"]["run_created"] == saved.created and manifest["source"]["results_version"] == RESULTS_VERSION
+    )
     assert manifest["source"]["settings"] == original["settings"]
     assert manifest["run_id"] == original["run_id"]
     for key in ("masks", "tracking", "provenance", "video", "session", "analysis"):
