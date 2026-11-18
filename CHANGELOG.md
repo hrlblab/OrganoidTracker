@@ -53,6 +53,9 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   analysis summary).
 
 ### Added
+- Reproducible CPU directory-bundle recipe with a bundled CLI, Qt smoke check, dependency notices,
+  package inventory and source revision in run provenance. Native Windows distribution validation
+  and installer selection remain pending; NVIDIA use continues through the locked source installation.
 - PySide6 desktop preview (`organoidtracker-qt`): source-pixel annotation canvas, zoom/pan,
   undo/redo, model settings, cooperative tracking/cancellation, automatic run directories,
   saved-result reopening, mask views, figures, reports and video exports. Missing source videos

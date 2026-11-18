@@ -184,6 +184,9 @@ are pending. The Tk application remains available. Run Qt regression tests offsc
 `uv sync --extra qt --group qt-test`, then `QT_QPA_PLATFORM=offscreen uv run --no-sync pytest -m qt`
 (on Windows, set that environment variable using the shell's syntax).
 
+An experimental CPU directory bundle can also be built using the [packaging recipe](packaging/README.md).
+Checkpoints remain external to the bundle; native Windows distribution validation is pending.
+
 ### Headless runs (command line)
 
 The same tracking, analysis and exports run without a window from a *session file*: a JSON document

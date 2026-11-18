@@ -13,6 +13,7 @@ the source tree; with an installed package they are resolved here, in this order
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -38,10 +39,19 @@ def checkpoints_dir() -> Path:
 
 
 def source_revision() -> str | None:
-    """Commit hash of the source checkout when running from one, else None (read from .git, no subprocess)."""
+    """Revision of the checkout or frozen build receipt; dirty bundles carry a ``-dirty`` suffix."""
     root = source_checkout_root()
     if root is None:
-        return None
+        try:
+            info = json.loads(Path(__file__).with_name("_build_info.json").read_text(encoding="utf-8"))
+            revision = info.get("source_revision")
+            if not isinstance(revision, str) or len(revision) not in (40, 64):
+                return None
+            if any(character not in "0123456789abcdef" for character in revision):
+                return None
+            return revision + ("-dirty" if info.get("dirty") else "")
+        except (OSError, ValueError, AttributeError):
+            return None
     try:
         git_dir = root / ".git"
         if git_dir.is_file():  # a linked worktree: "gitdir: <path>"

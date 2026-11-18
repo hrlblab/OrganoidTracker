@@ -51,13 +51,13 @@ tk = []
 # support RTX 50-series GPUs and need an NVIDIA driver of the 580 series or newer.
 cpu = ["torch>=2.7", "torchvision>=0.22"]
 cuda = ["torch>=2.7", "torchvision>=0.22"]
-# Interfaces that later work packages add; declared now so that the lock file already covers
-# them. `qt`: the PySide6 desktop application. `hf`: the Hugging Face `transformers` video
-# backends (SAM 2.1, SAM 3.1 tracker, EdgeTAM) and model downloads.
+# Optional interfaces: the PySide6 desktop application and Transformers SAM 2/2.1 inference
+# with separately downloaded local snapshots. Other video models remain research experiments.
 qt = ["pyside6>=6.11,<6.12"]
 hf = ["transformers>=5.19"]
 
 [dependency-groups]
+packaging = ["pyinstaller==6.22.3"]
 qt-test = ["pytest-qt>=4.4"]
 dev = [
   "pytest>=8.0",
@@ -82,7 +82,7 @@ Changelog = "https://github.com/hrlblab/OrganoidTracker/blob/main/CHANGELOG.md"
 packages = ["src/organoidtracker", "src/sam2"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["src", "tests", "checkpoints/download_ckpts.sh"]
+only-include = ["src", "tests", "packaging", "checkpoints/download_ckpts.sh"]
 
 [tool.uv]
 conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]

@@ -22,3 +22,7 @@ repository, among them PyTorch and torchvision (BSD-3-Clause), OpenCV (Apache-2.
 Hydra and OmegaConf (MIT), NumPy and SciPy (BSD-3-Clause), scikit-image (BSD-3-Clause),
 pandas (BSD-3-Clause), Matplotlib (PSF-based license), seaborn (BSD-3-Clause),
 Pillow (MIT-CMU) and ReportLab (BSD-3-Clause). Their licenses accompany those packages.
+
+The optional Qt interface uses PySide6 and Shiboken from Qt for Python. The directory-bundle
+recipe copies the license and notice files supplied by installed distributions into its
+licenses directory, together with a package/version inventory. Model checkpoints are not bundled.
