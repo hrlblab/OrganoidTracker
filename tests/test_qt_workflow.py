@@ -1,5 +1,6 @@
 """Qt coordinate and lifecycle checks use synthetic videos and an isolated settings file."""
 
+import json
 import os
 from dataclasses import replace
 
@@ -224,3 +225,29 @@ def test_cancel_before_first_mask_can_retry(window, small_disc, small_video, qtb
     window.start_tracking()
     qtbot.waitUntil(lambda: not window.busy, timeout=60000)
     assert window.opened.saved.result.status == "completed"
+
+
+def test_qt_video_preset_and_viewer_keep_chronological_frames(window, small_disc, small_video, qtbot):
+    from helpers import read_video
+
+    opened(window, small_disc, small_video)
+    window.videos.setChecked(True)
+    window.quality.setCurrentText("mid")
+    window.start_tracking()
+    qtbot.waitUntil(lambda: not window.busy, timeout=60000)
+    saved = window.opened.saved
+    assert saved is not None
+    manifest = json.loads((saved.directory / "run_manifest.json").read_text())
+    assert manifest["video_export"]["quality_scale"] == 0.5
+    for name, width in [("overlay", 64), ("mask", 64), ("side_by_side", 128)]:
+        frames = read_video(saved.directory / f"videos/multi_object_{name}.mp4")
+        assert len(frames) == 8 and frames[0].shape[:2] == (64, width)
+    window.view_mode.setCurrentText("Mask")
+    first_x, first_y = small_disc.centers[0]
+    last_x, last_y = small_disc.centers[7]
+    window.slider.setValue(0)
+    image = window.canvas.image_item.pixmap().toImage()
+    assert image.pixelColor(first_x, first_y).red() > 0 and image.pixelColor(last_x, last_y).red() == 0
+    window.slider.setValue(7)
+    image = window.canvas.image_item.pixmap().toImage()
+    assert image.pixelColor(last_x, last_y).red() > 0 and image.pixelColor(first_x, first_y).red() == 0
