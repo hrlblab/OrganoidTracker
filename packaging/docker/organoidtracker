@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Linux recipient entry point. No host Python, container flags or sourced config.
+set -euo pipefail
+umask 077
+fail() { printf 'Organoid Tracker: %s\n' "$*" >&2; exit 1; }
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+state_dir=${ORGANOIDTRACKER_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/organoidtracker-docker}
+command_name=${1:-start}
+case "$command_name" in start|setup|stop|status|models) ;; *) fail 'Usage: organoidtracker [start|setup|stop|status|models]';; esac
+[[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || fail 'This bundle is tested only on Linux x86-64.'
+for tool in docker flock sha256sum realpath df; do command -v "$tool" >/dev/null || fail "Install $tool first; see the included guide."; done
+docker info --format '{{.ServerVersion}}' >/dev/null 2>&1 || fail 'Docker is unavailable. Start Docker and grant this account Docker access; see the guide.'
+mkdir -p -- "$state_dir"
+exec 9>"$state_dir/launcher.lock"
+flock -n 9 || fail 'Another launcher is updating this configuration. Try again when it finishes.'
+read_setting() { local value; IFS= read -r value < "$state_dir/$1"; printf '%s' "$value"; }
+valid_path() {
+    [[ $1 != *','* && $1 != *$'\n'* ]] || fail 'Select a directory without commas or newline characters.'
+}
+configure() {
+    local videos results models mode
+    local old_results old_name old_state
+    if [[ -f $state_dir/results ]]; then
+        old_results=$(read_setting results)
+        old_name=$(printf '%s' "$old_results" | sha256sum); old_name="organoidtracker-${old_name:0:16}"
+        old_state=$(docker inspect --format '{{.State.Status}}' "$old_name" 2>/dev/null || true)
+        [[ $old_state != running ]] || fail 'Stop the current application before changing setup.'
+        if [[ -n $old_state ]]; then
+            # Remove only the stopped application container, never its host data.
+            old_label=$(docker inspect --format '{{index .Config.Labels "organoidtracker.configuration"}}' "$old_name")
+            [[ -n $old_label && $old_label != '<no value>' ]] || fail 'A different container owns this workspace name.'
+            docker rm "$old_name" >/dev/null
+        fi
+    fi
+    printf 'Video directory (mounted read-only): '; IFS= read -r videos
+    [[ -d $videos && -r $videos && -x $videos ]] || fail 'The video directory must exist and be readable.'
+    printf 'Results directory: '; IFS= read -r results
+    printf 'Reusable model-cache directory: '; IFS= read -r models
+    [[ -n $results && -n $models ]] || fail 'Results and model-cache paths cannot be empty.'
+    printf 'Execution mode [cuda/cpu] (default cuda): '; IFS= read -r mode; mode=${mode:-cuda}
+    [[ $mode == cpu || $mode == cuda ]] || fail 'Choose cpu or cuda.'
+    valid_path "$videos"; valid_path "$results"; valid_path "$models"
+    mkdir -p -- "$results" "$models" "$state_dir/preferences"
+    videos=$(realpath -- "$videos"); results=$(realpath -- "$results"); models=$(realpath -- "$models")
+    [[ -w $results && -w $models ]] || fail 'Results and model-cache directories must be writable.'
+    printf '%s\n' "$videos" > "$state_dir/videos"
+    printf '%s\n' "$results" > "$state_dir/results"
+    printf '%s\n' "$models" > "$state_dir/models"
+    printf '%s\n' "$mode" > "$state_dir/mode"
+}
+if [[ $command_name == setup || ! -f $state_dir/mode ]]; then
+    [[ $command_name == start || $command_name == setup ]] || fail 'Run the launcher once to configure directories.'
+    configure
+    [[ $command_name != setup ]] || { printf 'Configuration saved. Run organoidtracker to start.\n'; exit 0; }
+fi
+videos=$(read_setting videos); results=$(read_setting results); models=$(read_setting models); mode=$(read_setting mode)
+valid_path "$videos"; valid_path "$results"; valid_path "$models"; valid_path "$state_dir"
+[[ $mode == cpu || $mode == cuda ]] || fail 'Invalid saved mode. Run organoidtracker setup.'
+[[ -d $videos && -r $videos ]] || fail 'The saved video directory is missing or unreadable. Run setup.'
+[[ -d $results && -w $results ]] || fail 'The saved results directory is missing or unwritable.'
+[[ -d $models && -w $models ]] || fail 'The saved model-cache directory is missing or unwritable. Run setup.'
+workspace=$(printf '%s' "$results" | sha256sum); workspace=${workspace:0:16}
+name="organoidtracker-$workspace"
+preferences=$(realpath -- "$state_dir/preferences")
+configuration=$(printf '%s\0' "$videos" "$results" "$models" "$preferences" "$mode" | sha256sum); configuration=${configuration%% *}
+exists=$(docker container inspect --format '{{.State.Status}}' "$name" 2>/dev/null || true)
+if [[ -n $exists ]]; then
+    actual=$(docker inspect --format '{{index .Config.Labels "organoidtracker.configuration"}}' "$name")
+    [[ $actual == "$configuration" ]] || fail 'This results folder already has a different active workspace. Stop its original launcher before changing folders or mode.'
+fi
+if [[ $command_name == status ]]; then
+    [[ -n $exists ]] || { printf 'Not running.\n'; exit 0; }
+    docker inspect --format 'State: {{.State.Status}}; exit: {{.State.ExitCode}}; health: {{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' "$name"
+    exit 0
+fi
+if [[ $command_name == stop ]]; then
+    [[ -n $exists ]] || { printf 'Already stopped.\n'; exit 0; }
+    printf 'Waiting for the current operation to finish and retained results to save (up to 300 seconds)…\n'
+    docker stop --time 300 "$name" >/dev/null
+    code=$(docker inspect --format '{{.State.ExitCode}}' "$name")
+    [[ $code != 137 ]] || fail 'Docker had to force-stop the application. Reopen the last saved results; the in-progress frame may not be saved.'
+    [[ $code == 0 ]] || fail "Application exited with code $code. Inspect the log in your results folder."
+    printf 'Application stopped. Saved results remain in %s\n' "$results"
+    exit 0
+fi
+open_browser() {
+    local url=$1
+    printf 'Application: %s\nResults folder: %s\n' "$url" "$results"
+    if [[ ${ORGANOIDTRACKER_NO_BROWSER:-0} != 1 ]] && command -v xdg-open >/dev/null; then
+        xdg-open "$url" >/dev/null 2>&1 9>&- &
+    fi
+}
+if [[ $exists == running && $command_name == start ]]; then
+    port=$(docker port "$name" 6080/tcp); open_browser "http://$port/"; exit 0
+fi
+image_file="$script_dir/image-$mode.txt"
+[[ -f $image_file ]] || fail "Missing image-$mode.txt. Obtain the complete versioned delivery bundle."
+IFS= read -r image < "$image_file"
+[[ $image == sha256:* || $image == *@sha256:* ]] || fail 'The bundle must identify its image by digest.'
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+    archive="$script_dir/images-$mode.tar"
+    if [[ -f $archive ]]; then
+        printf 'Loading the %s application image…\n' "$mode"; docker load -i "$archive"
+    elif [[ $image == *@sha256:* ]]; then
+        printf 'Downloading the %s application image…\n' "$mode"; docker pull "$image"
+    else
+        fail "The $mode image is not installed. Place images-$mode.tar beside this launcher."
+    fi
+fi
+docker image inspect "$image" >/dev/null 2>&1 || fail 'The supplied image does not match the bundle digest.'
+model=base_plus
+if [[ $command_name == models ]]; then
+    printf 'Public SAM 2.1 checkpoint [base_plus/tiny] (default base_plus): '; IFS= read -r model; model=${model:-base_plus}
+    [[ $model == base_plus || $model == tiny ]] || fail 'Choose base_plus or tiny; other local checkpoints can be placed in the model-cache directory.'
+fi
+# Bootstrap is the only container allowed to write the model cache.
+available=$(df --output=avail --block-size=1M -- "$results"); available=${available##*$'\n'}
+printf 'Available results storage: %s MiB\n' "${available// /}"
+printf 'Checking the reusable model cache…\n'
+docker run --rm --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp \
+    --mount "type=bind,src=$models,dst=/models" --entrypoint python "$image" -m organoidtracker.desktop.models "$model"
+[[ $command_name != models ]] || exit 0
+[[ -z $exists ]] || docker rm "$name" >/dev/null
+args=(run -d --name "$name" --init --user "$(id -u):$(id -g)" --read-only
+      --tmpfs /tmp:rw,exec,nosuid,size=2g --shm-size 256m --stop-timeout 300
+      --security-opt no-new-privileges --cap-drop ALL
+      --label "organoidtracker.configuration=$configuration"
+      -p 127.0.0.1::6080 -e "OT_DEVICE=$mode"
+      --mount "type=bind,src=$videos,dst=/videos,readonly"
+      --mount "type=bind,src=$models,dst=/models,readonly"
+      --mount "type=bind,src=$results,dst=/results"
+      --mount "type=bind,src=$preferences,dst=/preferences")
+[[ $mode != cuda ]] || args+=(--gpus all)
+printf 'Starting the %s application…\n' "$mode"
+docker "${args[@]}" "$image" >/dev/null || fail 'Container startup failed. Check Docker GPU support and folder permissions.'
+for ((i=0; i<120; i++)); do
+    current=$(docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$name")
+    if [[ $current == 'running healthy' ]]; then
+        port=$(docker port "$name" 6080/tcp); open_browser "http://$port/"; exit 0
+    fi
+    if [[ $current != running* ]]; then
+        docker logs --tail 15 "$name" >&2
+        fail 'The application did not start. Fix the reported prerequisite and run the launcher again.'
+    fi
+    sleep 1
+done
+fail 'Startup has not become ready in 120 seconds. Run organoidtracker status and inspect the results log.'

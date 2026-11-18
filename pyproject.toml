@@ -54,6 +54,8 @@ cuda = ["torch>=2.7", "torchvision>=0.22"]
 # Optional interfaces: the PySide6 desktop application and Transformers SAM 2/2.1 inference
 # with separately downloaded local snapshots. Other video models remain research experiments.
 qt = ["pyside6>=6.11,<6.12"]
+# The optional local browser bridge is installed only in desktop container images.
+desktop = ["websockify==0.13.0"]
 hf = ["transformers>=5.19"]
 
 [dependency-groups]
@@ -143,6 +145,7 @@ files = [
   "src/organoidtracker/core",
   "src/organoidtracker/services",
   "src/organoidtracker/gui_qt",
+  "src/organoidtracker/desktop",
   "src/organoidtracker/cli.py",
   "src/organoidtracker/config.py",
   "src/organoidtracker/logging_config.py",

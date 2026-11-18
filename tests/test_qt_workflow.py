@@ -251,3 +251,72 @@ def test_qt_video_preset_and_viewer_keep_chronological_frames(window, small_disc
     window.slider.setValue(7)
     image = window.canvas.image_item.pixmap().toImage()
     assert image.pixelColor(last_x, last_y).red() > 0 and image.pixelColor(first_x, first_y).red() == 0
+
+
+def test_stop_bridge_saves_cancelled_run_before_closing(window, small_disc, small_video, qtbot):
+    from organoidtracker.gui_qt.signals import StopBridge
+
+    opened(window, small_disc, small_video)
+    bridge = StopBridge(window)
+    bridge.timer.start()
+    window.start_tracking()
+    qtbot.waitUntil(lambda: window.progress.value() > 0 and "tracking" in window.banner.text(), timeout=15000)
+    bridge.request()
+    qtbot.waitUntil(lambda: not window.isVisible(), timeout=60000)
+    assert not window.busy
+    saved = load_saved_result(window.opened.saved.path)
+    assert saved.result.status == "cancelled"
+    assert 0 < saved.result.frames_done < saved.result.frames_total
+    assert (saved.directory / "run_manifest.json").is_file()
+
+
+def test_persistent_output_root_rejects_ephemeral_and_escaping_paths(window, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    root = tmp_path / "persistent"
+    root.mkdir()
+    window.output_root = root.resolve()
+    outside = tmp_path / "ephemeral"
+    outside.mkdir()
+    (root / "escape").symlink_to(outside, target_is_directory=True)
+    for path in (outside, root / "escape" / "run"):
+        with pytest.raises(ValueError, match="persistent results folder"):
+            window.output_path(path)
+    assert window.output_path(root / "new") == root / "new"
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *args: str(outside))
+    previous = window.run_root
+    with pytest.raises(ValueError, match="persistent results folder"):
+        window.choose_run_root()
+    assert window.run_root == previous
+
+
+def test_import_missing_source_session_relocates_with_hash_check(
+    window, small_disc, small_video, qtbot, tmp_path, monkeypatch
+):
+    import hashlib
+
+    from PySide6.QtWidgets import QFileDialog
+
+    session = opened(window, small_disc, small_video)
+    document = session.to_document()
+    document["video"] = {
+        "path": str(tmp_path / "old-computer" / "video.mp4"),
+        "sha256": hashlib.sha256(small_video.read_bytes()).hexdigest(),
+    }
+    path = tmp_path / "imported.json"
+    path.write_text(json.dumps(document))
+    wrong = tmp_path / "wrong.mp4"
+    wrong.write_bytes(b"different content")
+    for replacement, accepted in ((wrong, False), (small_video, True)):
+        choices = iter((str(path), str(replacement)))
+        monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args, choices=choices: (next(choices), ""))
+        previous = window.opened
+        window.choose_session()
+        qtbot.waitUntil(lambda: not window.busy, timeout=15000)
+        if accepted:
+            assert window.opened.session.video.path == small_video
+            assert window.opened.session.video.sha256 == document["video"]["sha256"]
+            assert window.annotations == session.annotations
+        else:
+            assert window.opened is previous
+            assert "match" in window.banner.text().lower()

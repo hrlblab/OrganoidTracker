@@ -125,3 +125,19 @@ jobs:
           snapshot_download('facebook/sam2.1-hiera-tiny', revision='de431c4043854a71d8101e17995dfe596bf101a5',
           allow_patterns=['*.json','model.safetensors'], local_dir='checkpoints/hf/sam2.1-hiera-tiny')"
       - run: uv run --no-sync pytest -m model
+
+  desktop:
+    name: Linux container desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra cpu --extra qt --extra desktop --group qt-test
+      - run: uv run --no-sync pytest tests/test_desktop.py tests/test_qt_workflow.py
+        env:
+          QT_QPA_PLATFORM: offscreen
+      - run: docker build --build-arg ACCELERATOR=cpu --build-arg SOURCE_REVISION="$GITHUB_SHA" --build-arg SOURCE_DIRTY=false -f packaging/docker/Dockerfile -t organoidtracker:ci .
+      - run: packaging/docker/smoke.sh organoidtracker:ci

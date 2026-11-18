@@ -15,6 +15,13 @@ Contact: [xiaoyu.huang@vanderbilt.edu](mailto:xiaoyu.huang@vanderbilt.edu). Feel
 
 Quantitative analysis of kidney organoid cyst dynamics is crucial for understanding nephron development and disease mechanisms. Current approaches rely on manual annotation and specialized expertise, limiting scalability and reproducibility. We present Organoid Tracker, a user-friendly platform that leverages the Segment Anything Model 2 (SAM2) for zero-shot segmentation and automated tracking of cyst formation in time-lapse microscopy videos. Our platform introduces an innovative inverse temporal tracking workflow that improves accuracy by annotating the final, clearest frame and tracking backward in time. The system automatically extracts quantitative metrics including individual cyst growth kinetics, morphological maturation patterns, and population heterogeneity analysis, providing researchers with comprehensive analytical capabilities without requiring programming expertise.
 
+## Linux Docker desktop preview
+
+The [Docker desktop bundle](packaging/docker/README.md) runs the complete interactive application
+in a local browser with remembered video, model-cache and results folders. It provides separate CPU
+and NVIDIA images and requires no host Python or Qt installation. The preview currently targets
+Linux x86-64; Windows Docker validation and a separate clean-host trial remain pending.
+
 ## Highlights
 
 - **Zero-Shot Learning**: No training data required - works immediately with SAM2's foundation model capabilities

@@ -67,12 +67,13 @@ class _LogHandler(logging.Handler):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, *, settings=None, tracking_factory=None):
+    def __init__(self, *, settings=None, tracking_factory=None, output_root=None):
         super().__init__()
         self.setWindowTitle("Organoid Tracker")
         self.resize(1320, 900)
         self.preferences = settings if settings is not None else QSettings("OrganoidTracker", "Desktop")
         self.tracking_factory = tracking_factory
+        self.output_root = Path(output_root).resolve() if output_root is not None else None
         self.opened: Opened | None = None
         self.annotations = AnnotationSet(())
         self.active_organoid = None
@@ -648,7 +649,20 @@ class MainWindow(QMainWindow):
     def choose_session(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open session or prompts", "", "JSON (*.json)")
         if path and not self.busy:
-            self._begin("preview", session=load_session(path))
+            session = load_session(path)
+            if not session.video.path.is_file():
+                replacement, _ = QFileDialog.getOpenFileName(
+                    self,
+                    "Locate the original source video for this session",
+                    str(self.preferences.value("last_video_dir", "")),
+                    "Video (*.mp4 *.avi *.mov)",
+                )
+                if not replacement or self.busy:
+                    return
+                # with_video retains the recorded digest; preview verifies the
+                # selected content before publishing the imported annotations.
+                session = session.with_video(Path(replacement))
+            self._begin("preview", session=session)
 
     def choose_results(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -664,18 +678,24 @@ class MainWindow(QMainWindow):
         if path and not self.busy:
             self._begin("relocate", saved=self.opened.saved, path=Path(path))
 
+    def output_path(self, path):
+        path = Path(path).resolve()
+        if self.output_root is not None and not path.is_relative_to(self.output_root):
+            raise ValueError(f"Save outputs inside {self.output_root}, the persistent results folder.")
+        return path
+
     def choose_run_root(self):
         path = QFileDialog.getExistingDirectory(self, "Parent folder for future runs", str(self.run_root))
         if path and not self.busy:
-            self.run_root = Path(path)
+            self.run_root = self.output_path(path)
             self.preferences.setValue("run_root", str(self.run_root))
 
     def save_session(self):
         session = self.current_session()
-        path, _ = QFileDialog.getSaveFileName(self, "Save session", "", "JSON (*.json)")
+        path, _ = QFileDialog.getSaveFileName(self, "Save session", str(self.output_root or ""), "JSON (*.json)")
         if not path or self.busy:
             return
-        stream = QSaveFile(path)
+        stream = QSaveFile(str(self.output_path(path)))
         if not stream.open(QSaveFile.OpenModeFlag.WriteOnly):
             raise OSError(stream.errorString())
         if stream.write(json.dumps(session.to_document(), indent=2).encode("utf-8")) == -1 or not stream.commit():
@@ -686,7 +706,7 @@ class MainWindow(QMainWindow):
         session = self.current_session()
         if not session.annotations.cysts:
             raise ValueError("Draw at least one cyst box.")
-        output = new_run_directory(session.video.path, uuid.uuid4().hex[:12], self.run_root)
+        output = new_run_directory(session.video.path, uuid.uuid4().hex[:12], self.output_path(self.run_root))
         output.mkdir(parents=True, exist_ok=False)
         self._begin(
             "track",
@@ -715,7 +735,7 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "Parent folder for a new export copy", str(self.run_root))
         if not path or self.busy:
             return
-        output = new_run_directory(session.video.path, uuid.uuid4().hex[:12], path)
+        output = new_run_directory(session.video.path, uuid.uuid4().hex[:12], self.output_path(path))
         output.mkdir(parents=True, exist_ok=False)
         self._begin(
             "export",
