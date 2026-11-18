@@ -64,10 +64,10 @@ class TrackingService:
         }
         if spec.checkpoint_family is not None:
             kwargs["checkpoint_family"] = spec.checkpoint_family
-        tracker = registry.create_model_instance(BACKEND_NAME, **kwargs)
+        tracker = registry.create_model_instance(spec.backend, **kwargs)
         if tracker is None:
             raise TrackingError(
-                f"the {BACKEND_NAME!r} backend is not available or could not be created with {kwargs}; see the log"
+                f"the {spec.backend!r} backend is not available or could not be created with {kwargs}; see the log"
             )
         return cls(tracker)
 

@@ -224,6 +224,34 @@ After analysis, the following files are generated in `data/output_videos/`:
 
 Frames are handled in chronological order throughout. With Reverse Tracking enabled, prompts are placed on the last frame and SAM2 propagates backwards in time; outputs are always written chronologically. The tracking progress dialog has a Cancel button: the frame in progress finishes, the tracked frames stay available for videos, the report and Save Results (as a cancelled run), and tracking again on the same video produces the masks of an uninterrupted run. The "Time Lapse (days)" value is the span from the first to the last frame, and days are numbered from 1 as in the paper's figures (seven daily frames spanning six days are days 1 to 7).
 
+### Optional Transformers backend and benchmarks
+
+The reference SAM 2 backend remains the default. Install `uv sync --extra hf` to opt into
+`hf-sam2`, which loads a **local** Hugging Face SAM 2/2.1 snapshot. Model loading never downloads
+weights. For a reproducible tiny-model example, download the public snapshot separately:
+
+```bash
+uv run --no-sync python -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/sam2.1-hiera-tiny', revision='de431c4043854a71d8101e17995dfe596bf101a5', allow_patterns=['*.json', 'model.safetensors'], local_dir='checkpoints/hf/sam2.1-hiera-tiny')"
+uv run --no-sync organoidtracker bench --session session.json --out reference --model sam2_hiera_t --no-videos
+uv run --no-sync organoidtracker bench --session session.json --out candidate --model sam2_hiera_t --backend hf-sam2 --checkpoint checkpoints/hf/sam2.1-hiera-tiny --reference reference --no-videos
+```
+
+`tracking.backend` in a session can also select `hf-sam2`; `tracking.checkpoint_path` then names
+the snapshot directory. Match the session's model size and checkpoint family to that snapshot.
+The adapter uses the reference's PIL preprocessing, chronological frames, quality filters and packed
+masks. The application-specific improved base-plus configuration is unsupported. This backend is
+experimental; it still shares code with the vendored adapter and does not replace the vendored package.
+
+Each benchmark produces a normal saved run plus `benchmark.json` and `benchmark.csv`. These record
+tracking time, seconds per processed frame, process peak RAM (unavailable on Windows), CUDA allocated
+peak memory, mask intersection-over-union (IoU), area differences and changes in reference identity
+assignment. Missing and extra masks score zero IoU. The first accepted frame means the earliest
+chronological frame with a retained mask, not a biological appearance time. A reference must use the
+same video; annotation/direction agreement and both provenance records are included. Run one case per
+process because RAM is a lifetime peak through inference. Tracking timings include each backend's
+state preparation inside propagation; pipeline stage timings are also recorded. These comparisons
+measure agreement with another implementation, not accuracy against expert annotations.
+
 ### Measurement conventions
 
 Area counts foreground pixels and multiplies by the square of the micrometers-per-pixel calibration.

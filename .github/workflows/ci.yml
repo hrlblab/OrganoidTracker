@@ -75,7 +75,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --extra cpu
+      - run: uv sync --extra cpu --extra hf
       - name: Cache the SAM 2.1 tiny checkpoint
         id: ckpt
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -88,4 +88,17 @@ jobs:
           curl -sSL -o checkpoints/sam2.1_hiera_tiny.pt \
             https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt
           echo "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69  checkpoints/sam2.1_hiera_tiny.pt" | sha256sum -c -
+      - name: Cache the Transformers SAM 2.1 tiny snapshot
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: checkpoints/hf/sam2.1-hiera-tiny
+          key: hf-sam2.1-hiera-tiny-de431c4043854a71d8101e17995dfe596bf101a5
+      - name: Download the pinned public Transformers snapshot
+        env:
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: "1"
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: >-
+          uv run --no-sync python -c "from huggingface_hub import snapshot_download;
+          snapshot_download('facebook/sam2.1-hiera-tiny', revision='de431c4043854a71d8101e17995dfe596bf101a5',
+          allow_patterns=['*.json','model.safetensors'], local_dir='checkpoints/hf/sam2.1-hiera-tiny')"
       - run: uv run --no-sync pytest -m model

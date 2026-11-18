@@ -44,6 +44,7 @@ PROMPT_RECORD_SCHEMA = "organoidtracker.prompts/1"
 MODEL_CONFIGS = ("sam2_hiera_t", "sam2_hiera_s", "sam2_hiera_b", "sam2_hiera_l")
 CHECKPOINT_FAMILIES = ("2", "2.1")
 DIRECTIONS = ("reverse", "forward")
+BACKENDS = ("sam2", "hf-sam2")
 DEFAULT_MODEL_CONFIG = "sam2_hiera_b"  # the GUI's default size (base-plus)
 DEFAULT_DEVICE = "cuda"
 
@@ -88,8 +89,11 @@ class TrackingSpec:
     checkpoint_family: str | None = None
     checkpoint_path: Path | None = None
     device: str = DEFAULT_DEVICE
+    backend: str = "sam2"
 
     def __post_init__(self) -> None:
+        if self.backend not in BACKENDS:
+            raise SessionError(f"tracking.backend: expected one of {list(BACKENDS)}, got {self.backend!r}")
         if self.direction not in DIRECTIONS:
             raise SessionError(f"tracking.direction: expected one of {list(DIRECTIONS)}, got {self.direction!r}")
         if self.model_config not in MODEL_CONFIGS:
@@ -110,6 +114,7 @@ class TrackingSpec:
 
     def to_document(self) -> dict[str, Any]:
         return {
+            **({"backend": self.backend} if self.backend != "sam2" else {}),
             "direction": self.direction,
             "model_config": self.model_config,
             "checkpoint_family": self.checkpoint_family,
@@ -286,7 +291,9 @@ def _tracking(section: Any, base_dir: Path | None, where: str) -> TrackingSpec:
     if not isinstance(section, Mapping):
         raise SessionError(f"{where}: tracking: expected an object")
     _check_keys(
-        section, ("direction", "model_config", "checkpoint_family", "checkpoint_path", "device"), f"{where}: tracking"
+        section,
+        ("backend", "direction", "model_config", "checkpoint_family", "checkpoint_path", "device"),
+        f"{where}: tracking",
     )
     checkpoint = section.get("checkpoint_path")
     checkpoint_path = None
@@ -294,12 +301,13 @@ def _tracking(section: Any, base_dir: Path | None, where: str) -> TrackingSpec:
         if not isinstance(checkpoint, str):
             raise SessionError(f"{where}: tracking.checkpoint_path: expected a string or null")
         checkpoint_path = _absolute(Path(checkpoint).expanduser(), base_dir)
-    for key in ("direction", "model_config", "checkpoint_family", "device"):
+    for key in ("backend", "direction", "model_config", "checkpoint_family", "device"):
         value = section.get(key)
         if value is not None and not isinstance(value, str):
             raise SessionError(f"{where}: tracking.{key}: expected a string")
     try:
         return TrackingSpec(
+            backend=section.get("backend", "sam2"),
             direction=section.get("direction", "reverse"),
             model_config=section.get("model_config", DEFAULT_MODEL_CONFIG),
             checkpoint_family=section.get("checkpoint_family"),
@@ -335,6 +343,7 @@ def _from_prompt_record(data: Mapping[str, Any], base_dir: Path | None, source: 
         "schema": SCHEMA,
         "video": {"path": video["path"], "sha256": video.get("sha256")},
         "tracking": {
+            "backend": "hf-sam2" if model.get("backend") == "sam2-transformers" else "sam2",
             "direction": tracking_block.get("direction", "reverse"),
             "model_config": model.get("model_config", DEFAULT_MODEL_CONFIG),
             "checkpoint_family": model.get("checkpoint_family"),

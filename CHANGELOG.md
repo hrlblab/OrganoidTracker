@@ -53,6 +53,11 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   analysis summary).
 
 ### Added
+- Optional local-snapshot Transformers SAM 2/2.1 backend (`hf-sam2`), selected in sessions or with
+  `run --backend` / `--checkpoint`. The reference backend remains the default. Model size and family
+  are checked, snapshot hashes enter provenance, and cancelled runs can be repeated from their prompts.
+- `organoidtracker bench` writes timing, memory and mask-comparison CSV/JSON alongside a complete
+  saved run. Missing masks and identity swaps are visible; comparison against an unrelated video is refused.
 - The window saves every tracking run that kept masks right after tracking, without a dialog, into a new
   directory `data/output_videos/runs/<video>_<timestamp>_<run id>/` holding the files Save Results writes
   (`results.json`, the mask file, `session.json`, `prompts.json`). A run that is never exported or saved by hand

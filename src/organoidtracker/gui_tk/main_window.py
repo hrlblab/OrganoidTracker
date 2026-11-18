@@ -619,6 +619,10 @@ class VideoTrackerApp:
 
             model_options = []
             for model in available_models:
+                # This legacy window constructs the reference TrackingSpec. Optional
+                # backends have explicit selectors in the CLI and the Qt application.
+                if model.name != "sam2":
+                    continue
                 model_options.append(f"{model.display_name} ({model.name})")
 
             self.model_combo["values"] = model_options

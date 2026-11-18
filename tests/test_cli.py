@@ -185,6 +185,10 @@ def test_overrides_reach_the_session(tmp_path, small_disc, small_video, monkeypa
                 "cuda:1",
                 "--model",
                 "sam2_hiera_l",
+                "--backend",
+                "hf-sam2",
+                "--checkpoint",
+                str(tmp_path / "snapshot"),
                 "--log-level",
                 "ERROR",
             ]
@@ -192,6 +196,7 @@ def test_overrides_reach_the_session(tmp_path, small_disc, small_video, monkeypa
         == 0
     )
     assert seen["spec"].device == "cuda:1" and seen["spec"].model_config == "sam2_hiera_l"
+    assert seen["spec"].backend == "hf-sam2" and seen["spec"].checkpoint_path == tmp_path / "snapshot"
 
 
 def test_invalid_settings_stop_the_command_line(tmp_path, small_disc, small_video):

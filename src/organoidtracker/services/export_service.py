@@ -51,6 +51,8 @@ PROMPT_RECORD_NAME = "prompts.json"
 VIDEO_DIR_NAME = "videos"
 # Everything a run writes into its directory (the log is kept across runs; unknown files are never touched)
 RUN_ARTIFACT_FILES = (
+    "benchmark.json",
+    "benchmark.csv",
     RUN_MANIFEST_NAME,
     SESSION_NAME,
     PROMPT_RECORD_NAME,

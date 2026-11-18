@@ -44,11 +44,18 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--video", type=Path, default=None, help="use this video file instead of the session's path")
     run.add_argument("--device", default=None, help="override the session's device (cuda, cuda:N or cpu)")
     run.add_argument("--model", default=None, help="override the session's model size (sam2_hiera_t, _s, _b, _l)")
+    run.add_argument("--backend", choices=["sam2", "hf-sam2"], default=None, help="tracking backend")
+    run.add_argument("--checkpoint", type=Path, default=None, help="checkpoint file, or local HF snapshot directory")
     run.add_argument("--no-videos", action="store_true", help="skip the overlay, mask and side-by-side videos")
     run.add_argument("--video-quality", default="original", choices=["original", "mid", "low"])
     run.add_argument("--overwrite", action="store_true", help="allow writing into a directory that holds a run")
     run.add_argument("--debug", action="store_true", help="debug outputs of the analysis and video steps")
     run.add_argument("--log-level", default=None, help="console log level (default: the log_level setting)")
+
+    bench = commands.add_parser(
+        "bench", parents=[run], add_help=False, help="run and measure a backend against saved masks"
+    )
+    bench.add_argument("--reference", type=Path, default=None, help="saved reference run with the same video")
 
     validate = commands.add_parser("validate", help="check a session file and its video without running")
     validate.add_argument("--session", required=True, type=Path)
@@ -163,16 +170,23 @@ def _run(args: argparse.Namespace, config) -> int:
 
     try:
         session = _load(args.session, args.video)
-        if args.device or args.model:
+        if args.device or args.model or args.backend or args.checkpoint:
             session = replace(
                 session,
                 tracking=replace(
                     session.tracking,
                     device=args.device or session.tracking.device,
                     model_config=args.model or session.tracking.model_config,
+                    backend=args.backend or session.tracking.backend,
+                    checkpoint_path=args.checkpoint.resolve() if args.checkpoint else session.tracking.checkpoint_path,
                 ),
             )
-    except SessionError as error:
+        benchmark = None
+        if args.command == "bench":
+            from .services.benchmark import Benchmark
+
+            benchmark = Benchmark(session, args.reference)
+    except (SessionError, SavedResultError) as error:
         logger.error(f"Invalid session: {error}")
         return EXIT_INVALID
 
@@ -206,7 +220,12 @@ def _run(args: argparse.Namespace, config) -> int:
             debug=args.debug,
             progress=progress,
             cancel=cancel,
+            tracking_service_factory=benchmark.create_service if benchmark else None,
         )
+        if benchmark:
+            record = benchmark.write(outcome)
+            logger.info("Benchmark: %s", record["measurements"])
+            logger.info("Mask comparison: %s", {k: v for k, v in record["comparison"].items() if k != "pairs"})
     except RunCancelled as error:
         logger.warning(f"Tracking cancelled before any mask was kept ({error}); nothing was exported (exit status 4)")
         return EXIT_CANCELLED
