@@ -58,6 +58,7 @@ qt = ["pyside6>=6.11,<6.12"]
 hf = ["transformers>=5.19"]
 
 [dependency-groups]
+qt-test = ["pytest-qt>=4.4"]
 dev = [
   "pytest>=8.0",
   "ruff>=0.14",
@@ -68,6 +69,7 @@ dev = [
 [project.scripts]
 organoidtracker = "organoidtracker.cli:main"
 organoidtracker-tk = "organoidtracker.gui_tk.launcher:main"
+organoidtracker-qt = "organoidtracker.gui_qt.launcher:main"
 
 [project.urls]
 Repository = "https://github.com/hrlblab/OrganoidTracker"
@@ -114,6 +116,7 @@ addopts = "-ra --strict-markers"
 markers = [
   "unit: fast tests with synthetic data and no model (default)",
   "gui: opens Tk windows; needs a display",
+  "qt: Qt interface tests, run with the qt extra and qt-test group offscreen",
   "model: runs the real SAM 2.1 tiny model; skipped when checkpoints/sam2.1_hiera_tiny.pt is absent",
   "data: needs lab videos under OT_PLATES_DIR; skipped when unset and never run in CI",
 ]
@@ -139,6 +142,7 @@ python_version = "3.12"
 files = [
   "src/organoidtracker/core",
   "src/organoidtracker/services",
+  "src/organoidtracker/gui_qt",
   "src/organoidtracker/cli.py",
   "src/organoidtracker/config.py",
   "src/organoidtracker/logging_config.py",

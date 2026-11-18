@@ -23,7 +23,7 @@ from .export_service import PROMPT_RECORD_NAME, ExportService
 from .prompt_record import build_prompt_record
 from .run_manifest import build_manifest
 from .saved_results import SavedResult
-from .session import Session, SessionError, TrackingSpec
+from .session import Calibration, Session, SessionError, Timing, TrackingSpec
 from .tracking_service import TrackingService
 from .video_frames import load_video_frames, sha256_file
 
@@ -159,6 +159,8 @@ def run_session(
         logger.warning(f"Tracking cancelled: {result.summary()}; the exports cover the tracked frames only")
 
     # The complete experiment goes to disk before any export, so that a failed export loses nothing
+    if progress:
+        progress("saving", 0, 1, "Saving retained masks")
     started = time.perf_counter()
     saved = exporter.write_results(
         run_id=service.run_id, session=session, video=source, provenance=service.provenance(), result=result
@@ -166,6 +168,8 @@ def run_session(
     timings["save_results_s"] = round(time.perf_counter() - started, 3)
     logger.info(f"Run {service.run_id}: results saved ({saved.path.name}, {saved.masks_path.name})")
 
+    if progress:
+        progress("analysis", 0, 1, "Measuring tracked cysts")
     analysis = AnalysisService(exporter.generator).analyze(
         result, session.annotations, session.calibration, session.timing, debug_mode=debug
     )
@@ -181,6 +185,8 @@ def run_session(
         video_export = exporter.video_export_parameters(video_quality)
 
     started = time.perf_counter()
+    if progress:
+        progress("report", 0, 1, "Writing CSV tables, figures and PDF")
     summary = exporter.write_report(analysis, debug_mode=debug, original_frames=service.frames)
     timings["report_s"] = round(time.perf_counter() - started, 3)
 
@@ -221,6 +227,8 @@ def export_saved_result(
     debug: bool = False,
     video_path: Path | str | None = None,
     progress: PhaseProgress | None = None,
+    calibration: Calibration | None = None,
+    timing: Timing | None = None,
 ) -> RunOutcome:
     """Analyze and export a saved result again into ``output_dir``, without a model.
 
@@ -231,12 +239,20 @@ def export_saved_result(
     video (same content) for the videos; without videos the video file is not needed. Raises
     ``SessionError`` for a missing or different video, ``ExportError`` for an unusable output
     directory or a failed export. The status, and so the exit code, is the saved run's.
+    Optional ``calibration`` and ``timing`` re-analyze the masks in a new output directory;
+    every copied input document records those values and the original saved run remains intact.
     """
     timings: dict[str, float] = {}
     exporter = ExportService(output_dir)
     exporter.video_export_parameters(video_quality)  # fail early on a bad quality name
     session = saved.session if video_path is None else saved.session.with_video(video_path)
     in_place = exporter.output_dir.resolve() == saved.directory.resolve()
+    reanalysis = calibration is not None or timing is not None
+    if reanalysis:
+        if in_place:
+            raise SessionError("changed analysis inputs require a new export directory")
+        session = replace(session, calibration=calibration or session.calibration, timing=timing or session.timing)
+        session.timing.resolve(saved.video.n_frames)
     if saved.results_version != RESULTS_VERSION:
         logger.warning(
             f"The saved result holds results version {saved.results_version}; this software exports "
@@ -262,8 +278,10 @@ def export_saved_result(
         exporter.write_session(session, saved.video.sha256)
         record = saved.directory / PROMPT_RECORD_NAME
         if record.is_file():
-            exporter.copy_prompt_record(record, video_path=new_video)
-        copied = exporter.copy_saved_result(saved, video_path=new_video)
+            exporter.copy_prompt_record(record, video_path=new_video, analysis_session=session if reanalysis else None)
+        copied = exporter.copy_saved_result(
+            saved, video_path=new_video, analysis_session=session if reanalysis else None
+        )
 
     analysis = AnalysisService(exporter.generator).analyze(
         result, session.annotations, session.calibration, session.timing, debug_mode=debug

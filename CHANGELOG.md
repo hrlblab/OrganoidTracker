@@ -53,6 +53,13 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   analysis summary).
 
 ### Added
+- PySide6 desktop preview (`organoidtracker-qt`): source-pixel annotation canvas, zoom/pan,
+  undo/redo, model settings, cooperative tracking/cancellation, automatic run directories,
+  saved-result reopening, mask views, figures, reports and video exports. Missing source videos
+  can be relocated by content hash. The Tk interface remains available during acceptance.
+- Reanalysis copies accept changed calibration and timing while retaining masks and inference
+  provenance. The saved result, session, prompt record and report use the same inputs, including
+  after a second reopen/export; the original run remains intact.
 - Optional local-snapshot Transformers SAM 2/2.1 backend (`hf-sam2`), selected in sessions or with
   `run --backend` / `--checkpoint`. The reference backend remains the default. Model size and family
   are checked, snapshot hashes enter provenance, and cancelled runs can be repeated from their prompts.

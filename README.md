@@ -150,6 +150,40 @@ types are checked at startup. A legacy `user_config.py` is still read for now, w
      your choice.
 
 
+### Qt desktop application (preview)
+
+```bash
+uv sync --extra qt                  # add --extra hf for the optional Transformers backend
+uv run --no-sync organoidtracker-qt
+```
+
+Open a video or a saved session. The canvas shows the annotation frame: the last unique frame for
+reverse tracking. Click an organoid, drag boxes around its cysts, then click the next organoid.
+Include organoids without cysts because they contribute to the population statistics. Select an
+existing organoid in the annotation list to add more cysts to it. Use the wheel to zoom, right or
+middle drag to pan, and Fit to restore the view. Undo/Redo and removal operate on source-pixel
+coordinates at every zoom level.
+
+Choose the model family, size, device and weights, then check the pixel calibration and time span.
+Optional explicit days supply one timestamp for each unique frame. **Track and save run** writes
+each run into its own directory under `data/output_videos/runs/` (change its parent with **Run folder**).
+Masks are saved before reports, so a report failure can be recovered with **Open results**. Cancel
+finishes the current frame and preserves retained masks; closing during a task waits for that task
+and its save to finish. Partial and cancelled runs retain their status.
+
+Use the frame slider to inspect originals, overlays, masks and side-by-side views. The Figures tab
+shows the generated plots; **Open report folder** provides the PDF, CSV tables and videos. Saved
+annotations stay read-only until **Edit prompts for a new run**. **Export reports to a new copy**
+re-analyzes retained masks with the selected calibration/timestamps, and preserves those inputs in
+every copied session and result document. The original run remains intact. Missing source videos
+do not prevent mask inspection or report export without videos; **Locate source video** accepts a
+relocated file only when its content hash matches.
+
+The Qt interface is a preview while interactive Linux acceptance and native Windows CPU/GPU checks
+are pending. The Tk application remains available. Run Qt regression tests offscreen with
+`uv sync --extra qt --group qt-test`, then `QT_QPA_PLATFORM=offscreen uv run --no-sync pytest -m qt`
+(on Windows, set that environment variable using the shell's syntax).
+
 ### Headless runs (command line)
 
 The same tracking, analysis and exports run without a window from a *session file*: a JSON document

@@ -245,19 +245,28 @@ class ExportService:
             raise
         return path
 
-    def copy_prompt_record(self, record_path: Path, *, video_path: Path | str | None = None) -> Path:
+    def copy_prompt_record(
+        self, record_path: Path, *, video_path: Path | str | None = None, analysis_session: Session | None = None
+    ) -> Path:
         """The prompt record of the run being exported again, copied next to the new exports.
 
         With ``video_path`` the record's video locator points at the relocated file (its provenance block
-        keeps the path the tracker read).
+        keeps the path the tracker read). ``analysis_session`` replaces only its analysis inputs.
         """
         target = self.output_dir / PROMPT_RECORD_NAME
         try:
-            if video_path is None:
+            if video_path is None and analysis_session is None:
                 shutil.copyfile(record_path, target)
                 return target
             record = json.loads(Path(record_path).read_text(encoding="utf-8"))
-            record.setdefault("video", {})["path"] = os.path.abspath(video_path)
+            if video_path is not None:
+                record.setdefault("video", {})["path"] = os.path.abspath(video_path)
+            if analysis_session is not None:
+                record["analysis_inputs"] = {
+                    "conversion_factor_um_per_pixel": analysis_session.calibration.um_per_pixel,
+                    "time_lapse_days": analysis_session.timing.time_lapse_days,
+                    "frame_times_days": analysis_session.timing.frame_times_days,
+                }
             return self._write_json(target, record)
         except (OSError, ValueError) as error:
             raise ExportError(f"cannot copy the prompt record to {target}: {error}") from error
@@ -387,11 +396,14 @@ class ExportService:
         for temporary in temps.values():
             temporary.unlink(missing_ok=True)
 
-    def copy_saved_result(self, saved: SavedResult, *, video_path: Path | str | None = None) -> SavedResult:
-        """A copy of a saved result (its two files) into the output directory, byte-identical unless relocated.
+    def copy_saved_result(
+        self, saved: SavedResult, *, video_path: Path | str | None = None, analysis_session: Session | None = None
+    ) -> SavedResult:
+        """Copy saved masks and metadata; preserve provenance and the masks' original results version.
 
         With ``video_path`` the copied ``results.json`` points at the relocated video, so that the
-        copy reopens and exports again without another relocation; the mask file is the same bytes.
+        copy reopens and exports again without another relocation. ``analysis_session`` records the
+        inputs of a new analysis in the copied JSON. The mask file is always the same bytes.
         """
         self.output_dir.mkdir(parents=True, exist_ok=True)
         masks_target = self.output_dir / saved.masks_path.name
@@ -399,19 +411,28 @@ class ExportService:
         temporary = results_target.with_name(results_target.name + ".tmp")
         try:
             shutil.copyfile(saved.masks_path, masks_target)
-            if video_path is None:
+            if video_path is None and analysis_session is None:
                 shutil.copyfile(saved.path, temporary)
                 os.replace(temporary, results_target)  # results.json appears complete or not at all
             else:
-                self._write_json(results_target, relocated_document(saved.path, video_path))
+                document = (
+                    relocated_document(saved.path, video_path)
+                    if video_path is not None
+                    else json.loads(saved.path.read_text(encoding="utf-8"))
+                )
+                if analysis_session is not None:
+                    document["session"] = self.session_document(analysis_session, saved.video.sha256)
+                self._write_json(results_target, document)
         except OSError as error:
             temporary.unlink(missing_ok=True)
             raise ExportError(f"cannot copy the saved result to {self.output_dir}: {error}") from error
         copied = replace(saved, path=results_target, masks_path=masks_target)
+        if analysis_session is not None:
+            copied = replace(copied, session=analysis_session)
         if video_path is not None:
             copied = replace(
                 copied,
-                session=saved.session.with_video(video_path),
+                session=copied.session.with_video(video_path),
                 video=replace(saved.video, path=Path(os.path.abspath(video_path))),
             )
         return copied

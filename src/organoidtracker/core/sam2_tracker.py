@@ -30,6 +30,7 @@ from ..paths import checkpoints_dir, source_revision
 from .base_model import BaseVideoTracker, ModelCapabilities, ModelMetadata
 from .masks import PackedMask
 from .tracking_result import TrackingResult
+from .video_frames import unique_frame_indices
 
 logger = logging.getLogger(__name__)
 
@@ -270,14 +271,7 @@ class SAM2Tracker(BaseVideoTracker):
     # ------------------------------------------------------------------ video
     def _unique_frame_indices(self, frames: list[np.ndarray]) -> list[int]:
         """Indices of frames that differ from their predecessor (mean absolute grayscale difference)."""
-        keep = [0]
-        previous = cv2.cvtColor(frames[0], cv2.COLOR_RGB2GRAY).astype(np.int16)
-        for index in range(1, len(frames)):
-            current = cv2.cvtColor(frames[index], cv2.COLOR_RGB2GRAY).astype(np.int16)
-            if float(np.abs(current - previous).mean()) >= self.duplicate_threshold:
-                keep.append(index)
-            previous = current
-        return keep
+        return unique_frame_indices(frames, self.duplicate_threshold)
 
     def load_video(self, video_path: str, max_frames: int | None = None) -> dict[str, Any]:
         """Decode the video, collapse duplicated frames, and initialize the predictor state."""
