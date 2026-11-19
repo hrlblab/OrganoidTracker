@@ -27,6 +27,7 @@ cannot silently fall back to a default.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 from collections.abc import Mapping, Sequence
@@ -38,6 +39,11 @@ from .annotations import AnnotationError, AnnotationSet
 
 SCHEMA = "organoidtracker.session/1"
 PROMPT_RECORD_SCHEMA = "organoidtracker.prompts/1"
+# Since this results version the source frames of a run are the ones a person confirmed. Earlier
+# software chose them itself (by image similarity), so their record is not a confirmation.
+CONFIRMED_FRAMES_SINCE = 5
+
+logger = logging.getLogger(__name__)
 
 # Kept in step with ``core.sam2_tracker`` (tested); listed here so that validating a session
 # does not import torch.
@@ -367,17 +373,26 @@ def _from_prompt_record(data: Mapping[str, Any], base_dir: Path | None, source: 
     model: Mapping[str, Any] = model_block if isinstance(model_block, Mapping) else {}
     tracking_block: Mapping[str, Any] = tracking_raw if isinstance(tracking_raw, Mapping) else {}
     inputs: Mapping[str, Any] = inputs_raw if isinstance(inputs_raw, Mapping) else {}
+    selection = {}
+    if video.get("frame_map") and video.get("decoded_frames"):
+        version = data.get("results_version")
+        if isinstance(version, int) and not isinstance(version, bool) and version >= CONFIRMED_FRAMES_SINCE:
+            selection = {"frame_indices": video["frame_map"], "decoded_frames": video["decoded_frames"]}
+        else:
+            # Like an older session file: a new run needs the acquisition's frames confirmed first.
+            try:
+                frames = ",".join(str(int(index) + 1) for index in video["frame_map"])
+            except (TypeError, ValueError):
+                frames = "?"
+            logger.warning(
+                f"{where}: written by results version {version}, which selected the source frames itself "
+                f"({frames} of {video['decoded_frames']}). They are not taken as confirmed: give the acquisition's "
+                f"frames before tracking (--frames {frames} --decoded-frames {video['decoded_frames']} repeats "
+                "that selection)"
+            )
     document = {
         "schema": SCHEMA,
-        "video": {
-            "path": video["path"],
-            "sha256": video.get("sha256"),
-            **(
-                {"frame_indices": video["frame_map"], "decoded_frames": video["decoded_frames"]}
-                if video.get("frame_map") and video.get("decoded_frames")
-                else {}
-            ),
-        },
+        "video": {"path": video["path"], "sha256": video.get("sha256"), **selection},
         "tracking": {
             "backend": "hf-sam2" if model.get("backend") == "sam2-transformers" else "sam2",
             "direction": tracking_block.get("direction", "reverse"),

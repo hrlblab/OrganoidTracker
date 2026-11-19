@@ -14,13 +14,22 @@ giving a run other inputs than the ones shown or recorded.
 - Export reports from saved masks when the source video has moved. The window named the recorded path
   as a relocation, which made a report-only export read the missing video. Videos still need the video.
 - Keep the calibration and days entered for a re-analysis when the moved video of a saved result is located.
+- Export reports from saved masks when a located video has gone offline again (an unplugged disk).
 
 ### Command line
 
 - Refuse `--frames`/`--decoded-frames` that differ from the selection a session already confirmed
-  (exit 2, nothing written). They moved the session's boxes and acquisition days to other source frames
+  (exit 2, no tracking result written). They moved the session's boxes and acquisition days to other source frames
   and the run still completed. Completing an older session without a selection is unchanged.
 - `validate` rejects a session whose `frame_times_days` count differs from its selected frames, as `run` does.
+- Read the source frames in a prompt record written before results version 5 as unconfirmed, like an
+  older session file. That software selected them itself by image similarity; a new run from such a record
+  used them and their inferred days without asking (source frame 5 of eight daily frames as day 4.5). The
+  command line now needs `--frames`, and the window asks for confirmation. Saved results reopen and
+  re-export with their recorded frames as before.
+- Check a confirmed selection against the frame count in the video's index before the model is loaded.
+  `validate` reported a session declaring nine frames for an eight-frame video as valid, and `run`
+  failed only after loading the model (now exit 2 from both).
 
 ### Reports and exports
 

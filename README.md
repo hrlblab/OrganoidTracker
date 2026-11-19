@@ -244,7 +244,10 @@ For an older session without a selection, CLI `run`/`bench` accept
 `--frames 1,3,4,6,7,9,10 --decoded-frames 11` (one-based CLI numbers). Confirm that the session's timing
 describes those selected observations. A session that already records a selection refuses different
 values: its boxes and days belong to its frames, so another selection is confirmed in the application.
-`validate` applies the same check as `run` that `frame_times_days` has one value per selected frame.
+`validate` applies the same checks as `run`: `frame_times_days` has one value per selected frame, and
+the selection fits the frame count in the video's index. A prompt record written before results version 5
+names frames that the older software selected itself; it is read as an older session, so a new run from it
+needs `--frames` as well (the warning prints the recorded frames, which repeat the old selection).
 `timing` takes either `time_lapse_days` (spread uniformly from day 1 as in the paper) or
 `frame_times_days`, one explicit time per selected time point. Every key of `tracking` is optional; `--video`
 relocates a moved video (its recorded `sha256`, when present, must still match). The output directory

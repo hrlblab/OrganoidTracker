@@ -706,3 +706,66 @@ def test_reports_export_from_saved_masks_after_the_source_video_moved(
     second = load_saved_result(window.opened.saved.path)
     assert second.session.video.path == moved and second.session.calibration.um_per_pixel == 2
     assert (second.directory / "videos" / "multi_object_overlay.mp4").is_file()
+
+
+def test_report_export_survives_a_located_video_going_offline(
+    window, small_disc, small_video, qtbot, tmp_path, monkeypatch
+):
+    """Once a moved video had been located, its path was required even for a report without videos."""
+    import shutil
+
+    from PySide6.QtWidgets import QFileDialog
+
+    session = opened(window, small_disc, small_video)
+    source = tmp_path / "source.mp4"
+    shutil.copyfile(small_video, source)
+    saved = run(session.with_video(source), tmp_path / "run", small_disc).saved_result
+    external = tmp_path / "external.mp4"
+    source.rename(external)
+    window._begin("open", path=saved.path)
+    qtbot.waitUntil(lambda: not window.busy, timeout=15000)
+    window._begin("relocate", saved=saved, path=external)
+    qtbot.waitUntil(lambda: not window.busy, timeout=15000)
+    assert len(window.opened.frames) == 8 and window.current_session().video.path == external
+    offline = tmp_path / "unplugged.mp4"
+    external.rename(offline)
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path / "copies"))
+    window.videos.setChecked(True)  # videos cannot be written without the video: refused, nothing exported
+    window.export_copy()
+    qtbot.waitUntil(lambda: not window.busy, timeout=60000)
+    assert "video not found" in window.banner.text()
+    assert not list((tmp_path / "copies").rglob("organoid_analysis_report.pdf"))
+    window.videos.setChecked(False)
+    window.export_copy()
+    qtbot.waitUntil(lambda: not window.busy, timeout=60000)
+    assert window.banner.text().startswith("Completed"), window.banner.text()
+    copy = load_saved_result(window.opened.saved.path)
+    assert copy.session.video.path == source  # the unread location is not recorded as the run's video
+    assert (copy.directory / "organoid_analysis_report.pdf").stat().st_size > 1000
+    assert (copy.directory / "raw_cyst_data.csv").read_bytes() == (saved.directory / "raw_cyst_data.csv").read_bytes()
+    assert mask_digests(copy.result) == mask_digests(saved.result)
+
+
+def test_an_older_prompt_record_opens_unconfirmed_in_the_window(window, small_disc, small_video, tmp_path):
+    """Its frames were selected by the older software; the window must ask before a new run uses them."""
+    from organoidtracker.services.session import Timing
+
+    session = replace(
+        make_session(small_disc, small_video),
+        video=replace(make_session(small_disc, small_video).video, frame_indices=(0, 4, 7)),
+        timing=Timing(time_lapse_days=7),
+    )
+    record = json.loads((run(session, tmp_path / "run", small_disc).output_dir / "prompts.json").read_text())
+    current, legacy = tmp_path / "current.json", tmp_path / "legacy.json"
+    current.write_text(json.dumps(record))
+    legacy.write_text(json.dumps({**record, "results_version": 4}))
+    window.use_opened(preview_session(load_session(current)))
+    assert window.track_button.isEnabled() and window.current_session().video.frame_indices == (0, 4, 7)
+    window.use_opened(preview_session(load_session(legacy)))
+    assert not window.track_button.isEnabled() and not window.canvas.editable
+    assert window.opened.source.frame_map == tuple(range(8)) and len(window.annotations.cysts) == 1
+    with pytest.raises(ValueError, match="Confirm source frames"):
+        window.current_session()
+    with pytest.raises(ValueError, match="Confirm source frames"):
+        window.start_tracking()
+    assert not window.run_root.exists()

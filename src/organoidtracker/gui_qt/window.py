@@ -1187,7 +1187,11 @@ class MainWindow(QMainWindow):
             return
         output = new_run_directory(session.video.path, uuid.uuid4().hex[:12], self.output_path(path))
         output.mkdir(parents=True, exist_ok=False)
-        relocated = Path(session.video.path) != Path(self.opened.saved.session.video.path)
+        # A located video that has since gone (an external disk) still leaves the masks: without
+        # videos the report is exported from them, as when the video was never located.
+        relocated = Path(session.video.path) != Path(self.opened.saved.session.video.path) and (
+            self.videos.isChecked() or Path(session.video.path).is_file()
+        )
         self._begin(
             "export",
             saved=self.opened.saved,

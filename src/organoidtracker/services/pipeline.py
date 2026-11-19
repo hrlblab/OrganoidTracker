@@ -75,7 +75,7 @@ class RunOutcome:
 
 
 def check_video(session: Session) -> str:
-    """The video must exist and, when the session records a hash, have that content. Returns the sha256."""
+    """The video must exist, have the recorded content and hold the confirmed frames. Returns the sha256."""
     path = Path(session.video.path)
     if not path.is_file():
         raise SessionError(f"video not found: {path} (relocate it with --video)")
@@ -85,6 +85,21 @@ def check_video(session: Session) -> str:
             f"video {path} does not match the session's recorded content (sha256 {digest[:12]}... vs "
             f"{session.video.sha256[:12]}...); this is a different video"
         )
+    if session.video.frame_indices is not None:
+        # The confirmed selection against the frame count in the file's index, before any model is
+        # loaded. Decoding checks it again; an index without a count (0) leaves it to the decoding.
+        from ..core.video_decode import indexed_frame_count
+        from ..core.video_frames import selected_frame_indices
+
+        try:
+            count = indexed_frame_count(path)
+        except (OSError, ValueError):
+            count = 0
+        if count > 0:
+            try:
+                selected_frame_indices(count, session.video.frame_indices, session.video.decoded_frames)
+            except ValueError as error:
+                raise SessionError(f"video {path}: {error}") from error
     return digest
 
 
