@@ -174,42 +174,46 @@ class ExportService:
         inventory: list[str] = []
         if manifest.is_file():
             try:
-                inventory = list(json.loads(manifest.read_text(encoding="utf-8")).get("files", {}))
-            except (OSError, ValueError):
-                inventory = []
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+                # Older inventories recursively included user files. Never use them as ownership proof.
+                if data.get("file_inventory_kind") == "generated-files/1":
+                    inventory = list(data.get("files", {}))
+            except (OSError, ValueError, AttributeError):
+                pass
             manifest.unlink()
             removed.append(RUN_MANIFEST_NAME)
-        for relative in inventory:
-            if kept(relative):
-                continue
+        # Reserved output names also cover interrupted exports and legacy manifests.
+        inventory += list(RUN_ARTIFACT_FILES)
+        inventory += [p.name for p in self.output_dir.glob(MASKS_GLOB)]
+        inventory += [f"videos/multi_object_{kind}.mp4" for kind in ("overlay", "mask", "side_by_side")]
+        stems = (
+            "a_organoids_with_cysts_vs_time",
+            "b_cyst_organoid_ratio_vs_time",
+            "c_cyst_areas_vs_time",
+            "d_cyst_circularity_vs_time",
+            "e_circularity_scatter",
+            "f_lasagna_plot",
+        )
+        inventory += [
+            f"visualizations/{stem}.{suffix}" for stem in stems for suffix in ("png", "pdf", "svg", "jpg", "jpeg")
+        ]
+        for relative in sorted(set(inventory)):
             path = self.output_dir / relative
-            try:
-                inside = path.resolve().is_relative_to(root)
-            except OSError:
-                inside = False
-            if inside and path.is_file():
+            if (
+                kept(relative)
+                or Path(relative).is_absolute()
+                or ".." in Path(relative).parts
+                or path.is_symlink()
+                or not path.resolve().is_relative_to(root)
+            ):
+                continue
+            if path.is_file():
                 path.unlink()
                 removed.append(relative)
-        for name in RUN_ARTIFACT_FILES:
-            path = self.output_dir / name
-            if path.is_file() and not kept(name):
-                path.unlink()
-                removed.append(name)
-        if not keep_results:
-            for path in sorted(self.output_dir.glob(MASKS_GLOB)):
-                if path.is_file():
-                    path.unlink()
-                    removed.append(path.name)
         for name in RUN_ARTIFACT_DIRS:
             path = self.output_dir / name
-            if path.is_dir():
-                shutil.rmtree(path)
-                removed.append(name + "/")
-        for relative in inventory:  # directories the inventory entries left empty
-            parent = (self.output_dir / relative).parent
-            while parent != self.output_dir and parent.is_dir() and not any(parent.iterdir()):
-                parent.rmdir()
-                parent = parent.parent
+            if path.is_dir() and not path.is_symlink() and not any(path.iterdir()):
+                path.rmdir()
         return removed
 
     # ------------------------------------------------------------------ small files
@@ -517,6 +521,24 @@ class ExportService:
             self._write_json(self.output_dir / "analysis_summary.json", summary)
             raise ExportError(f"the report is incomplete, missing: {', '.join(missing)}; the log names the error")
         return summary
+
+    def report_artifacts(self, summary, video_paths, *, debug=False) -> list[str]:
+        """Paths written by this export, plus its saved inputs (no recursive directory scan)."""
+        outputs = summary["output_files"]
+        paths = [
+            *outputs["csv_files"].values(),
+            *outputs["visualizations"].values(),
+            outputs["pdf_report"],
+            *video_paths.values(),
+        ]
+        names = [Path(path).resolve().relative_to(self.output_dir.resolve()).as_posix() for path in paths if path]
+        names += [SESSION_NAME, PROMPT_RECORD_NAME, RESULTS_NAME, "analysis_summary.json"]
+        if debug:
+            names.append("experiment_data_debug.json")
+        result_path = self.output_dir / RESULTS_NAME
+        if result_path.is_file():
+            names.append(json.loads(result_path.read_text())["masks"]["file"])
+        return names
 
     def missing_report_artifacts(self, summary: dict[str, Any]) -> list[str]:
         """Required report files that the summary does not name or that do not exist."""

@@ -19,7 +19,7 @@ import numpy as np
 from ..core.tracking_result import TrackingResult
 from .export_service import ExportError
 from .pipeline import RunOutcome, check_video
-from .run_manifest import RUN_MANIFEST_NAME, file_inventory
+from .run_manifest import file_inventory
 from .saved_results import load_saved_result
 from .session import Session, SessionError
 from .tracking_service import TrackingService
@@ -184,6 +184,6 @@ class Benchmark:
             writer.writerow(row)
         # Include the two added artifacts in the normal run's inventory.
         manifest = json.loads(outcome.manifest_path.read_text(encoding="utf-8"))
-        manifest["files"] = file_inventory(directory, exclude=(RUN_MANIFEST_NAME,))
+        manifest["files"] = file_inventory(directory, [*manifest["files"], "benchmark.json", "benchmark.csv"])
         outcome.manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         return record

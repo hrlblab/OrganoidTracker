@@ -199,6 +199,7 @@ def run_session(
         analysis=analysis,
         video_export=video_export,
         output_dir=exporter.output_dir,
+        artifacts=exporter.report_artifacts(summary, video_paths, debug=debug),
         timings_s=timings,
         results=saved.to_manifest_block(),
     )
@@ -260,7 +261,7 @@ def export_saved_result(
         )
 
     frames = None
-    if videos:
+    if videos or video_path is not None:
         started = time.perf_counter()
         frames = load_video_frames(session.video.path, saved.video)
         timings["load_video_s"] = round(time.perf_counter() - started, 3)
@@ -312,6 +313,7 @@ def export_saved_result(
         analysis=analysis,
         video_export=video_export,
         output_dir=exporter.output_dir,
+        artifacts=exporter.report_artifacts(summary, video_paths, debug=debug),
         timings_s=timings,
         produced_by="export",
         source={

@@ -838,3 +838,33 @@ def test_a_failed_save_into_a_new_run_directory_keeps_what_it_did_not_write(hard
         ExportService(target).save_new_run(**_run_arguments(hard_run))
     assert sorted(p.name for p in target.iterdir()) == [other.name]
     assert other.read_text() == "staged by another save\n"
+
+
+def test_reexport_never_owns_or_deletes_unrelated_files(hard_run, tmp_path):
+    target = tmp_path / "export"
+    target.mkdir()
+    note = target / "notes.txt"
+    note.write_text("original notes")
+    first = export_saved_result(hard_run.saved_result, target, videos=False)
+    assert note.name not in json.loads(first.manifest_path.read_text())["files"]
+    for subdir in ("videos", "visualizations"):
+        (target / subdir).mkdir(exist_ok=True)
+        (target / subdir / "user-notes.txt").write_text("nested notes")
+    # Legacy inventories could already have claimed unrelated files. Do not trust them.
+    manifest = json.loads(first.manifest_path.read_text())
+    manifest.pop("file_inventory_kind", None)
+    manifest["files"]["notes.txt"] = {"bytes": note.stat().st_size}
+    first.manifest_path.write_text(json.dumps(manifest))
+    for _ in range(2):
+        export_saved_result(load_saved_result(target), target, videos=False, overwrite=True)
+        assert note.read_text() == "original notes"
+        for subdir in ("videos", "visualizations"):
+            assert (target / subdir / "user-notes.txt").read_text() == "nested notes"
+
+
+def test_report_only_explicit_relocation_rejects_wrong_video_before_writes(hard_run, tmp_path):
+    wrong = DiscVideo(2).write(tmp_path / "wrong.mp4")
+    before = {p: p.read_bytes() for p in hard_run.output_dir.rglob("*") if p.is_file()}
+    with pytest.raises(SessionError, match="different video"):
+        export_saved_result(hard_run.saved_result, hard_run.output_dir, videos=False, video_path=wrong, overwrite=True)
+    assert all(p.read_bytes() == content for p, content in before.items())

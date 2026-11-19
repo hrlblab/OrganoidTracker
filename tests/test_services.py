@@ -428,7 +428,7 @@ def test_an_unfinished_run_directory_is_refused_and_stray_files_survive(small_di
         tracking_service_factory=factory(small_disc),
     )
     assert outcome.complete and (out / "notes.txt").read_text() == "keep me"
-    assert "notes.txt" in json.loads(outcome.manifest_path.read_text())["files"]  # inventoried, never deleted
+    assert "notes.txt" not in json.loads(outcome.manifest_path.read_text())["files"]
 
 
 def test_a_missing_pdf_fails_the_run_and_marks_the_summary(small_disc, small_video, tmp_path, monkeypatch):
