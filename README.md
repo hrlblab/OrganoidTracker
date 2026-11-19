@@ -1,382 +1,101 @@
-# Organoid Tracker: A SAM2-Powered Platform for Zero-shot Cyst Analysis in Human Kidney Organoid Videos
+# Organoid Tracker
 
-This is the official implementation of Organoid Tracker, a comprehensive AI-powered platform for automated kidney organoid cyst tracking and quantitative analysis.
+[![CI](https://github.com/hrlblab/OrganoidTracker/actions/workflows/ci.yml/badge.svg)](https://github.com/hrlblab/OrganoidTracker/actions/workflows/ci.yml)
 
-**Paper**
-> [**Organoid Tracker: A SAM2-Powered Platform for Zero-shot Cyst Analysis in Human Kidney Organoid Videos**](#)
-> Xiaoyu Huang, Lauren M Maxson, Trang Nguyen, Cheng Jack Song, and Yuankai Huo
-> *arXiv (2509.11063)*
+Track and measure cysts in time-lapse videos of kidney organoids. You draw a box around each cyst on the
+last frame; [SAM 2](https://github.com/facebookresearch/sam2) segments it and follows it backwards in
+time, and the application reports each cyst's area, shape and growth. No training data is needed.
 
-Contact: [xiaoyu.huang@vanderbilt.edu](mailto:xiaoyu.huang@vanderbilt.edu). Feel free to reach out with any questions or discussion!
+**Paper:** [Organoid Tracker: A SAM2-Powered Platform for Zero-shot Cyst Analysis in Human Kidney Organoid Videos](https://arxiv.org/abs/2509.11063)
+(Huang, Maxson, Nguyen, Song and Huo, arXiv 2509.11063).
+**Contact:** [xiaoyu.huang@vanderbilt.edu](mailto:xiaoyu.huang@vanderbilt.edu)
 
-## Abstract
+![Workflow: annotate the last frame, track backwards, measure](figures/fig1.png)
 
-![Conceptual Workflow](figures/fig1.png)
+## Get started
 
-Quantitative analysis of kidney organoid cyst dynamics is crucial for understanding nephron development and disease mechanisms. Current approaches rely on manual annotation and specialized expertise, limiting scalability and reproducibility. We present Organoid Tracker, a user-friendly platform that leverages the Segment Anything Model 2 (SAM2) for zero-shot segmentation and automated tracking of cyst formation in time-lapse microscopy videos. Our platform introduces an innovative inverse temporal tracking workflow that improves accuracy by annotating the final, clearest frame and tracking backward in time. The system automatically extracts quantitative metrics including individual cyst growth kinetics, morphological maturation patterns, and population heterogeneity analysis, providing researchers with comprehensive analytical capabilities without requiring programming expertise.
+**Docker on Linux, no Python needed.** Download the bundle and the image for your computer from the
+[releases page](https://github.com/hrlblab/OrganoidTracker/releases), unpack them as the release notes
+show, and run `./organoidtracker`. The application opens in your browser; videos and results stay on
+your computer. The [Docker guide](packaging/docker/README.md) covers host preparation and recovery.
 
-## Linux Docker desktop preview
-
-The [Docker desktop bundle](packaging/docker/README.md) runs the complete interactive application
-in a local browser with remembered video, model-cache and results folders. It provides separate CPU
-and NVIDIA images and requires no host Python or Qt installation. The preview currently targets
-Linux x86-64; Windows Docker validation and a separate clean-host trial remain pending.
-Download the bundle from the [releases page](https://github.com/hrlblab/OrganoidTracker/releases);
-its guide lists the files to fetch. Read [Known limitations of this prerelease](#known-limitations-of-this-prerelease)
-before interpreting results.
-
-## Highlights
-
-- **Zero-Shot Learning**: No training data required - works immediately with SAM2's foundation model capabilities
-- **Inverse Temporal Tracking**: Novel backward-in-time approach that leverages mature cyst morphology for improved accuracy
-- **Comprehensive Analytics**: Automated extraction of growth kinetics, morphological metrics, and population-level statistics
-- **User-Friendly Interface**: Intuitive GUI designed specifically for biological researchers
-
-## User Interface
-
-![Organoid Tracker GUI](figures/fig2.png)
-
-The Organoid Tracker interface is organized into functional modules: (top-left) application configuration for model selection, (bottom-left) progress tracking log, (center) main canvas for video display and user interaction, and (right) analysis parameter input and report generation modules.
-
-## Visual Results
-
-![Side-by-side Comparison](figures/fig4.png)
-
-Side-by-side comparison showing original time-lapse video frames (top row) with corresponding Organoid Tracker output (bottom row), where automatically generated segmentation masks with unique colors track individual cysts over time.
-
-## Quantitative Metrics and Analysis Suite
-
-![Some Quantitative Metrics Definitions](figures/fig3.png)
-
-![Analysis Results](figures/fig5.png)
-
-**Key Measurements:**
-- **(a) Cyst Area Tracking**: Cross-sectional area measurement across multiple time points
-- **(b) Morphological Analysis**: Circularity comparison between irregular and well-defined cysts
-- **(c) Population Metrics**: Comprehensive organoid and cyst identification at initial and final time points
-- **(d) Population-level Growth Heterogeneity**: Individual cyst growth rate analysis and temporal relationship visualization
-
-Representative analysis output for a PKD mutant organoid video showing: **(a)** Cyst area trajectories with progressive growth, **(b)** morphological maturation tracking circularity evolution, **(c)** correlation visualization of size, shape, and temporal relationships, **(d)** population-level growth heterogeneity heatmap with individual cyst growth rates.
-
-## Installation
-
-### Prerequisites
-- Python 3.12 or 3.13 and [uv](https://docs.astral.sh/uv/) (pip also works, see below)
-- Linux or Windows. An NVIDIA GPU is strongly recommended: the CPU path works but is slow
-- Tk for the desktop interface (included with the python.org and uv-managed interpreters; on Debian/Ubuntu install `python3-tk`)
-- 8 GB+ RAM; 2 GB+ of GPU memory for the base-plus model on 4096 x 4096 videos
-
-### Install with uv (recommended)
+**From source, Linux or Windows.** You need Python 3.12 or 3.13 and [uv](https://docs.astral.sh/uv/).
+An NVIDIA GPU is strongly recommended; the CPU path works but is slow.
 
 ```bash
 git clone https://github.com/hrlblab/OrganoidTracker.git
 cd OrganoidTracker
-uv sync --extra tk            # Linux: PyPI torch with CUDA 13; Windows: CPU torch
-```
-
-Pick the PyTorch build explicitly when needed:
-
-```bash
-uv sync --extra tk --extra cuda   # NVIDIA GPU on Windows or Linux (CUDA 13.0 wheels; driver 580 or newer)
-uv sync --extra tk --extra cpu    # CPU only (smaller download)
-```
-
-`uv.lock` pins every dependency for Linux and Windows; `uv sync` creates `.venv` from it.
-
-### Install with pip
-
-```bash
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt  # exported from uv.lock
-pip install -e .
-# NVIDIA GPU on Windows: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
-```
-
-### Verify the installation
-
-```bash
-uv run python -c "import torch, organoidtracker; print(torch.__version__, 'CUDA:', torch.cuda.is_available())"
-```
-
-### Model checkpoints
-
-```bash
-cd checkpoints
-bash download_ckpts.sh        # SAM 2.1 (default); `bash download_ckpts.sh 2` for the original SAM 2 files
-cd ..
-```
-
-The application looks for checkpoints in `./checkpoints` (or `ORGANOIDTRACKER_CHECKPOINTS`).
-
-### Settings
-
-Defaults live in the package (`organoidtracker.settings.Settings`). To change any of them, copy
-[`organoidtracker.example.toml`](organoidtracker.example.toml) to `organoidtracker.toml` in the directory you
-launch from (or point `ORGANOIDTRACKER_SETTINGS` at a file) and uncomment the keys you need; keys and value
-types are checked at startup. A legacy `user_config.py` is still read for now, with a deprecation warning.
-
-## Quick Start
-
-### Basic Usage
-
-1. **Launch the Application**
-   ```bash
-   uv run organoidtracker-tk
-   ```
-   (`python video_tracker_gui.py` inside the environment does the same.) Outputs, the prompt
-   records and the log file (`data/output_videos/organoidtracker.log`) are written under `data/`
-   in the directory you launch from.
-
-2. **Load Your Video**
-   - Click "Load Video" and select your time-lapse organoid video
-   - Supported formats: MP4
-
-3. **Configure Tracking**
-   - Select the SAM2 model size (small, base-plus or large)
-   - Keep "Reverse Tracking" enabled (recommended for organoid analysis)
-   - Adjust tracking thresholds and other settings in `organoidtracker.toml` if needed (see Settings above)
-
-4. **Annotate Cysts**
-   - With Reverse Tracking enabled the canvas shows the final frame of the video, where cysts are clearest
-   - Left-click an organoid, then click and drag bounding boxes around its cysts; left-click again to start the next organoid
-   - Each cyst is assigned a unique color
-   - Confirm source frames and acquisition days before annotating. Similar-looking images are never automatically discarded.
-
-5. **Run Analysis**
-   - Click "Start Tracking" to begin automated segmentation
-   - Monitor progress in the log panel
-   - Processing time varies with video length and model size
-
-6. **Review Results**
-   - Generated outputs saved to `data/output_videos/`
-   - Includes tracking videos, analysis reports, and raw data
-   - Every tracking run that kept masks is saved automatically, right after tracking, in a directory of
-     its own: `data/output_videos/runs/<video>_<timestamp>_<run id>/` with `results.json`, the mask file,
-     `session.json` and `prompts.json`. It reopens with "Open Results..." and exports again with
-     `organoidtracker export --run <directory> --out <new directory>`, even if it was never exported or saved by hand.
-     Generating the analysis report updates it with the time lapse, conversion factor and organoids the report
-     used, so that exporting it again reproduces the report; "Save Results..." writes a copy into a directory of
-     your choice.
-
-
-### Qt desktop application (preview)
-
-```bash
-uv sync --extra qt                  # add --extra hf for the optional Transformers backend
+uv sync --extra qt                    # add --extra cpu on a computer without an NVIDIA GPU
+bash checkpoints/download_ckpts.sh    # the public SAM 2.1 weights
 uv run --no-sync organoidtracker-qt
 ```
 
-Open a video or a saved session. Confirm the acquisition selection before annotating; until then a
-click on the picture explains what is missing. The canvas then shows the last selected frame for
-reverse tracking. Click an organoid, drag boxes around its cysts, then click the next organoid.
-Include organoids without cysts because they contribute to the population statistics. Select an
-existing organoid in the annotation list to add more cysts to it. Use the wheel to zoom, right or
-middle drag to pan, and Fit to restore the view. Undo/Redo and removal operate on source-pixel
-coordinates at every zoom level.
+Other install paths (pip, the Tk interface, CUDA wheels on Windows) are in
+[docs/development.md](docs/development.md).
 
-Choose the model family, size, device and weights, then check the pixel calibration and time span.
-The acquisition panel lets you inspect source frames with the slider and select their one-based
-numbers. **7 daily points (11-frame export)** fills source frames `1, 3, 4, 6, 7, 9, 10` and days
-`1–7` for that confirmed export layout only. Check the mapping and click **Confirm frames and days**.
-For other videos, select every source frame or enter your own list and dates. A newly opened video has
-no default span: enter the days from the first to the last frame, or one day per frame, and check the
-table of source frames and days before confirming. Clear annotations before changing frames so that
-existing boxes cannot move to another observation; for the same reason the tracking direction is locked
-while annotations exist and is not remembered between sessions. Days of the same frames can be corrected
-with annotations in place, and the changed days must be confirmed again before tracking. The selected
-source indices and actual days are saved with each session and run. Reopening old results preserves their
-recorded map; old sessions without a map need confirmation before new tracking.
+## Use it
 
-**Track and save run** writes
-each run into its own directory under `data/output_videos/runs/` (change its parent with **Run folder**).
-Masks are saved before reports, so a report failure can be recovered with **Open results**. Cancel
-finishes the current frame and preserves retained masks; closing during a task waits for that task
-and its save to finish. Partial and cancelled runs retain their status.
+1. **Open video.** MP4 time-lapse videos are supported.
+2. **Confirm the time points.** Check which source frames are separate acquisitions and enter their
+   days. Nothing is assumed; annotation stays locked until you confirm.
+3. **Annotate the last frame.** Click an organoid, then drag a box around each of its cysts. Include
+   organoids without cysts: they count in the population statistics.
+4. **Track and save run.** Every run is saved in its own folder and can be reopened later without a model.
+5. **Read the results.** Inspect the masks frame by frame, then open the report folder.
 
-Use the frame slider to inspect originals, overlays, masks and side-by-side views. Each mask carries
-its cyst label (`C1`, `C2`, …) in the colour shown in the annotation list; selecting a cyst there
-outlines its mask. The Figures tab
-shows the generated plots; **Open report folder** provides the PDF, CSV tables and videos. Saved
-annotations stay read-only until **Edit prompts for a new run**. **Export reports to a new copy**
-re-analyzes retained masks with the selected calibration/timestamps, and preserves those inputs in
-every copied session and result document. The original run remains intact. Missing source videos
-do not prevent mask inspection or report export without videos; **Locate source video** accepts a
-relocated file only when its content hash matches.
+![Original frames (top) and tracked cysts (bottom)](figures/fig4.png)
 
-The Qt interface is a preview while interactive Linux acceptance and native Windows CPU/GPU checks
-are pending. The Tk application remains available. Run Qt regression tests offscreen with
-`uv sync --extra qt --group qt-test`, then `QT_QPA_PLATFORM=offscreen uv run --no-sync pytest -m qt`
-(on Windows, set that environment variable using the shell's syntax).
+The same pipeline runs without a window (`organoidtracker run`, `export`, `validate`). The interfaces
+and the command line are described in [docs/usage.md](docs/usage.md).
 
-An experimental CPU directory bundle can also be built using the [packaging recipe](packaging/README.md).
-Checkpoints remain external to the bundle; native Windows distribution validation is pending.
+## What you get
 
-### Headless runs (command line)
+Each run folder holds:
 
-The same tracking, analysis and exports run without a window from a *session file*: a JSON document
-with the video, the organoid points and cyst boxes (source pixels on the annotation frame, the last
-frame with reverse tracking), the calibration and the timing. The prompt record the application writes
-when tracking starts (`data/output_videos/prompts/*.json`) is accepted as a session file, so a GUI run can
-be repeated headlessly.
+| File | Content |
+|---|---|
+| `organoid_analysis_report.pdf` | Summary, figures, and the source frames with their days |
+| `raw_cyst_data.csv` | One row per cyst and time point: area, circularity, source frame |
+| `cyst_summary.csv` | One row per cyst, with its growth rate |
+| `organoid_summary.csv` | One row per organoid, with summed cyst areas |
+| `videos/` | Overlay, mask and side-by-side videos |
+| `visualizations/` | The individual figures |
+| `results.json`, `masks-*.npz` | The saved masks and inputs, for reopening and exporting again |
+| `run_manifest.json` | Software version, settings, and a hash of every file written |
 
-```json
-{
-  "schema": "organoidtracker.session/1",
-  "video": {"path": "well.mp4", "decoded_frames": 11, "frame_indices": [0, 2, 3, 5, 6, 8, 9]},
-  "tracking": {"direction": "reverse", "model_config": "sam2_hiera_b", "device": "cuda"},
-  "calibration": {"um_per_pixel": 1.6934},
-  "timing": {"time_lapse_days": 6.0},
-  "organoids": [
-    {"organoid_id": 1, "point": [1300, 700],
-     "cysts": [{"cyst_id": 1, "bbox": [1200, 800, 1400, 1000]}, {"cyst_id": 2, "bbox": [1500, 820, 1650, 960]}]},
-    {"organoid_id": 2, "point": [600, 2400], "cysts": []}
-  ]
-}
-```
+![Example report figures: area, circularity and growth per cyst](figures/fig5.png)
 
-```bash
-uv run organoidtracker validate --session session.json
-uv run organoidtracker run --session session.json --out runs/well-01 [--video other/path.mp4] [--device cpu] [--model sam2_hiera_t] [--no-videos] [--video-quality original|mid|low]
-uv run organoidtracker export --run runs/well-01 [--out runs/well-01-replot] [--video other/path.mp4] [--no-videos] [--video-quality original|mid|low] [--overwrite]
-```
+Definitions of area, circularity and growth rate are in [docs/measurements.md](docs/measurements.md).
 
-A session's `video.frame_indices` is a strictly increasing list of **zero-based** source indices;
-`video.decoded_frames` records the expected decoded count. A mismatch fails before tracking.
-For an older session without a selection, CLI `run`/`bench` accept
-`--frames 1,3,4,6,7,9,10 --decoded-frames 11` (one-based CLI numbers). Confirm that the session's timing
-describes those selected observations. A session that already records a selection refuses different
-values: its boxes and days belong to its frames, so another selection is confirmed in the application.
-`validate` applies the same checks as `run`: `frame_times_days` has one value per selected frame, and
-the selection fits the frame count in the video's index. A prompt record written before results version 5
-names frames that the older software selected itself; it is read as an older session, so a new run from it
-needs `--frames` as well (the warning prints the recorded frames, which repeat the old selection).
-`timing` takes either `time_lapse_days` (spread uniformly from day 1 as in the paper) or
-`frame_times_days`, one explicit time per selected time point. Every key of `tracking` is optional; `--video`
-relocates a moved video (its recorded `sha256`, when present, must still match). The output directory
-receives the CSV tables, figures and PDF report (re-plottable with `scripts/csv_visualizer.py`), the
-videos under `videos/`, the prompt record (`prompts.json`), the validated session (`session.json`), the log,
-the saved tracking result (`results.json` and `masks-<digest>.npz`: every mask as packed bits, with the
-organoid and cyst identities, the time axis, the calibration, the frame map, the tracking status and
-coverage, the presence scores, the settings and the provenance; written right after tracking, before any
-export), and `run_manifest.json`: software, environment and settings, the video facts, the backend
-provenance, the tracking status and frame coverage, a digest of every mask, and the hash of every file written.
+## Versions and the paper
 
-`organoidtracker export` reopens a run directory **without a model** and writes its analysis again: the
-CSV tables, figures, PDF, summary and manifest, plus the videos when the video file is available (`--video`
-relocates a moved file with the same content; `--no-videos` needs no video at all). In place (`--run` alone)
-it needs `--overwrite` and keeps the saved result, session, prompt record and log; with `--out` another
-directory receives a copy of the saved result as well, so it is a complete run directory too. The exports
-equal the original run's for the same software and settings. A damaged, truncated or edited result file is
-refused. Tracking again from the saved prompts is `run --session runs/well-01/session.json`; continuing an
-interrupted propagation exactly is not supported (SAM 2 keeps an inference memory beyond the saved masks).
+The repository has changed since the paper. Cite the version you used; exports name it, together with a
+*results version* that increases whenever a change alters numbers.
 
-Exit status: 0 completed; 1 failed; 2 invalid input (session, settings, saved result, missing or different
-video); 3 the tracking stopped early and the exports are **partial** (the manifest, the summary and the PDF
-say so; `export` reports the status of the run it exports again); 4 the run was **cancelled**: the first Ctrl-C
-asks the tracking to stop after the frame in progress (SAM 2's per-frame inference is not interruptible), the
-tracked frames are saved, analyzed and exported with the status `cancelled`, and a second Ctrl-C aborts at once.
-A run cancelled before any mask was kept writes only the session and the prompt record.
+| Version | Pinned at | What it is |
+|---|---|---|
+| Paper submission | commit [`d748b21`](https://github.com/hrlblab/OrganoidTracker/tree/d748b21) (2025-09-15) | The code as submitted to arXiv. Tk interface. |
+| Original code, final state | tag [`legacy-baseline`](https://github.com/hrlblab/OrganoidTracker/tree/legacy-baseline) (2026-01-31) | The paper code plus installation and plot-setting changes. Kept unchanged on branch `legacy`. |
+| Corrected method | commit [`494e053`](https://github.com/hrlblab/OrganoidTracker/tree/494e053) (2026-10-13), results version 2 | The paper's method with the first corrections: tracking order and analysis bookkeeping. Tk interface and command line. |
+| Current prerelease | tag [`v2.0.0a2`](https://github.com/hrlblab/OrganoidTracker/tree/v2.0.0a2) (2026-11-19), results version 5 | Further corrections, plus the Qt desktop and the Docker bundle, which are new and not part of the paper. |
 
-## Output Files
+Use the current prerelease for new analyses: it contains every correction. Numbers from the paper-era
+code are not comparable with it. The largest change is that tracking now runs backwards from the last
+frame as the paper describes; the original code tracked forwards from the first frame.
+[CHANGELOG.md](CHANGELOG.md) lists every change under "Scientific behavior".
 
-After analysis, the following files are generated in `data/output_videos/`:
+## Known limitations of this prerelease
 
-- `multi_object_overlay.mp4` - Annotated tracking video
-- `multi_object_mask.mp4` - Binary mask visualization
-- `multi_object_side_by_side.mp4` - Original and mask comparison
-- `raw_cyst_data.csv` - One row per cyst and time point (area, circularity, source frame)
-- `cyst_summary.csv` - One row per cyst, with its growth rate
-- `organoid_summary.csv` - One row per organoid, with summed cyst areas (see Known limitations)
-- `organoid_analysis_report.pdf` - Publication-ready report
-- `analysis_summary.json` - Complete session metadata
-- `visualizations/` - Individual plots and figures
-- `prompts/<video>_<timestamp>_<run id>.json` - Prompts, organoid associations and provenance of each tracking run
-- `runs/<video>_<timestamp>_<run id>/` - The saved result of each tracking run in the window (see Review Results)
+- **Organoid totals count a missing mask as no area.** A cyst without a mask on the first or last day
+  changes its organoid's growth rate in `organoid_summary.csv`. Compare growth with `cyst_summary.csv`.
+- **Circularity rises with size.** An ideal disc measures 0.76 at a radius of 5 pixels and 0.90 at 120,
+  so a cyst that only grows appears to become rounder. Compare cysts of similar size.
+- **Bright-field videos only.** Accuracy against expert annotations has not been measured.
+- **Docker preview.** Linux x86-64 only, on a trusted single-user host: its desktop has no login.
 
-### Frame order and timing
+Details are in [docs/measurements.md](docs/measurements.md#known-limitations).
 
-Frames are handled in chronological order throughout. With Reverse Tracking enabled, prompts are placed on the last frame and SAM2 propagates backwards in time; outputs are always written chronologically. The tracking progress dialog has a Cancel button: the frame in progress finishes, the tracked frames stay available for videos, the report and Save Results (as a cancelled run), and tracking again on the same video produces the masks of an uninterrupted run. The "Time Lapse (days)" value is the span from the first to the last frame, and days are numbered from 1 as in the paper's figures (seven daily frames spanning six days are days 1 to 7).
-
-### Optional Transformers backend and benchmarks
-
-The reference SAM 2 backend remains the default. Install `uv sync --extra hf` to opt into
-`hf-sam2`, which loads a **local** Hugging Face SAM 2/2.1 snapshot. Model loading never downloads
-weights. For a reproducible tiny-model example, download the public snapshot separately:
-
-```bash
-uv run --no-sync python -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/sam2.1-hiera-tiny', revision='de431c4043854a71d8101e17995dfe596bf101a5', allow_patterns=['*.json', 'model.safetensors'], local_dir='checkpoints/hf/sam2.1-hiera-tiny')"
-uv run --no-sync organoidtracker bench --session session.json --out reference --model sam2_hiera_t --no-videos
-uv run --no-sync organoidtracker bench --session session.json --out candidate --model sam2_hiera_t --backend hf-sam2 --checkpoint checkpoints/hf/sam2.1-hiera-tiny --reference reference --no-videos
-```
-
-`tracking.backend` in a session can also select `hf-sam2`; `tracking.checkpoint_path` then names
-the snapshot directory. Match the session's model size and checkpoint family to that snapshot.
-The adapter uses the reference's PIL preprocessing, chronological frames, quality filters and packed
-masks. The application-specific improved base-plus configuration is unsupported. This backend is
-experimental; it still shares code with the vendored adapter and does not replace the vendored package.
-
-Each benchmark produces a normal saved run plus `benchmark.json` and `benchmark.csv`. These record
-tracking time, seconds per processed frame, process peak RAM (unavailable on Windows), CUDA allocated
-peak memory, mask intersection-over-union (IoU), area differences and changes in reference identity
-assignment. Missing and extra masks score zero IoU. The first accepted frame means the earliest
-chronological frame with a retained mask, not a biological appearance time. A reference must use the
-same video; annotation/direction agreement and both provenance records are included. Run one case per
-process because RAM is a lifetime peak through inference. Tracking timings include each backend's
-state preparation inside propagation; pipeline stage timings are also recorded. These comparisons
-measure agreement with another implementation, not accuracy against expert annotations.
-
-### Measurement conventions
-
-Area counts foreground pixels and multiplies by the square of the micrometers-per-pixel calibration.
-Circularity uses the largest external contour's polygon area and perimeter, as `4πA/P²`, clipped to
-`[0, 1]`; disconnected components and holes therefore affect area and circularity differently.
-Formation percentage and cyst density use every annotated organoid as the denominator. These are
-per-frame measurements; a missing mask does not establish biological absence.
-
-Cyst growth is the mean of the area-change-per-day slopes between consecutive measured time points.
-The organoid summary instead reports the endpoint slope of summed cyst area; the JSON growth statistics
-summarize each organoid's mean cyst growth. The heatmap groups cysts at the 33rd and 67th percentiles.
-Raw CSV values retain floating-point precision for re-analysis; summary tables round values for display.
-Keep the raw CSV, organoid summary and analysis JSON together when re-plotting.
-
-### Known limitations of this prerelease
-
-- **Organoid totals count a missing mask as no area.** `organoid_summary.csv` sums the areas of the
-  cysts that have an accepted mask at each time point and reports the endpoint slope of that sum. A cyst
-  without a mask at the first or the last time point therefore changes its organoid's totals and growth
-  rate, and can change the sign of the rate, although a missing mask does not establish biological
-  absence. An organoid with no measured cyst is written with zeros. Compare growth with
-  `cyst_summary.csv`, which uses only the time points each cyst was measured at, and read the organoid
-  totals together with the accepted-mask counts in the PDF.
-- **Circularity depends on size.** The contour estimate stays below 1 for a circle and rises with its
-  radius: an ideal disc measures 0.76 at a radius of 5 pixels, 0.88 at 30 and 0.90 at 120. A cyst that
-  only grows therefore appears to become rounder, and the reference line at 1.0 in the figures cannot be
-  reached. Compare circularity between cysts of similar size; a rising curve alone does not show a
-  change of shape.
-- **Validated scope.** Bright-field videos only. Accuracy against expert annotations has not been
-  measured: the tests establish consistent behavior, not biological accuracy.
-- **Platform.** The Docker preview runs on Linux x86-64 and needs a trusted single-user host (its
-  desktop has no login). An installation on an independent clean host has not been validated. Windows
-  and macOS are not supported by the preview.
-
-### Running the tests
-
-```bash
-uv run pytest                      # unit tests; model tests run when checkpoints/sam2.1_hiera_tiny.pt exists
-uv run pytest -m gui               # the window tests (needs a display, see below)
-uv run ruff check && uv run ruff format --check
-```
-
-The suite uses synthetic videos only; the same checks run in GitHub Actions on Linux and Windows.
-On a Linux desktop the window tests never open windows on your screen: the test session starts a
-private virtual display (install Xvfb: `sudo apt install xvfb`) and, without Xvfb, skips them with
-that reason. `OT_GUI_ON_DESKTOP=1 uv run pytest -m gui` runs them on the desktop instead.
-Install the pre-commit hooks with `uv run pre-commit install`.
-
-### Citation
-
-If you find this work useful for your research, please cite our paper:
+## Citation
 
 ```bibtex
 @article{huang2025organoid,
@@ -390,31 +109,8 @@ If you find this work useful for your research, please cite our paper:
 
 The same metadata is in [CITATION.cff](CITATION.cff).
 
-## Acknowledgments
+## License and acknowledgments
 
-This work builds upon the foundation of [Segment Anything Model 2 (SAM2)](https://github.com/facebookresearch/segment-anything-2) by Meta AI. We thank the authors for their groundbreaking contribution to computer vision and their open-source implementation.
-
-## License
-
-This project is licensed under the Apache-2.0 License. See the [LICENSE](LICENSE) file for details.
-Third-party notices, including for the vendored SAM 2 code under `src/sam2`, are in [NOTICE](NOTICE).
-
-Report columns retain their existing growth-rate values and include `Growth_Rate_Definition` to distinguish
-mean adjacent observed cyst slopes from endpoint total-area slopes. The JSON growth summary records its
-aggregation definition. Missing masks are not proof of biological absence; PDF measurement warnings and
-figure labels state this limitation. Keep `analysis_summary.json` with the CSV files when replotting:
-measurement rows alone cannot reconstruct acquisition times or tracking coverage.
-
-`raw_cyst_data.csv` ends with `Source_Frame`: the zero-based frame of the source video behind each row's
-`Frame` (the zero-based index among the selected time points). The window and the PDF count frames from 1.
-The overlay and side-by-side videos label each mask with `C` and its `Cyst_ID` and show the time point
-with its source frame (counted from 1); the mask video carries no text. Days are not written into video
-frames: they are analysis inputs that an exported copy may change, and the PDF lists them per source frame. `visualizations/cyst_key.png`, also on the PDF's first pages, is one
-labelled overlay of the frame with the most accepted masks. The PDF summary names the source video, the
-first characters of its SHA-256, the run, the model, the tracking software and the selected source frames
-with their days. These additions change no measurement.
-
-`original` video export preserves the requested source resolution (twice the width for side by side).
-`mid` and `low` apply factors of 0.5 and 0.25. Untracked frames are labelled **NOT TRACKED**.
-SVG export also writes PNG companions for PDF embedding and desktop preview. Plot DPI and text/title
-visibility follow the visualization settings.
+Apache-2.0; see [LICENSE](LICENSE). Third-party notices, including for the vendored SAM 2 code under
+`src/sam2`, are in [NOTICE](NOTICE). This work builds on
+[Segment Anything Model 2](https://github.com/facebookresearch/sam2) by Meta AI.
