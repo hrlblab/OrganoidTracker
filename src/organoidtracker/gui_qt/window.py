@@ -62,6 +62,33 @@ BANNER_STYLES = {
 ACTION_NEEDED_STYLE = "font-weight: bold; border: 2px solid #c98a00; padding: 3px;"
 
 
+class _WrappedLabel(QLabel):
+    """A word-wrapped label that always keeps the height its text needs at its current width.
+
+    A form layout sizes a wrapped label from a hint computed at the label's preferred width. When the
+    text needs one more line at the real width, the next relayout clips it (seen on the container
+    desktop, where "Weights found: …" for the default model sits exactly at that threshold).
+    """
+
+    def __init__(self, text=""):
+        super().__init__(text)
+        self.setWordWrap(True)
+
+    def _fit(self):
+        if self.width() > 0:
+            self.setMinimumHeight(0)  # the current minimum must not count as needed height
+            self.setMinimumHeight(self.heightForWidth(self.width()))
+
+    def setText(self, text):
+        if text != self.text():  # a periodic refresh with the same text must not disturb the layout
+            super().setText(text)
+            self._fit()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit()
+
+
 class _AnnotationEdit(QUndoCommand):
     def __init__(self, window, before, after, text, selected=None):
         super().__init__(text)
@@ -206,8 +233,7 @@ class MainWindow(QMainWindow):
         self.checkpoint = QLineEdit()
         self.checkpoint.setPlaceholderText("Default checkpoint location")
         self.checkpoint_button = self._button("Browse weights", self.choose_checkpoint)
-        self.checkpoint_status = QLabel()
-        self.checkpoint_status.setWordWrap(True)
+        self.checkpoint_status = _WrappedLabel()
         for label, widget in [
             ("Backend", self.backend),
             ("Family", self.family),
@@ -217,11 +243,11 @@ class MainWindow(QMainWindow):
             ("Weights", self.checkpoint),
         ]:
             form.addRow(label, widget)
-        self.direction_note = QLabel(
-            "Direction is locked while annotations exist: boxes belong to the frame they were drawn on."
+        # Always shown, so that annotating does not change the panel's layout.
+        self.direction_note = _WrappedLabel(
+            "The direction can be changed only while there are no annotations: boxes belong to the "
+            "frame they were drawn on."
         )
-        self.direction_note.setWordWrap(True)
-        self.direction_note.setVisible(False)
         form.addRow(self.direction_note)
         form.addRow(self.checkpoint_button)
         form.addRow(self.checkpoint_status)
@@ -261,8 +287,7 @@ class MainWindow(QMainWindow):
         selection_form.addRow(self.mapping)
         self.confirm_frames_button = self._button("Confirm frames and days", self.confirm_frames)
         selection_form.addRow(self.confirm_frames_button)
-        self.selection_status = QLabel("Open a video to confirm its acquisition time points.")
-        self.selection_status.setWordWrap(True)
+        self.selection_status = _WrappedLabel("Open a video to confirm its acquisition time points.")
         selection_form.addRow(self.selection_status)
         side_layout.addWidget(self.frame_group)
         self.analysis_group = QGroupBox("Analysis and export")
@@ -519,7 +544,6 @@ class MainWindow(QMainWindow):
         self.model_group.setEnabled(not self.busy and not saved)
         # Boxes belong to the frame they were drawn on, so the direction cannot change under them.
         self.direction.setEnabled(not self.annotations.organoids)
-        self.direction_note.setVisible(bool(editable and self.annotations.organoids))
         self.analysis_group.setEnabled(not self.busy)
         annotation_frame = (
             (self.opened.source.n_frames - 1 if self.direction.currentData() == "reverse" else 0) if self.opened else 0

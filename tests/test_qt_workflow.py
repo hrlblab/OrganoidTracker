@@ -419,10 +419,13 @@ def confirmed_empty(window, small_disc, small_video, days="1, 2, 4, 7"):
 
 def test_direction_cannot_change_under_existing_annotations(window, small_disc, small_video):
     confirmed_empty(window, small_disc, small_video)
-    assert window.direction.isEnabled()
+    # The reason is stated before and after: the note never appears or disappears (no layout change).
+    assert window.direction.isEnabled() and window.direction_note.isVisibleTo(window)
+    heights = (window.model_group.height(), window.checkpoint_status.height())
     window.add_organoid(20, 20)
     window.add_cyst(10, 10, 30, 30)
     assert not window.direction.isEnabled() and window.direction_note.isVisibleTo(window)
+    assert (window.model_group.height(), window.checkpoint_status.height()) == heights
     # Even a change that bypasses the disabled control cannot move the boxes to the first frame.
     window.direction.setCurrentIndex(window.direction.findData("forward"))
     with pytest.raises(ValueError, match="drawn on the last time point"):
@@ -589,3 +592,25 @@ def test_result_view_shows_which_mask_is_which_cyst(window, small_disc, small_vi
     assert len(boxes) == 1 and boxes[0].pen().color().getRgb()[:3] == cyst_color(2)
     window.view_mode.setCurrentText("Side by side")
     assert all(i.pos().x() >= 128 for i in window.canvas.mask_items if isinstance(i, QGraphicsSimpleTextItem))
+
+
+def test_wrapped_status_lines_keep_the_height_their_text_needs(window, qtbot):
+    """On the container desktop a relayout clipped these lines; each now reserves what its text needs."""
+    labels = (window.checkpoint_status, window.selection_status, window.direction_note)
+
+    def fitted():
+        return all(label.minimumHeight() == label.heightForWidth(label.width()) <= label.height() for label in labels)
+
+    qtbot.waitUntil(fitted, timeout=5000)
+    status = window.checkpoint_status
+    one_line = status.fontMetrics().lineSpacing()
+    window.checkpoint.setText("/w/" + "a-very-long-directory-name/" * 12 + "sam2.1_hiera_base_plus.pt")
+    qtbot.waitUntil(lambda: fitted() and status.height() >= 3 * one_line, timeout=5000)
+    window.checkpoint.setText("/w/x.pt")  # shorter text gives the space back
+    qtbot.waitUntil(lambda: fitted() and status.minimumHeight() < 3 * one_line, timeout=5000)
+    for data in ("sam2_hiera_t", "sam2_hiera_l", "sam2_hiera_b"):
+        window.model_size.setCurrentIndex(window.model_size.findData(data))
+        qtbot.waitUntil(fitted, timeout=5000)
+    before = status.minimumHeight()
+    window.update_checkpoint_status()  # the container refreshes this every two seconds
+    assert status.minimumHeight() == before
