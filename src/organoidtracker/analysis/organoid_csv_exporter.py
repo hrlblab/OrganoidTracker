@@ -120,6 +120,7 @@ class OrganoidCSVExporter:
                     "Mean_Area_um2": round(np.mean(areas_um2), 2) if areas_um2 else 0,
                     "Mean_Circularity": round(np.mean(circularities), 4) if circularities else 0,
                     "Growth_Rate_um2_per_day": round(growth_rate, 4) if growth_rate is not None else None,
+                    "Growth_Rate_Definition": "mean adjacent observed cyst area slopes",
                 }
 
                 summary_rows.append(row)
@@ -197,6 +198,7 @@ class OrganoidCSVExporter:
                 "Max_Total_Area_um2": round(max_area, 2),
                 "Mean_Total_Area_um2": round(mean_area, 2),
                 "Growth_Rate_um2_per_day": round(growth_rate, 4) if growth_rate is not None else None,
+                "Growth_Rate_Definition": "endpoint change in total accepted cyst area / elapsed days",
             }
 
             organoid_rows.append(row)
@@ -254,6 +256,7 @@ class OrganoidCSVExporter:
                         "Max_Total_Area_um2",
                         "Mean_Total_Area_um2",
                         "Growth_Rate_um2_per_day",
+                        "Growth_Rate_Definition",
                     ]
                 elif summary_headers:
                     headers = [
@@ -268,6 +271,7 @@ class OrganoidCSVExporter:
                         "Mean_Area_um2",
                         "Mean_Circularity",
                         "Growth_Rate_um2_per_day",
+                        "Growth_Rate_Definition",
                     ]
                 else:
                     headers = [

@@ -94,3 +94,31 @@ def test_all_positive_identifiers_are_visible_in_encoded_videos(tmp_path, identi
         pixels = encoded[0][:, W:] if kind == "side_by_side" else encoded[0]
         inside = pixels[square_slice(0)].mean(axis=(0, 1))
         assert inside.max() > (100 if kind == "mask" else 70), kind
+
+
+@pytest.mark.parametrize("scale", [1.0, 0.5, 0.25])
+def test_requested_resolution_survives_encoding_above_2k(tmp_path, scale):
+    large = [np.full((64, 4096, 3), 40, dtype=np.uint8)] * 2
+    mask = np.zeros((64, 4096), dtype=bool)
+    mask[24:40, 2000:2020] = True
+    segments = {k: {1: PackedMask(mask)} for k in range(2)}
+    output = VideoOutputGenerator().create_optimized_multi_object_videos(
+        large, segments, tmp_path, fps=2, quality_scale=scale
+    )
+    for kind, path in output.items():
+        assert path, kind
+        decoded = read_video(path)
+        assert len(decoded) == 2
+        assert decoded[0].shape[:2] == (int(64 * scale), int(4096 * scale) * (2 if kind == "side_by_side" else 1))
+
+
+def test_untracked_output_frame_is_distinct_from_a_tracked_frame_without_masks(tmp_path):
+    from organoidtracker.core.tracking_result import TrackingResult
+
+    images = [np.zeros((80, 240, 3), dtype=np.uint8)] * 2
+    result = TrackingResult({1: {}}, status="partial", frames_total=2, frames_done=1, tracked_frames=[1])
+    created = VideoOutputGenerator().create_optimized_multi_object_videos(images, result, tmp_path, fps=2)
+    for kind, path in created.items():
+        decoded = read_video(path)
+        assert decoded[0].max() > 100, kind
+        assert decoded[1].max() < 15, kind

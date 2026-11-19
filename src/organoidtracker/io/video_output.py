@@ -349,6 +349,7 @@ class VideoOutputGenerator:
                         interpolation=cv2.INTER_LINEAR,
                     )
 
+                output_frame = self._mark_untracked(output_frame, frame_idx, video_segments)
                 # Store processed frame for postprocessing
                 processed_frames.append(output_frame)
 
@@ -589,7 +590,8 @@ class VideoOutputGenerator:
                 )
 
             # Finalize frame variants
-            overlay_frame = overlay_frame.astype(np.uint8)
+            overlay_frame = self._mark_untracked(overlay_frame.astype(np.uint8), frame_idx, video_segments)
+            mask_frame = self._mark_untracked(mask_frame, frame_idx, video_segments)
             side_by_side_frame = np.hstack([original_frame, overlay_frame])
 
             # Store all variants
@@ -676,19 +678,26 @@ class VideoOutputGenerator:
 
         return output_path
 
+    @staticmethod
+    def _mark_untracked(frame, frame_index, result):
+        tracked = getattr(result, "tracked_frames", None)
+        if tracked is None or frame_index in tracked:
+            return frame
+        frame = frame.copy()
+        scale = max(0.3, min(1.0, frame.shape[1] / 650))
+        height = min(frame.shape[0], int(28 * scale) + 8)
+        frame[:height] = (30, 30, 30)
+        cv2.putText(
+            frame, "NOT TRACKED", (3, height - 5), cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 210, 0), 1, cv2.LINE_AA
+        )
+        return frame
+
     def _get_target_dimensions(self, width, height, video_type, quality_scale=1.0):
         """Calculate target video dimensions with codec limit handling and quality scaling"""
         if video_type == "side_by_side":
             target_width = width * 2
             target_height = height
 
-            # Check codec limits
-            max_dimension = 4096
-            if target_width > max_dimension or target_height > max_dimension:
-                scale_factor = min(max_dimension / target_width, max_dimension / target_height)
-                target_width = int(target_width * scale_factor)
-                target_height = int(target_height * scale_factor)
-                logger.debug(f"Scaling video to {target_width}x{target_height} for codec compatibility")
         else:
             target_width = width
             target_height = height
@@ -712,20 +721,10 @@ class VideoOutputGenerator:
         original_opencv_log_level = os.environ.get("OPENCV_LOG_LEVEL", "")
         os.environ["OPENCV_LOG_LEVEL"] = "ERROR"
 
-        # Performance optimization: scale down very large videos for better encoding speed
+        # Preserve the requested preset dimensions; codec failure must be explicit.
         original_width, original_height = width, height
         scale_factor = 1.0
-
-        # If video is very large (>2K), scale it down for faster encoding
         max_dimension = max(width, height)
-        if max_dimension > 2048:
-            scale_factor = 2048 / max_dimension
-            width = int(width * scale_factor)
-            height = int(height * scale_factor)
-            # Ensure even dimensions for codec compatibility
-            width = width if width % 2 == 0 else width - 1
-            height = height if height % 2 == 0 else height - 1
-            logger.debug(f"Scaling video to {width}x{height} for better performance (scale: {scale_factor:.2f})")
 
         # Optimized codec selection based on resolution and system capabilities
         if max_dimension <= 1080:

@@ -361,3 +361,13 @@ This work builds upon the foundation of [Segment Anything Model 2 (SAM2)](https:
 This project is licensed under the Apache-2.0 License. See the [LICENSE](LICENSE) file for details.
 Third-party notices, including for the vendored SAM 2 code under `src/sam2`, are in [NOTICE](NOTICE).
 
+Report columns retain their existing growth-rate values and include `Growth_Rate_Definition` to distinguish
+mean adjacent observed cyst slopes from endpoint total-area slopes. The JSON growth summary records its
+aggregation definition. Missing masks are not proof of biological absence; PDF measurement warnings and
+figure labels state this limitation. Keep `analysis_summary.json` with the CSV files when replotting:
+measurement rows alone cannot reconstruct acquisition times or tracking coverage.
+
+`original` video export preserves the requested source resolution (twice the width for side by side).
+`mid` and `low` apply factors of 0.5 and 0.25. Untracked frames are labelled **NOT TRACKED**.
+SVG export also writes PNG companions for PDF embedding and desktop preview. Plot DPI and text/title
+visibility follow the visualization settings.

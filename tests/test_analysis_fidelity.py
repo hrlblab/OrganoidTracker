@@ -168,7 +168,7 @@ def test_heatmap_order_and_percentile_classes_use_cyst_rates(tmp_path, monkeypat
     assert visualizer.plot_lasagna_heatmap(experiment, str(path)) == str(path)
     # The 33rd and 67th percentile thresholds are 1.28 and 6.72; ties use <=.
     groups = visualizer.color_schemes["organoid_groups"]
-    assert calls == [([4, 3, 2, 1, 0], [20, 8, 4, 0, -2], [groups[i] for i in (0, 0, 1, 2, 2)])]
+    assert calls == [([0, 1, 2, 3, 4], [20, 8, 4, 0, -2], [groups[i] for i in (0, 0, 1, 2, 2)])]
     assert path.is_file()
 
 

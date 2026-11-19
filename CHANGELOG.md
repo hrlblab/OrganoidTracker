@@ -1,7 +1,7 @@
 # Changelog
 
 
-## Unreleased — acquisition confirmation
+## Unreleased — acquisition confirmation and report interpretation
 
 ### Scientific behavior (results version 5)
 
@@ -10,6 +10,18 @@
 - Preserve quiet observations: image-difference thresholds no longer choose experiment time points.
 - Persist selections in sessions and prompt records; preserve existing saved-result mappings.
 - Invalidate Tk live results after cyst-prompt edits and reject invalid analysis parameters.
+- Show missing trajectory observations as gaps and retain single observations in figures.
+
+### Reports and delivery
+
+- Align heatmap rows with growth bars; include units and honor text/title/DPI settings.
+- Describe accepted-mask counts and missing-mask limitations in figures and PDF warnings.
+- Document each growth estimator in the exported CSV/JSON without changing its formula.
+- Preserve requested original video resolution and label untracked output frames.
+- Embed raster companions for SVG reports; require summary metadata for CSV replotting.
+- Clear stale Tk video state after failed loads, reject drags from outside the image, and confirm
+  replacement of existing Tk report/video outputs.
+- Document the Docker desktop's trusted single-user host boundary.
 
 ## Unreleased — review corrections
 

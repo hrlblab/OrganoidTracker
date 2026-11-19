@@ -14,6 +14,7 @@ from ..config import (
     DISABLE_VISUALIZATION_TEXT,
     DISABLE_VISUALIZATION_TITLES,
     FONT_SCALE_FACTOR,
+    MATPLOTLIB_DPI,
     VISUALIZATION_FORMAT,
 )
 from .organoid_cyst_data import ExperimentData
@@ -59,8 +60,8 @@ class OrganoidVisualizationSuite:
     Comprehensive visualization suite for organoid-cyst analysis
     """
 
-    def __init__(self, style: str = "default", dpi: int = 300):
-        self.dpi = dpi
+    def __init__(self, style: str = "default", dpi: int | None = None):
+        self.dpi = MATPLOTLIB_DPI if dpi is None else dpi
         self.style = style
         self.figure_size = (12, 8)
 
@@ -172,6 +173,24 @@ class OrganoidVisualizationSuite:
             elif tick_type == "yticklabels":
                 ax.set_yticklabels(*args, **kwargs)
 
+    def _save_figure(self, output_path, **kwargs):
+        """Keep the selected vector format and a raster companion for PDF/desktop readers."""
+        fig = plt.gcf()
+        for ax in fig.axes:
+            if DISABLE_VISUALIZATION_TITLES:
+                ax.set_title("")
+            if DISABLE_VISUALIZATION_TEXT:
+                ax.set_xlabel("")
+                ax.set_ylabel("")
+                ax.tick_params(labelbottom=False, labelleft=False, labelright=False, labeltop=False)
+                for item in ax.texts:
+                    item.set_visible(False)
+                if ax.get_legend() is not None:
+                    ax.get_legend().set_visible(False)
+        fig.savefig(output_path, **kwargs)
+        if Path(output_path).suffix.lower() == ".svg":
+            fig.savefig(Path(output_path).with_suffix(".png"), **kwargs)
+
     def create_all_visualizations(self, experiment: ExperimentData, output_dir: str) -> dict[str, str]:
         """
         Create all six required visualizations and return file paths
@@ -247,10 +266,12 @@ class OrganoidVisualizationSuite:
                 linewidth=2.5,
                 marker="o",
                 markersize=4,
-                label="% Organoids with Cysts",
+                label="Organoids with accepted cyst masks",
             )
 
-            # Titles removed per user request
+            self._safe_set_text(ax, "xlabel", "Acquisition day")
+            self._safe_set_text(ax, "ylabel", "Organoids with accepted cyst masks (%)")
+            self._safe_set_text(ax, "title", "Organoids with accepted cyst masks")
 
             # Formatting
             ax.set_ylim(0, 105)
@@ -272,7 +293,7 @@ class OrganoidVisualizationSuite:
             )
 
             plt.tight_layout()
-            plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
+            self._save_figure(output_path, dpi=self.dpi, bbox_inches="tight")
             plt.close()
 
             logger.info(f"Plot A saved: {output_path}")
@@ -328,8 +349,11 @@ class OrganoidVisualizationSuite:
                 bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
             )
 
+            self._safe_set_text(ax, "xlabel", "Acquisition day")
+            self._safe_set_text(ax, "ylabel", "Accepted cyst masks per annotated organoid")
+            self._safe_set_text(ax, "title", "Accepted cyst mask density")
             plt.tight_layout()
-            plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
+            self._save_figure(output_path, dpi=self.dpi, bbox_inches="tight")
             plt.close()
 
             logger.info(f"Plot B saved: {output_path}")
@@ -375,22 +399,15 @@ class OrganoidVisualizationSuite:
                     if not cyst.frame_data:
                         continue
 
-                    # Extract time and area data for this cyst
-                    time_points = []
+                    time_points = [experiment.get_time_at_frame(i) for i in range(experiment.total_frames)]
                     areas = []
+                    for frame in range(experiment.total_frames):
+                        data = cyst.frame_data.get(frame)
+                        areas.append(
+                            data.get_area_um2(experiment.conversion_factor_um_per_pixel) if data is not None else np.nan
+                        )
 
-                    for frame_idx, frame_data in cyst.frame_data.items():
-                        time_days = experiment.get_time_at_frame(frame_idx)
-                        area_um2 = frame_data.get_area_um2(experiment.conversion_factor_um_per_pixel)
-
-                        time_points.append(time_days)
-                        areas.append(area_um2)
-
-                    if len(time_points) >= 2:  # Only plot if we have at least 2 points
-                        # Sort by time
-                        sorted_data = sorted(zip(time_points, areas))
-                        time_points, areas = zip(*sorted_data)
-
+                    if cyst.frame_data:
                         # Plot with unique color and transparency
                         alpha = 0.8 if n_cysts <= 10 else max(0.3, 1.0 / np.sqrt(n_cysts))
 
@@ -399,6 +416,8 @@ class OrganoidVisualizationSuite:
                             areas,
                             color=colors_list[cyst_idx],
                             linewidth=1.5,
+                            marker="o",
+                            markersize=3,
                             alpha=alpha,
                             label=f"Cyst {cyst.cyst_id} (Org {cyst.organoid_id})" if n_cysts <= 15 else None,
                         )
@@ -421,8 +440,11 @@ class OrganoidVisualizationSuite:
                     )
 
             ax.grid(True, alpha=0.3)
+            self._safe_set_text(ax, "xlabel", "Acquisition day")
+            self._safe_set_text(ax, "ylabel", "Accepted mask area (µm²)")
+            self._safe_set_text(ax, "title", "Individual cyst mask areas")
             plt.tight_layout()
-            plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
+            self._save_figure(output_path, dpi=self.dpi, bbox_inches="tight")
             plt.close()
 
             logger.info(f"Plot C saved: {output_path}")
@@ -468,22 +490,13 @@ class OrganoidVisualizationSuite:
                     if not cyst.frame_data:
                         continue
 
-                    # Extract time and circularity data for this cyst
-                    time_points = []
+                    time_points = [experiment.get_time_at_frame(i) for i in range(experiment.total_frames)]
                     circularities = []
+                    for frame in range(experiment.total_frames):
+                        data = cyst.frame_data.get(frame)
+                        circularities.append(data.circularity if data is not None else np.nan)
 
-                    for frame_idx, frame_data in cyst.frame_data.items():
-                        time_days = experiment.get_time_at_frame(frame_idx)
-                        circularity = frame_data.circularity
-
-                        time_points.append(time_days)
-                        circularities.append(circularity)
-
-                    if len(time_points) >= 2:  # Only plot if we have at least 2 points
-                        # Sort by time
-                        sorted_data = sorted(zip(time_points, circularities))
-                        time_points, circularities = zip(*sorted_data)
-
+                    if cyst.frame_data:
                         # Plot with unique color and transparency
                         alpha = 0.8 if n_cysts <= 10 else max(0.3, 1.0 / np.sqrt(n_cysts))
 
@@ -492,6 +505,8 @@ class OrganoidVisualizationSuite:
                             circularities,
                             color=colors_list[cyst_idx],
                             linewidth=1.5,
+                            marker="o",
+                            markersize=3,
                             alpha=alpha,
                             label=f"Cyst {cyst.cyst_id} (Org {cyst.organoid_id})" if n_cysts <= 15 else None,
                         )
@@ -519,8 +534,11 @@ class OrganoidVisualizationSuite:
                     )
 
             ax.grid(True, alpha=0.3)
+            self._safe_set_text(ax, "xlabel", "Acquisition day")
+            self._safe_set_text(ax, "ylabel", "Circularity (dimensionless)")
+            self._safe_set_text(ax, "title", "Individual cyst circularity")
             plt.tight_layout()
-            plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
+            self._save_figure(output_path, dpi=self.dpi, bbox_inches="tight")
             plt.close()
 
             logger.info(f"Plot D saved: {output_path}")
@@ -569,7 +587,7 @@ class OrganoidVisualizationSuite:
                 )
 
                 plt.tight_layout()
-                plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
+                self._save_figure(output_path, dpi=self.dpi, bbox_inches="tight")
                 plt.close()
                 return output_path
 
@@ -652,8 +670,11 @@ class OrganoidVisualizationSuite:
                 [x_pos, x_pos + line_length], [high_y, high_y], color="orange", linestyle="--", alpha=0.7, linewidth=3
             )
 
+            self._safe_set_text(ax, "xlabel", "Acquisition day")
+            self._safe_set_text(ax, "ylabel", "Circularity (dimensionless)")
+            self._safe_set_text(ax, "title", "Cyst circularity and area")
             plt.tight_layout()
-            plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
+            self._save_figure(output_path, dpi=self.dpi, bbox_inches="tight")
             plt.close()
 
             logger.info(f"Plot E saved: {output_path}")
@@ -688,7 +709,7 @@ class OrganoidVisualizationSuite:
                 )
 
                 plt.tight_layout()
-                plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
+                self._save_figure(output_path, dpi=self.dpi, bbox_inches="tight")
                 plt.close()
                 return output_path
 
@@ -741,18 +762,21 @@ class OrganoidVisualizationSuite:
                 gridspec_kw={"width_ratios": [main_width, bar_width, legend_width]},
             )
 
+            ax_bar.sharey(ax_main)
+
             # Main heatmap
             if heatmap_data.size and np.nanmax(heatmap_data) > 0:
                 cmap = plt.get_cmap("YlOrRd").with_extremes(bad="lightgray")  # untracked frames are gray
                 im = ax_main.imshow(
                     heatmap_data,
                     cmap=cmap,
-                    aspect="equal",  # Equal aspect ratio for perfect squares
+                    aspect="auto",
                     interpolation="nearest",
                 )
 
                 # Add colorbar with same height as heatmap (always show, but without text labels)
                 cbar = plt.colorbar(im, ax=ax_main, shrink=1.0)
+                cbar.set_label("Accepted mask area (µm²)")
                 if DISABLE_VISUALIZATION_TEXT:
                     cbar.set_ticks([])  # Remove tick marks and labels
             else:
@@ -760,7 +784,7 @@ class OrganoidVisualizationSuite:
                 im = ax_main.imshow(
                     heatmap_data,
                     cmap="gray",
-                    aspect="equal",  # Equal aspect ratio for perfect squares
+                    aspect="auto",
                     vmin=0,
                     vmax=1,
                 )
@@ -820,7 +844,7 @@ class OrganoidVisualizationSuite:
 
                 # Y-positions should match heatmap row order (top = highest growth rate)
                 # Since matplotlib puts y=0 at bottom, we need to reverse the positions
-                y_positions = list(range(n_cysts - 1, -1, -1))  # [n-1, n-2, ..., 1, 0]
+                y_positions = list(range(n_cysts))
                 ax_bar.barh(
                     y_positions,
                     [np.nan if rate is None else rate for rate in sorted_growth_rates],
@@ -832,9 +856,9 @@ class OrganoidVisualizationSuite:
                         ax_bar.text(0, position, "N/A", va="center", fontsize=9, color="gray")
 
                 # Always show growth rate axis label and ticks (override text disabling for this specific chart)
-                ax_bar.set_xlabel("Growth Rate (μm²/day)", fontsize=12, fontweight="bold")
-                ax_bar.set_ylim(-0.5, n_cysts - 0.5)
-                ax_bar.set_yticks([])  # Remove y-axis labels (shared with main plot)
+                ax_bar.set_xlabel("Mean interval growth (µm²/day)", fontsize=12, fontweight="bold")
+                ax_bar.set_ylim(n_cysts - 0.5, -0.5)
+                ax_bar.tick_params(axis="y", left=False, labelleft=False)
 
                 # Enable x-axis ticks and labels for growth rates
                 ax_bar.tick_params(axis="x", which="both", bottom=True, top=False, labelbottom=True, labelsize=10)
@@ -895,8 +919,11 @@ class OrganoidVisualizationSuite:
                     )
                 )
 
+            self._safe_set_text(ax_main, "xlabel", "Acquisition day")
+            self._safe_set_text(ax_main, "ylabel", "Cyst (sorted by mean interval growth)")
+            self._safe_set_text(ax_main, "title", "Accepted cyst mask area (µm²)")
             plt.tight_layout()
-            plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
+            self._save_figure(output_path, dpi=self.dpi, bbox_inches="tight")
             plt.close()
 
             logger.info(f"Plot F saved: {output_path}")
@@ -1058,7 +1085,7 @@ class OrganoidVisualizationSuite:
             plt.subplots_adjust(left=0.06, right=0.98, top=0.85, bottom=0.18)  # More space for title and description
 
             # Save the figure
-            plt.savefig(output_path, dpi=self.dpi, bbox_inches="tight", facecolor="white", edgecolor="none")
+            self._save_figure(output_path, dpi=self.dpi, bbox_inches="tight", facecolor="white", edgecolor="none")
             plt.close()
 
             logger.info(f"Frame comparison visualization saved: {output_path}")

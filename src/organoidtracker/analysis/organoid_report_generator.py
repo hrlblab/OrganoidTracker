@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape
 
 from .. import RESULTS_VERSION, __version__
 from ..paths import source_revision
@@ -378,13 +379,34 @@ class OrganoidAnalysisReportGenerator:
                 )
                 story.append(Spacer(1, 12))
 
+            story.append(
+                Paragraph(
+                    "Counts and areas describe accepted segmentation masks. A missing mask does not establish "
+                    "biological absence. Gray heatmap columns are untracked; zero cells mean no accepted mask. "
+                    "Trajectory gaps indicate missing observations.",
+                    styles["Normal"],
+                )
+            )
+            for warning in validation_results.get("warnings", []):
+                story.append(Paragraph("<b>Measurement warning:</b> " + escape(str(warning)), styles["Normal"]))
+            story.append(
+                Paragraph(
+                    "Growth definitions: cyst CSV and heatmap use the unweighted mean of adjacent observed interval "
+                    "slopes. Organoid CSV uses the endpoint change in total accepted cyst area divided by elapsed days. "
+                    "The JSON summary averages organoid means of cyst interval slopes. All rates are in square "
+                    "micrometers per day; these estimands can differ.",
+                    styles["Normal"],
+                )
+            )
+            story.append(Spacer(1, 12))
+
             # Analysis summary
             story.append(Paragraph("Analysis Summary", styles["Heading2"]))
 
             summary_data = [
                 ["Metric", "Value"],
                 ["Total Organoids", str(validation_results["total_organoids"])],
-                ["Total Cysts", str(validation_results["total_cysts"])],
+                ["Cysts with accepted masks", str(validation_results["total_cysts"])],
                 ["Frames Analyzed", str(validation_results["frames_analyzed"])],
                 ["Tracking", self._tracking_label(run)],
                 ["Time Period", f"{experiment.time_lapse_days} days"],
@@ -421,8 +443,8 @@ class OrganoidAnalysisReportGenerator:
                     try:
                         # Add visualization title
                         viz_titles = {
-                            "organoids_with_cysts": "Percentage of Organoids with Cysts Over Time",
-                            "cyst_organoid_ratio": "Cyst to Organoid Ratio Over Time",
+                            "organoids_with_cysts": "Organoids with Accepted Cyst Masks Over Time",
+                            "cyst_organoid_ratio": "Accepted Cyst Masks per Annotated Organoid",
                             "cyst_areas_multiline": "Individual Cyst Area Trajectories",
                             "cyst_circularity_multiline": "Individual Cyst Circularity Trajectories",
                             "circularity_scatter": "Circularity vs Time (Sized by Area)",
@@ -434,7 +456,12 @@ class OrganoidAnalysisReportGenerator:
                         story.append(Paragraph(title, styles["Heading3"]))
 
                         # Add image
-                        img = Image(viz_path, width=6 * inch, height=4 * inch)
+                        raster = (
+                            Path(viz_path).with_suffix(".png")
+                            if Path(viz_path).suffix.lower() == ".svg"
+                            else Path(viz_path)
+                        )
+                        img = Image(str(raster), width=6 * inch, height=4 * inch)
                         story.append(img)
                         story.append(Spacer(1, 12))
 
@@ -541,6 +568,7 @@ class OrganoidAnalysisReportGenerator:
                 "organoids_with_cysts": sum(1 for org in experiment.organoids.values() if len(org.cysts) > 0),
             },
             "growth_statistics": {
+                "definition": "mean across organoids of their mean cyst interval slopes (um2/day)",
                 "estimable_cysts": sum(experiment.growth_rate_per_day(c) is not None for c in all_cysts),
                 "estimable_organoids": len(growth_rate_values),
                 "mean_growth_rate_um2_per_day": round(sum(growth_rate_values) / len(growth_rate_values), 4)
