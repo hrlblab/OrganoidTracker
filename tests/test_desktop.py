@@ -100,7 +100,8 @@ def test_cached_model_is_verified_offline_and_corruption_preserved(tmp_path, mon
     assert checkpoint.read_bytes() == b"corrupted"
 
 
-def test_launcher_opens_reports_when_default_model_preparation_fails(tmp_path, monkeypatch):
+def _run_launcher(tmp_path, monkeypatch, identifiers, docker_script, archive=False):
+    """Run the bundle's launcher against a stand-in ``docker`` whose behavior ``docker_script`` scripts."""
     import os
     import shutil
     import subprocess
@@ -111,7 +112,9 @@ def test_launcher_opens_reports_when_default_model_preparation_fails(tmp_path, m
     shutil.copyfile(
         Path(__file__).resolve().parents[1] / "packaging/docker/organoidtracker", bundle / "organoidtracker"
     )
-    (bundle / "image-cpu.txt").write_text("sha256:synthetic-image\n")
+    (bundle / "image-cpu.txt").write_text("".join(identifier + "\n" for identifier in identifiers))
+    if archive:
+        (bundle / "images-cpu.tar").write_bytes(b"synthetic archive")
     state = tmp_path / "settings"
     state.mkdir()
     for name in ("videos", "results", "models", "preferences"):
@@ -125,7 +128,21 @@ def test_launcher_opens_reports_when_default_model_preparation_fails(tmp_path, m
     fakebin = tmp_path / "bin"
     fakebin.mkdir()
     docker = fakebin / "docker"
-    docker.write_text("""#!/bin/bash
+    docker.write_text(docker_script)
+    docker.chmod(0o755)
+    monkeypatch.setenv("PATH", str(fakebin) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("ORGANOIDTRACKER_HOME", str(state))
+    monkeypatch.setenv("ORGANOIDTRACKER_NO_BROWSER", "1")
+    monkeypatch.setenv("FAKE_DOCKER_STATE", str(tmp_path))
+    return subprocess.run(["bash", str(bundle / "organoidtracker")], capture_output=True, text=True, timeout=20)
+
+
+def test_launcher_opens_reports_when_default_model_preparation_fails(tmp_path, monkeypatch):
+    result = _run_launcher(
+        tmp_path,
+        monkeypatch,
+        ["sha256:synthetic-image"],
+        """#!/bin/bash
 case "$*" in
   info*) echo 29;;
   'container inspect'*) exit 1;;
@@ -136,14 +153,59 @@ case "$*" in
   port*) echo '127.0.0.1:12345';;
   *) exit 1;;
 esac
-""")
-    docker.chmod(0o755)
-    monkeypatch.setenv("PATH", str(fakebin) + os.pathsep + os.environ["PATH"])
-    monkeypatch.setenv("ORGANOIDTRACKER_HOME", str(state))
-    monkeypatch.setenv("ORGANOIDTRACKER_NO_BROWSER", "1")
-    result = subprocess.run(["bash", str(bundle / "organoidtracker")], capture_output=True, text=True, timeout=20)
+""",
+    )
     assert result.returncode == 0, result.stderr
     assert "Application: http://127.0.0.1:12345/" in result.stdout
+
+
+# A loaded image is known by another identifier on each kind of Docker image store: the archive's
+# manifest digest (containerd store) or the image configuration digest (classic store).
+_STORE_DEPENDENT_DOCKER = """#!/bin/bash
+case "$*" in
+  info*) echo 29;;
+  'container inspect'*) exit 1;;
+  "image inspect $KNOWN_AFTER_LOAD") [[ -f $FAKE_DOCKER_STATE/loaded ]];;
+  'image inspect'*) exit 1;;
+  'load -i'*) touch "$FAKE_DOCKER_STATE/loaded"; echo 'Loaded image: organoidtracker:synthetic';;
+  'run --rm'*) exit 0;;
+  'run -d'*) printf '%s\n' "$*" > "$FAKE_DOCKER_STATE/run-arguments"; echo synthetic-container;;
+  'inspect --format'*) echo 'running healthy';;
+  port*) echo '127.0.0.1:12345';;
+  *) exit 1;;
+esac
+"""
+
+
+@pytest.mark.parametrize("known", ["sha256:manifest-digest", "sha256:configuration-digest"])
+def test_launcher_accepts_the_identifier_the_local_image_store_uses(tmp_path, monkeypatch, known):
+    monkeypatch.setenv("KNOWN_AFTER_LOAD", known)
+    result = _run_launcher(
+        tmp_path,
+        monkeypatch,
+        ["sha256:manifest-digest", "sha256:configuration-digest"],
+        _STORE_DEPENDENT_DOCKER,
+        archive=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Loading the cpu application image" in result.stdout
+    assert "Application: http://127.0.0.1:12345/" in result.stdout
+    # The application container runs the identifier this Docker knows, not the other one.
+    assert (tmp_path / "run-arguments").read_text().split()[-1] == known
+
+
+def test_launcher_refuses_a_loaded_image_the_bundle_does_not_name(tmp_path, monkeypatch):
+    monkeypatch.setenv("KNOWN_AFTER_LOAD", "sha256:another-image")
+    result = _run_launcher(
+        tmp_path,
+        monkeypatch,
+        ["sha256:manifest-digest", "sha256:configuration-digest"],
+        _STORE_DEPENDENT_DOCKER,
+        archive=True,
+    )
+    assert result.returncode == 1
+    assert "does not match the bundle digest" in result.stderr
+    assert not (tmp_path / "run-arguments").exists()
 
 
 def test_selected_public_checkpoint_is_verified_before_inference(tmp_path, monkeypatch):

@@ -9,6 +9,30 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
 
 ## [Unreleased]
 
+## [2.0.0a2] - 2026-11-19
+
+No measurement changes: results version stays 5. The application is the one tagged `v2.0.0a1`; that tag
+was never published as a release, because its Docker launcher failed on part of the supported hosts.
+
+### Fixed
+- Start the Docker bundle on hosts whose Docker uses the classic image store instead of the containerd
+  image store. The bundle named its image by one digest; such a host
+  knows the loaded image by another one, so the launcher loaded the archive and then stopped with "The
+  supplied image does not match the bundle digest". The bundle now names both digests of the same image
+  and the launcher accepts either.
+
+### Added
+- A `Release bundle` workflow that builds both images from a release tag and attaches the release files
+  to that tag's GitHub release.
+
+### Changed
+- The README is shortened to what a new user needs: what the tool does, how to start, what a run
+  contains, which version matches the paper, and the known limitations. The interface, command-line,
+  measurement and development details moved unchanged to `docs/usage.md`, `docs/measurements.md` and
+  `docs/development.md`.
+- The README pins the code as submitted with the paper (`d748b21`), the original code's final state
+  (`legacy-baseline`), the first corrected version (`494e053`) and the current prerelease.
+
 ## [2.0.0a1] - 2026-11-19
 
 First prerelease of the maintained code base, delivered as the Linux Docker desktop preview

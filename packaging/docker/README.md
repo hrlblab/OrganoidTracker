@@ -143,11 +143,20 @@ packaging/docker/build-bundle.sh /path/to/bundle both
 ```
 
 The build uses the locked application dependencies, digest-pinned Python/uv bases, and a checksummed
-noVNC 1.7.0 source archive. Debian packages are resolved at build time; the resulting image ID is the
+noVNC 1.7.0 source archive. Debian packages are resolved at build time; the resulting image is the
 immutable runtime artifact. Rebuilding later is not promised to reproduce its bytes. Retain the
 versioned image archives and their checksums for exact distribution/rollback.
 
-To prepare the release files from a built bundle directory (`<version>` is the application version):
+`image-<mode>.txt` names the image by two digests taken from its archive: the manifest digest and the
+image configuration digest. Docker identifies a loaded image by the first with the containerd image
+store and by the second with the classic store, so the launcher accepts either and nothing else.
+Build with the containerd image store: it saves layers compressed, and the classic store's archives
+are about three times as large.
+
+Releases are built by the `Release bundle` workflow: create the release for the tag (a draft is
+fine), then run the workflow with that tag. It builds both images from the tagged commit, makes the
+release files and attaches them. To prepare the same files by hand from a built bundle directory
+(`<version>` is the application version):
 
 ```bash
 cd /path/to/bundle

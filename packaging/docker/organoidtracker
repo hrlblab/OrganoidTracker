@@ -95,19 +95,30 @@ if [[ $exists == running && $command_name == start ]]; then
 fi
 image_file="$script_dir/image-$mode.txt"
 [[ -f $image_file ]] || fail "Missing image-$mode.txt. Obtain the complete versioned delivery bundle."
-IFS= read -r image < "$image_file"
-[[ $image == sha256:* || $image == *@sha256:* ]] || fail 'The bundle must identify its image by digest.'
-if ! docker image inspect "$image" >/dev/null 2>&1; then
+# One identifier per line. Docker names a loaded image by its manifest digest (containerd image
+# store) or by its configuration digest (classic store); the bundle lists both for the same image.
+mapfile -t identifiers < "$image_file"
+[[ ${#identifiers[@]} -gt 0 ]] || fail 'The bundle must identify its image by digest.'
+for image in "${identifiers[@]}"; do
+    [[ $image == sha256:* || $image == *@sha256:* ]] || fail 'The bundle must identify its image by digest.'
+done
+installed_image() {
+    for image in "${identifiers[@]}"; do
+        if docker image inspect "$image" >/dev/null 2>&1; then return 0; fi
+    done
+    return 1
+}
+if ! installed_image; then
     archive="$script_dir/images-$mode.tar"
     if [[ -f $archive ]]; then
         printf 'Loading the %s application image…\n' "$mode"; docker load -i "$archive"
-    elif [[ $image == *@sha256:* ]]; then
-        printf 'Downloading the %s application image…\n' "$mode"; docker pull "$image"
+    elif [[ ${identifiers[0]} == *@sha256:* ]]; then
+        printf 'Downloading the %s application image…\n' "$mode"; docker pull "${identifiers[0]}"
     else
         fail "The $mode image is not installed. Place images-$mode.tar beside this launcher."
     fi
+    installed_image || fail 'The supplied image does not match the bundle digest.'
 fi
-docker image inspect "$image" >/dev/null 2>&1 || fail 'The supplied image does not match the bundle digest.'
 model=base_plus
 if [[ $command_name == models ]]; then
     printf 'Public SAM 2.1 checkpoint [base_plus/tiny] (default base_plus): '; IFS= read -r model; model=${model:-base_plus}
