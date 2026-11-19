@@ -15,7 +15,7 @@ def test_source_revision_is_a_commit_hash_in_a_checkout():
     if root is None or not (root / ".git").exists():
         assert revision is None
     else:
-        assert revision is not None and re.fullmatch(r"[0-9a-f]{40}", revision)
+        assert revision is not None and re.fullmatch(r"[0-9a-f]{40}(-dirty-[0-9a-f]{16})?", revision)
 
 
 def test_tracker_provenance_names_software_and_mask_settings():

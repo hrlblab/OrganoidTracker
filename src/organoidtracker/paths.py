@@ -13,8 +13,10 @@ the source tree; with an installed package they are resolved here, in this order
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 
 
@@ -39,7 +41,7 @@ def checkpoints_dir() -> Path:
 
 
 def source_revision() -> str | None:
-    """Revision of the checkout or frozen build receipt; dirty bundles carry a ``-dirty`` suffix."""
+    """Revision of a checkout or frozen build; dirty source runs add a digest of their local changes."""
     root = source_checkout_root()
     if root is None:
         try:
@@ -53,26 +55,26 @@ def source_revision() -> str | None:
         except (OSError, ValueError, AttributeError):
             return None
     try:
-        git_dir = root / ".git"
-        if git_dir.is_file():  # a linked worktree: "gitdir: <path>"
-            git_dir = (root / git_dir.read_text().split(":", 1)[1].strip()).resolve()
-        head = (git_dir / "HEAD").read_text().strip()
-        if not head.startswith("ref: "):
-            return head or None
-        ref = head[5:]
-        common = git_dir / "commondir"
-        base = (git_dir / common.read_text().strip()).resolve() if common.is_file() else git_dir
-        for ref_file in (git_dir / ref, base / ref):
-            if ref_file.is_file():
-                return ref_file.read_text().strip() or None
-        packed = base / "packed-refs"
-        if packed.is_file():
-            for line in packed.read_text().splitlines():
-                if line.endswith(" " + ref):
-                    return line.split()[0]
-    except OSError:
+
+        def git(*args):
+            return subprocess.check_output(["git", "-C", str(root), *args], stderr=subprocess.DEVNULL, timeout=10)
+
+        revision = git("rev-parse", "HEAD").decode().strip()
+        state = git("status", "--porcelain", "--untracked-files=all")
+        if not state:
+            return revision
+        digest = hashlib.sha256(git("diff", "--binary", "HEAD"))
+        # Include uncommitted new implementations as well as tracked edits. Only the
+        # digest is recorded; no working-tree content or filenames leave this process.
+        for name in git("ls-files", "--others", "--exclude-standard", "-z").split(b"\0"):
+            if name:
+                path = root / os.fsdecode(name)
+                digest.update(name + b"\0")
+                if path.is_file():
+                    digest.update(hashlib.sha256(path.read_bytes()).digest())
+        return revision + "-dirty-" + digest.hexdigest()[:16]
+    except (OSError, subprocess.SubprocessError):
         return None
-    return None
 
 
 def user_config_path() -> Path | None:
