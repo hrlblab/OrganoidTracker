@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "organoidtracker"
-version = "2.0.0a1"
+version = "2.0.0a2"
 description = "SAM2-powered zero-shot tracking and quantitative analysis of cysts in kidney organoid time-lapse videos"
 readme = "README.md"
 license = "Apache-2.0"
