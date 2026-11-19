@@ -66,6 +66,9 @@ are external to the image and read-only during inference.
 Run `./organoidtracker` again to reconnect to the existing application or start a new one using saved
 folders and preferences. Cached images and weights allow repeat use without internet access.
 Only a loopback browser port is published; raw VNC is private inside the container.
+Use this preview on a trusted single-user host. The desktop has no login: other users or processes
+on the same host can connect and access the mounted data and results. Loopback binding and browser
+origin checks restrict network exposure; they do not authenticate local users.
 
 Use **Stop application** above the desktop or:
 
