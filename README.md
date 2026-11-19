@@ -21,6 +21,9 @@ The [Docker desktop bundle](packaging/docker/README.md) runs the complete intera
 in a local browser with remembered video, model-cache and results folders. It provides separate CPU
 and NVIDIA images and requires no host Python or Qt installation. The preview currently targets
 Linux x86-64; Windows Docker validation and a separate clean-host trial remain pending.
+Download the bundle from the [releases page](https://github.com/hrlblab/OrganoidTracker/releases);
+its guide lists the files to fetch. Read [Known limitations of this prerelease](#known-limitations-of-this-prerelease)
+before interpreting results.
 
 ## Highlights
 
@@ -282,7 +285,9 @@ After analysis, the following files are generated in `data/output_videos/`:
 - `multi_object_overlay.mp4` - Annotated tracking video
 - `multi_object_mask.mp4` - Binary mask visualization
 - `multi_object_side_by_side.mp4` - Original and mask comparison
-- `organoid_summary.csv` - Quantitative metrics data
+- `raw_cyst_data.csv` - One row per cyst and time point (area, circularity, source frame)
+- `cyst_summary.csv` - One row per cyst, with its growth rate
+- `organoid_summary.csv` - One row per organoid, with summed cyst areas (see Known limitations)
 - `organoid_analysis_report.pdf` - Publication-ready report
 - `analysis_summary.json` - Complete session metadata
 - `visualizations/` - Individual plots and figures
@@ -334,6 +339,26 @@ The organoid summary instead reports the endpoint slope of summed cyst area; the
 summarize each organoid's mean cyst growth. The heatmap groups cysts at the 33rd and 67th percentiles.
 Raw CSV values retain floating-point precision for re-analysis; summary tables round values for display.
 Keep the raw CSV, organoid summary and analysis JSON together when re-plotting.
+
+### Known limitations of this prerelease
+
+- **Organoid totals count a missing mask as no area.** `organoid_summary.csv` sums the areas of the
+  cysts that have an accepted mask at each time point and reports the endpoint slope of that sum. A cyst
+  without a mask at the first or the last time point therefore changes its organoid's totals and growth
+  rate, and can change the sign of the rate, although a missing mask does not establish biological
+  absence. An organoid with no measured cyst is written with zeros. Compare growth with
+  `cyst_summary.csv`, which uses only the time points each cyst was measured at, and read the organoid
+  totals together with the accepted-mask counts in the PDF.
+- **Circularity depends on size.** The contour estimate stays below 1 for a circle and rises with its
+  radius: an ideal disc measures 0.76 at a radius of 5 pixels, 0.88 at 30 and 0.90 at 120. A cyst that
+  only grows therefore appears to become rounder, and the reference line at 1.0 in the figures cannot be
+  reached. Compare circularity between cysts of similar size; a rising curve alone does not show a
+  change of shape.
+- **Validated scope.** Bright-field videos only. Accuracy against expert annotations has not been
+  measured: the tests establish consistent behavior, not biological accuracy.
+- **Platform.** The Docker preview runs on Linux x86-64 and needs a trusted single-user host (its
+  desktop has no login). An installation on an independent clean host has not been validated. Windows
+  and macOS are not supported by the preview.
 
 ### Running the tests
 
