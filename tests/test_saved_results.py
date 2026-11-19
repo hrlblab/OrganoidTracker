@@ -101,18 +101,32 @@ def hard_run(small_disc, small_video, tmp_path):
 
 
 def normalized_summary(path):
-    return {k: v for k, v in json.loads(Path(path).read_text()).items() if k not in VOLATILE_SUMMARY_KEYS}
+    summary = {k: v for k, v in json.loads(Path(path).read_text()).items() if k not in VOLATILE_SUMMARY_KEYS}
+    if "source" in summary:
+        # A relocated video keeps its content hash, run and model; only its file name may differ.
+        summary["source"] = {k: v for k, v in summary["source"].items() if k != "video_name"}
+    return summary
+
+
+CYST_KEY = "visualizations/cyst_key.png"
 
 
 def report_files(directory):
+    """The tables and the six figures. The cyst key is compared apart: it needs the source video."""
     names = ["raw_cyst_data.csv", "cyst_summary.csv", "organoid_summary.csv"]
-    names += sorted(p.relative_to(directory).as_posix() for p in (directory / "visualizations").glob("*.png"))
+    names += sorted(
+        name
+        for name in (p.relative_to(directory).as_posix() for p in (directory / "visualizations").glob("*.png"))
+        if name != CYST_KEY
+    )
     return names
 
 
 def assert_same_exports(original: Path, again: Path, *, videos=True):
     names = report_files(original)
     assert len([n for n in names if n.startswith("visualizations/")]) == 6
+    # Both exports carry the labelled key whenever the run kept a mask of an annotated cyst.
+    assert (again / CYST_KEY).is_file() == (original / CYST_KEY).is_file()
     for name in names:
         assert (again / name).read_bytes() == (original / name).read_bytes(), name
     assert normalized_summary(again / "analysis_summary.json") == normalized_summary(original / "analysis_summary.json")

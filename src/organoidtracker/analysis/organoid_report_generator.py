@@ -28,7 +28,7 @@ try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import inch
-    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     HAS_REPORTLAB = True
 except ImportError:
@@ -45,6 +45,9 @@ class Analysis:
     validation: dict[str, Any]
     untracked_cysts: list[int] = field(default_factory=list)  # annotated cysts without any tracked mask
     unannotated_objects: list[int] = field(default_factory=list)  # tracked objects that are not annotated cysts
+    # What the report describes (video name and hash, run id, model, software), from the caller that knows it
+    source: dict[str, Any] | None = None
+    key_image: str | None = None  # a labelled overlay that says which mask is which cyst
 
     @property
     def complete(self) -> bool:
@@ -178,6 +181,8 @@ class OrganoidAnalysisReportGenerator:
             observed_frames=run["tracked_frames"],
             frame_timestamps=frame_timestamps,
         )
+        if len(run["frame_map"]) == experiment.total_frames:
+            experiment.source_frames = [int(index) for index in run["frame_map"]]
 
         # Step 3: Validate data quality
         logger.info("Step 3: Validating data quality...")
@@ -231,12 +236,23 @@ class OrganoidAnalysisReportGenerator:
         # Step 6: Generate enhanced PDF report
         logger.info("Step 6: Generating PDF report...")
         pdf_path = self._generate_enhanced_pdf_report(
-            experiment, validation_results, csv_paths, viz_paths, output_path, run
+            experiment,
+            validation_results,
+            csv_paths,
+            viz_paths,
+            output_path,
+            run,
+            source=analysis.source,
+            key_image=analysis.key_image,
         )
 
         # Step 7: Create analysis summary
         logger.info("Step 7: Creating analysis summary...")
         summary = self._create_analysis_summary(experiment, validation_results, csv_paths, viz_paths, pdf_path, run)
+        if analysis.source is not None:
+            summary["source"] = analysis.source
+        if analysis.key_image is not None:
+            summary["output_files"]["cyst_key"] = analysis.key_image
 
         # Save summary as JSON
         summary_json_path = output_path / "analysis_summary.json"
@@ -334,6 +350,8 @@ class OrganoidAnalysisReportGenerator:
         viz_paths: dict[str, str],
         output_path: Path,
         run: dict[str, Any] | None = None,
+        source: dict[str, Any] | None = None,
+        key_image: str | None = None,
     ) -> str | None:
         """
         Generate enhanced PDF report with visualizations
@@ -413,8 +431,12 @@ class OrganoidAnalysisReportGenerator:
                 ["Conversion Factor", f"{experiment.conversion_factor_um_per_pixel} μm/pixel"],
                 ["Analysis Date", datetime.now().strftime("%Y-%m-%d %H:%M")],
             ]
+            # What was analyzed: a report separated from its folder must still name its video and run.
+            cell_style = ParagraphStyle("SummaryCell", parent=styles["Normal"], fontSize=9, leading=11)
+            identity_rows = self._identity_rows(experiment, run, source)
+            summary_data[1:1] = [[label, Paragraph(escape(value), cell_style)] for label, value in identity_rows]
 
-            summary_table = Table(summary_data, colWidths=[3 * inch, 2 * inch])
+            summary_table = Table(summary_data, colWidths=[2 * inch, 4 * inch])
             summary_table.setStyle(
                 TableStyle(
                     [
@@ -432,6 +454,30 @@ class OrganoidAnalysisReportGenerator:
 
             story.append(summary_table)
             story.append(Spacer(1, 20))
+
+            if key_image and Path(key_image).is_file():
+                try:
+                    from reportlab.lib.utils import ImageReader
+
+                    key_width, key_height = ImageReader(str(key_image)).getSize()
+                    shown_width = min(6 * inch, 5 * inch * key_width / key_height)
+                    story.append(
+                        KeepTogether(  # the heading stays with its picture
+                            [
+                                Paragraph("Cyst Key", styles["Heading2"]),
+                                Paragraph(
+                                    "Each accepted mask is labelled C followed by its Cyst_ID, as in the CSV "
+                                    "tables. The overlay video uses the same labels and colours.",
+                                    styles["Normal"],
+                                ),
+                                Spacer(1, 6),
+                                Image(str(key_image), width=shown_width, height=shown_width * key_height / key_width),
+                                Spacer(1, 12),
+                            ]
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not add the cyst key image: {e}")
 
             # Note: Frame comparison is now handled as a standard visualization (g_frame_comparison.png)
 
@@ -514,6 +560,37 @@ class OrganoidAnalysisReportGenerator:
         except Exception as e:
             logger.error(f"PDF generation error: {e}")
             return None
+
+    @staticmethod
+    def _identity_rows(
+        experiment: ExperimentData, run: dict[str, Any] | None, source: dict[str, Any] | None
+    ) -> list[tuple[str, str]]:
+        """Rows that say which video, run, model and software a report describes (only what is known)."""
+        rows: list[tuple[str, str]] = []
+        source = source or {}
+        if source.get("video_name"):
+            rows.append(("Source video", str(source["video_name"])))
+        if source.get("video_sha256"):
+            rows.append(("Video SHA-256", str(source["video_sha256"])[:12] + "… (first 12 characters)"))
+        if source.get("run_id"):
+            rows.append(("Run ID", str(source["run_id"])))
+        if source.get("model"):
+            rows.append(("Model", str(source["model"])))
+        if source.get("software"):
+            rows.append(("Tracked with", str(source["software"])))
+        frame_map = list((run or {}).get("frame_map") or [])
+        if frame_map and len(frame_map) == experiment.total_frames:
+            total = source.get("decoded_frames")
+            rows.append(
+                (
+                    "Source frames",
+                    ", ".join(str(int(index) + 1) for index in frame_map)
+                    + (f" of {total}" if total else "")
+                    + " (counted from 1 as in the window; the CSV columns Frame and Source_Frame count from 0)",
+                )
+            )
+            rows.append(("Acquisition days", ", ".join(f"{day:g}" for day in experiment.frame_timestamps)))
+        return rows
 
     def _create_analysis_summary(
         self,

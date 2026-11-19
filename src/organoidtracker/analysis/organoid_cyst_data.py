@@ -184,6 +184,8 @@ class ExperimentData:
     next_organoid_id: int = 1
     frame_timestamps: list[float] = field(default_factory=list)  # Time for each frame
     observed_frames: list[int] | None = None  # frames the tracker visited; None means all frames
+    # Zero-based source-video frame of each chronological time point; None when it was not recorded
+    source_frames: list[int] | None = None
 
     def __post_init__(self):
         """Initialize frame timestamps if not provided"""

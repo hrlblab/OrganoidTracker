@@ -10,6 +10,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from ..core.cyst_identity import color_table, draw_cyst_labels, draw_frame_caption, mask_box
+
 logger = logging.getLogger(__name__)
 
 
@@ -211,33 +213,8 @@ class VideoOutputGenerator:
             logger.error("CRITICAL ERROR: No video_segments provided!")
             return None
 
-        # Object colors (RGB format) - expanded palette for 20+ objects
-        object_colors = {
-            0: (128, 128, 128),  # Gray - Background
-            1: (255, 0, 0),  # Red
-            2: (0, 255, 0),  # Green
-            3: (0, 0, 255),  # Blue
-            4: (255, 255, 0),  # Yellow
-            5: (255, 0, 255),  # Magenta
-            6: (0, 255, 255),  # Cyan
-            7: (255, 165, 0),  # Orange
-            8: (128, 0, 128),  # Purple
-            9: (255, 192, 203),  # Pink
-            10: (165, 42, 42),  # Brown
-            11: (144, 238, 144),  # Light Green
-            12: (135, 206, 235),  # Sky Blue
-            13: (221, 160, 221),  # Plum
-            14: (240, 230, 140),  # Khaki
-            15: (255, 99, 71),  # Tomato
-            16: (64, 224, 208),  # Turquoise
-            17: (238, 130, 238),  # Violet
-            18: (255, 182, 193),  # Light Pink
-            19: (152, 251, 152),  # Pale Green
-            20: (245, 222, 179),  # Wheat
-        }
-        for objects in video_segments.values():
-            for identifier in objects:
-                object_colors.setdefault(identifier, object_colors[1 + (int(identifier) - 1) % 20])
+        # One colour per cyst id, shared with the window and the report key
+        object_colors = color_table(identifier for objects in video_segments.values() for identifier in objects)
 
         # Get frame dimensions
         height, width = frames[0].shape[:2]
@@ -407,6 +384,7 @@ class VideoOutputGenerator:
         progress_callback=None,
         quality_scale=1.0,
         tracker=None,
+        frame_captions=None,
     ):
         """
         🚀 OPTIMIZED: Create all video types with single mask processing pass
@@ -423,6 +401,8 @@ class VideoOutputGenerator:
             progress_callback: Optional callback for progress updates
             quality_scale: Scale factor for quality/performance trade-off
             tracker: Unused; kept for call compatibility
+            frame_captions: Optional text per chronological frame (for example the acquisition day),
+                written into the overlay frames. The mask video carries neither captions nor labels.
 
         Returns:
             dict: Paths to created videos {'overlay': path, 'mask': path, 'side_by_side': path}
@@ -448,33 +428,8 @@ class VideoOutputGenerator:
             logger.error("OPTIMIZED CRITICAL ERROR: No video_segments provided!")
             return {}
 
-        # Object colors (same as original)
-        object_colors = {
-            0: (128, 128, 128),
-            1: (255, 0, 0),
-            2: (0, 255, 0),
-            3: (0, 0, 255),
-            4: (255, 255, 0),
-            5: (255, 0, 255),
-            6: (0, 255, 255),
-            7: (255, 165, 0),
-            8: (128, 0, 128),
-            9: (255, 192, 203),
-            10: (165, 42, 42),
-            11: (144, 238, 144),
-            12: (135, 206, 235),
-            13: (221, 160, 221),
-            14: (240, 230, 140),
-            15: (255, 99, 71),
-            16: (64, 224, 208),
-            17: (238, 130, 238),
-            18: (255, 182, 193),
-            19: (152, 251, 152),
-            20: (245, 222, 179),
-        }
-        for objects in video_segments.values():
-            for identifier in objects:
-                object_colors.setdefault(identifier, object_colors[1 + (int(identifier) - 1) % 20])
+        # One colour per cyst id, shared with the window and the report key
+        object_colors = color_table(identifier for objects in video_segments.values() for identifier in objects)
 
         total_frames = len(frames)
 
@@ -493,7 +448,7 @@ class VideoOutputGenerator:
             f"OPTIMIZED CRITICAL: {frames_with_masks}/{len(video_segments)} frames have masks, {total_objects} total objects"
         )
         processed_frames = self._process_all_frames_optimized(
-            frames, video_segments, object_colors, alpha, quality_scale, progress_callback
+            frames, video_segments, object_colors, alpha, quality_scale, progress_callback, frame_captions
         )
 
         # STEP 2: Generate all video types from processed frames
@@ -531,7 +486,7 @@ class VideoOutputGenerator:
         return created_videos
 
     def _process_all_frames_optimized(
-        self, frames, video_segments, object_colors, alpha, quality_scale, progress_callback
+        self, frames, video_segments, object_colors, alpha, quality_scale, progress_callback, frame_captions=None
     ):
         """
         🚀 Process all frames once with all video type variants
@@ -563,6 +518,7 @@ class VideoOutputGenerator:
 
             # Process all objects for this frame (SINGLE PASS!)
             objects_processed_this_frame = 0
+            label_boxes = {}
             if mask_idx in video_segments:
                 for obj_id, mask_data in video_segments[mask_idx].items():
                     if obj_id in object_colors:
@@ -572,6 +528,9 @@ class VideoOutputGenerator:
 
                         if np.any(mask > 0):
                             objects_processed_this_frame += 1
+                            box = mask_box(mask)
+                            if box is not None:
+                                label_boxes[obj_id] = box
                             # Update mask frame
                             for c in range(3):
                                 mask_frame[:, :, c] = np.where(mask > 0, color[c], mask_frame[:, :, c])
@@ -590,7 +549,10 @@ class VideoOutputGenerator:
                 )
 
             # Finalize frame variants
-            overlay_frame = self._mark_untracked(overlay_frame.astype(np.uint8), frame_idx, video_segments)
+            # Identity on the overlay only: C<id> at each mask, so a CSV row can be matched to an object.
+            overlay_frame = draw_cyst_labels(np.ascontiguousarray(overlay_frame.astype(np.uint8)), label_boxes)
+            caption = frame_captions[frame_idx] if frame_captions and frame_idx < len(frame_captions) else None
+            overlay_frame = self._mark_untracked(overlay_frame, frame_idx, video_segments, caption)
             mask_frame = self._mark_untracked(mask_frame, frame_idx, video_segments)
             side_by_side_frame = np.hstack([original_frame, overlay_frame])
 
@@ -679,17 +641,17 @@ class VideoOutputGenerator:
         return output_path
 
     @staticmethod
-    def _mark_untracked(frame, frame_index, result):
+    def _mark_untracked(frame, frame_index, result, caption=None):
+        """Label a frame the tracker never visited; ``caption`` (the acquisition day) goes on every frame."""
         tracked = getattr(result, "tracked_frames", None)
         if tracked is None or frame_index in tracked:
-            return frame
+            return frame if caption is None else draw_frame_caption(frame.copy(), caption)
         frame = frame.copy()
         scale = max(0.3, min(1.0, frame.shape[1] / 650))
         height = min(frame.shape[0], int(28 * scale) + 8)
         frame[:height] = (30, 30, 30)
-        cv2.putText(
-            frame, "NOT TRACKED", (3, height - 5), cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 210, 0), 1, cv2.LINE_AA
-        )
+        text = "NOT TRACKED" if caption is None else f"NOT TRACKED  {caption.split(' | ')[0]}"
+        cv2.putText(frame, text, (3, height - 5), cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 210, 0), 1, cv2.LINE_AA)
         return frame
 
     def _get_target_dimensions(self, width, height, video_type, quality_scale=1.0):

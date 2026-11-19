@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 
 from ..analysis.organoid_report_generator import Analysis, OrganoidAnalysisReportGenerator
+from ..core.cyst_identity import render_key_image
 from ..core.tracking_result import TrackingResult
 from ..io.video_output import VideoOutputGenerator
 from .run_manifest import RUN_MANIFEST_NAME
@@ -49,6 +50,8 @@ VIDEO_QUALITY_SCALES = {"original": 1.0, "mid": 0.5, "low": 0.25}
 SESSION_NAME = "session.json"
 PROMPT_RECORD_NAME = "prompts.json"
 VIDEO_DIR_NAME = "videos"
+# The labelled overlay that says which mask is which cyst (also embedded in the PDF)
+CYST_KEY_NAME = "visualizations/cyst_key.png"
 # Everything a run writes into its directory (the log is kept across runs; unknown files are never touched)
 RUN_ARTIFACT_FILES = (
     "benchmark.json",
@@ -102,6 +105,60 @@ def new_run_directory(video_path: str | Path, run_id: str, root: str | Path = DE
     """
     name = f"{Path(str(video_path)).stem}_{time.strftime('%Y%m%d-%H%M%S')}_{run_id}"
     return Path(os.path.abspath(Path(root) / name))
+
+
+def frame_captions(total: int, frame_map: Sequence[int] | None = None) -> list[str]:
+    """One caption per chronological frame of the overlay video: the time point and its one-based source frame.
+
+    Only facts fixed when the masks were tracked are written into the pictures. Acquisition days
+    are analysis inputs that an exported copy may change, and the Tk window renders videos before
+    it knows them; the report lists the day of every source frame instead.
+    """
+    captions = []
+    for index in range(total):
+        text = f"Time point {index + 1}/{total}"
+        if frame_map is not None and index < len(frame_map):
+            text += f" | source frame {int(frame_map[index]) + 1}"
+        captions.append(text)
+    return captions
+
+
+def report_source(run_id: str, video: VideoSource, provenance: Mapping[str, Any]) -> dict[str, Any]:
+    """What a report describes, for its first page and summary: video, run, model and tracking software."""
+    model = " ".join(
+        str(part)
+        for part in (
+            provenance.get("backend"),
+            f"SAM {provenance['checkpoint_family']}" if provenance.get("checkpoint_family") else None,
+            provenance.get("model_config"),
+            f"on {provenance['device']}" if provenance.get("device") else None,
+        )
+        if part
+    )
+    revision = str(provenance.get("source_revision") or "")
+    # Shorten the hash for the page, but never drop the mark of uncommitted source ("-dirty-<digest>").
+    base, mark, local = revision.partition("-dirty")
+    revision = base[:12] + mark + local
+    software = " ".join(
+        part
+        for part in (
+            f"organoidtracker {provenance['organoidtracker_version']}"
+            if provenance.get("organoidtracker_version")
+            else "",
+            f"revision {revision}" if revision else "",
+            f"results version {provenance['results_version']}" if provenance.get("results_version") else "",
+        )
+        if part
+    )
+    return {
+        "video_name": Path(str(video.path)).name,
+        "video_sha256": video.sha256,
+        "decoded_frames": video.decoded_frames,
+        "run_id": run_id,
+        "model": model or None,
+        "checkpoint_sha256": provenance.get("checkpoint_sha256"),
+        "software": software or None,
+    }
 
 
 class ExportService:
@@ -186,6 +243,7 @@ class ExportService:
         inventory += list(RUN_ARTIFACT_FILES)
         inventory += [p.name for p in self.output_dir.glob(MASKS_GLOB)]
         inventory += [f"videos/multi_object_{kind}.mp4" for kind in ("overlay", "mask", "side_by_side")]
+        inventory.append(CYST_KEY_NAME)
         stems = (
             "a_organoids_with_cysts_vs_time",
             "b_cyst_organoid_ratio_vs_time",
@@ -488,7 +546,9 @@ class ExportService:
         """Overlay, mask and side-by-side videos (chronological frames, as the GUI exports them).
 
         They go to ``videos/`` under the output directory unless ``directory`` names another place
-        (the window writes them straight into the directory the user picked).
+        (the window writes them straight into the directory the user picked). The overlay frames
+        carry each mask's ``C<id>`` label and one line of text (:func:`frame_captions`); the mask
+        video carries neither. Every caller gets the same pictures for the same result.
         """
         parameters = self.video_export_parameters(quality)
         setattr(self.video_generator, "debug_mode", debug)  # noqa: B010  # dynamic flag, as the GUI sets it
@@ -500,6 +560,7 @@ class ExportService:
             alpha=parameters["alpha"],
             progress_callback=progress,
             quality_scale=parameters["quality_scale"],
+            frame_captions=frame_captions(len(frames), getattr(result, "frame_map", None) or None),
         )
         failed = sorted(name for name, path in created.items() if not path)
         if not created or failed:
@@ -508,10 +569,25 @@ class ExportService:
 
     # ------------------------------------------------------------------ report
     def write_report(
-        self, analysis: Analysis, *, debug_mode: bool = False, original_frames: Sequence[np.ndarray] | None = None
+        self,
+        analysis: Analysis,
+        *,
+        debug_mode: bool = False,
+        original_frames: Sequence[np.ndarray] | None = None,
+        result: TrackingResult | None = None,
+        source: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """CSV tables, figures, PDF and ``analysis_summary.json`` at the output directory's root."""
+        """CSV tables, figures, PDF and ``analysis_summary.json`` at the output directory's root.
+
+        ``source`` (:func:`report_source`) names the video, run and model in the PDF and the summary.
+        With ``result`` a labelled key image is written and embedded, so that a reader can tell
+        which mask is which cyst; ``original_frames`` puts the masks on the picture.
+        """
         self.generator._original_frames = list(original_frames) if original_frames is not None else None
+        if source is not None:
+            analysis.source = dict(source)
+        if result is not None:
+            analysis.key_image = self.write_cyst_key(result, original_frames, analysis)
         summary = self.generator.write_report(analysis, str(self.output_dir), debug_mode=debug_mode)
         missing = self.missing_report_artifacts(summary)
         if missing:
@@ -522,6 +598,42 @@ class ExportService:
             raise ExportError(f"the report is incomplete, missing: {', '.join(missing)}; the log names the error")
         return summary
 
+    def write_cyst_key(
+        self, result: TrackingResult, frames: Sequence[np.ndarray] | None, analysis: Analysis
+    ) -> str | None:
+        """``visualizations/cyst_key.png``: the frame with the most accepted masks, each labelled ``C<id>``.
+
+        The annotation frame wins a tie. Returns ``None`` when no frame kept a mask of an annotated
+        cyst. A failure here is logged and does not fail the report: the measurements do not depend on it.
+        """
+        annotated = {cyst.cyst_id for cyst in analysis.experiment.get_all_cysts()}
+        candidates = {
+            index: {identifier: mask for identifier, mask in objects.items() if identifier in annotated}
+            for index, objects in result.items()
+            if isinstance(index, int)
+        }
+        candidates = {index: masks for index, masks in candidates.items() if masks}
+        if not candidates:
+            return None
+        preferred = analysis.run.get("annotation_frame")
+        index = max(candidates, key=lambda i: (len(candidates[i]), i == preferred, i))
+        try:
+            import cv2
+
+            days = analysis.experiment.frame_timestamps
+            caption = f"Day {days[index]:g}" if 0 <= index < len(days) else None
+            frame = frames[index] if frames is not None and index < len(frames) else None
+            masks = {identifier: mask.cpu().numpy() for identifier, mask in candidates[index].items()}
+            image = render_key_image(frame, masks, caption=caption)
+            path = self.output_dir / CYST_KEY_NAME
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not cv2.imwrite(str(path), cv2.cvtColor(image, cv2.COLOR_RGB2BGR)):
+                raise OSError(f"cannot write {path}")
+            return str(path)
+        except Exception as error:  # presentation only; the tables and figures are still written
+            logger.warning(f"The cyst key image was not written: {error}")
+            return None
+
     def report_artifacts(self, summary, video_paths, *, debug=False) -> list[str]:
         """Paths written by this export, plus its saved inputs (no recursive directory scan)."""
         outputs = summary["output_files"]
@@ -529,6 +641,7 @@ class ExportService:
             *outputs["csv_files"].values(),
             *outputs["visualizations"].values(),
             outputs["pdf_report"],
+            outputs.get("cyst_key"),
             *video_paths.values(),
         ]
         names = [Path(path).resolve().relative_to(self.output_dir.resolve()).as_posix() for path in paths if path]

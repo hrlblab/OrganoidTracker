@@ -19,7 +19,7 @@ from ..analysis.organoid_report_generator import Analysis
 from ..core.tracking_result import TrackingResult
 from .analysis_service import AnalysisService
 from .annotations import AnnotationError
-from .export_service import PROMPT_RECORD_NAME, ExportService
+from .export_service import PROMPT_RECORD_NAME, ExportService, report_source
 from .prompt_record import build_prompt_record
 from .run_manifest import build_manifest
 from .saved_results import SavedResult
@@ -196,7 +196,13 @@ def run_session(
     started = time.perf_counter()
     if progress:
         progress("report", 0, 1, "Writing CSV tables, figures and PDF")
-    summary = exporter.write_report(analysis, debug_mode=debug, original_frames=service.frames)
+    summary = exporter.write_report(
+        analysis,
+        debug_mode=debug,
+        original_frames=service.frames,
+        result=result,
+        source=report_source(service.run_id, source, service.provenance()),
+    )
     timings["report_s"] = round(time.perf_counter() - started, 3)
 
     manifest = build_manifest(
@@ -274,6 +280,14 @@ def export_saved_result(
         started = time.perf_counter()
         frames = load_video_frames(session.video.path, saved.video)
         timings["load_video_s"] = round(time.perf_counter() - started, 3)
+    key_frames = frames
+    if key_frames is None:
+        # The report's cyst key shows the masks on the picture when the video can still be read;
+        # an export without videos must not need it, so the key falls back to the masks alone.
+        try:
+            key_frames = load_video_frames(session.video.path, saved.video)
+        except (ValueError, OSError):
+            key_frames = None
 
     exporter.prepare(overwrite=overwrite, keep_results=in_place)
     result = saved.result
@@ -309,10 +323,16 @@ def export_saved_result(
         video_export = exporter.video_export_parameters(video_quality)
 
     started = time.perf_counter()
-    summary = exporter.write_report(analysis, debug_mode=debug, original_frames=frames)
+    video = saved.video if video_path is None else replace(saved.video, path=Path(session.video.path))
+    summary = exporter.write_report(
+        analysis,
+        debug_mode=debug,
+        original_frames=key_frames,
+        result=result,
+        source=report_source(saved.run_id, video, saved.provenance),
+    )
     timings["report_s"] = round(time.perf_counter() - started, 3)
 
-    video = saved.video if video_path is None else replace(saved.video, path=Path(session.video.path))
     manifest = build_manifest(
         run_id=saved.run_id,
         session=session,

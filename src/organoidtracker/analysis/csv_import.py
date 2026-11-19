@@ -77,6 +77,9 @@ def experiment_from_csv(
     for frame_idx, time_days in times_by_frame.items():
         if 0 <= frame_idx < total_frames:
             experiment.frame_timestamps[frame_idx] = time_days
+    frame_map = tracking.get("frame_map")
+    if isinstance(frame_map, list) and len(frame_map) == total_frames:
+        experiment.source_frames = [int(index) for index in frame_map]
     tracked = tracking.get("tracked_frames")
     experiment.observed_frames = sorted(int(f) for f in tracked) if tracked is not None else sorted(set(frames))
 

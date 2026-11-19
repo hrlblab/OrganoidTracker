@@ -27,12 +27,17 @@ class OrganoidCSVExporter:
         """
         Export complete raw data table with all metrics for each cyst at each frame
 
-        Format: [Organoid_ID, Cyst_ID, Frame, Time_Days, Area_um2, Circularity, Centroid_X, Centroid_Y]
+        Format: [Organoid_ID, Cyst_ID, Frame, Time_Days, Area_um2, Circularity, Centroid_X, Centroid_Y,
+        Radius_um] and, when the experiment records it, Source_Frame: the zero-based frame of the
+        source video behind ``Frame`` (the zero-based index among the selected time points).
         """
         logger.info(f"Exporting raw data table to: {output_path}")
 
         # Collect all data rows
         data_rows = []
+        source_frames = experiment.source_frames
+        if source_frames is not None and len(source_frames) != experiment.total_frames:
+            source_frames = None  # an inconsistent map is not written as if it were known
 
         for organoid_id, organoid in experiment.organoids.items():
             for cyst_id, cyst in organoid.cysts.items():
@@ -55,6 +60,8 @@ class OrganoidCSVExporter:
                         "Centroid_Y": frame_data.centroid[1],
                         "Radius_um": frame_data.get_radius_um(experiment.conversion_factor_um_per_pixel),
                     }
+                    if source_frames is not None and 0 <= frame_idx < len(source_frames):
+                        row["Source_Frame"] = int(source_frames[frame_idx])
 
                     data_rows.append(row)
 
