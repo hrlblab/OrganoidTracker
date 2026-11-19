@@ -11,6 +11,7 @@ from ..services.annotations import AnnotationSet
 class AnnotationCanvas(QGraphicsView):
     organoid_clicked = Signal(float, float)
     cyst_drawn = Signal(float, float, float, float)
+    blocked_click = Signal()  # a left click on the image while annotation is not possible
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -22,7 +23,9 @@ class AnnotationCanvas(QGraphicsView):
         self.setBackgroundBrush(QColor("#20242b"))
         self.annotations = AnnotationSet(())
         self.annotation_items = []
+        self.mask_items = []
         self.editable = False
+        self.reports_blocked_clicks = False
         self._press = None
         self._pan = None
         self._box = None
@@ -69,6 +72,37 @@ class AnnotationCanvas(QGraphicsView):
                 label.setFlag(label.GraphicsItemFlag.ItemIgnoresTransformations)
                 self.annotation_items.extend((rect, label))
 
+    def set_mask_labels(self, labels):
+        """Identity labels of the displayed masks: ``(x, y, width, height, text, rgb, highlighted)`` in image pixels.
+
+        The text keeps its screen size at every zoom; a highlighted mask also gets its bounding box.
+        """
+        for item in self.mask_items:
+            self.scene().removeItem(item)
+        self.mask_items = []
+        for x, y, width, height, text, rgb, highlighted in labels:
+            color = QColor(*rgb)
+            if highlighted:
+                pen = QPen(color, 3)
+                pen.setCosmetic(True)
+                self.mask_items.append(self.scene().addRect(x, y, width, height, pen))
+            # A dark outline first, the white text on top of it: readable on any picture.
+            shadow = self.scene().addSimpleText(text)
+            font = shadow.font()
+            font.setBold(True)
+            font.setPointSizeF(font.pointSizeF() * (1.5 if highlighted else 1.15))
+            shadow.setFont(font)
+            shadow.setBrush(QColor("#000000"))
+            shadow.setPen(QPen(QColor("#000000"), 3))
+            label = self.scene().addSimpleText(text)
+            label.setFont(font)
+            label.setBrush(QColor("#ffffff"))
+            label.setPen(QPen(Qt.PenStyle.NoPen))
+            for item in (shadow, label):
+                item.setPos(x, y)
+                item.setFlag(item.GraphicsItemFlag.ItemIgnoresTransformations)
+                self.mask_items.append(item)
+
     def source_point(self, viewport_point):
         point = self.mapToScene(viewport_point)
         rect = self.image_item.boundingRect()
@@ -92,6 +126,12 @@ class AnnotationCanvas(QGraphicsView):
             self._press = (position, self.source_point(position))
             event.accept()
         else:
+            if (
+                event.button() == Qt.MouseButton.LeftButton
+                and self.reports_blocked_clicks
+                and self.image_item.contains(self.mapToScene(position))
+            ):
+                self.blocked_click.emit()
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):

@@ -1,6 +1,39 @@
 # Changelog
 
 
+## Unreleased — usability review fixes
+
+No measurement changes: results version stays 5. `raw_cyst_data.csv` gains one trailing column, so it
+is no longer byte-identical to earlier exports; every earlier column is unchanged.
+
+### Qt interface
+
+- Lock the tracking direction while annotations exist, refuse a session whose direction differs from
+  the one its boxes were drawn under, clear the undo history when the direction changes, and stop
+  remembering the direction between sessions. Boxes drawn on the last time point could previously be
+  applied to the first and produce a completed run with wrong areas.
+- Give a newly opened video no default span. Confirmation needs days that were entered or chosen with
+  the preset; a table shows each source frame with its day before confirming.
+- Treat days edited after confirmation as unconfirmed: tracking and saving wait for a new confirmation,
+  which keeps annotations when the frames are unchanged. The frame label always shows the recorded day.
+- Explain a click that cannot annotate (no video, unconfirmed time points, wrong frame, saved result)
+  and highlight the confirm button while confirmation is needed. Errors use a distinct banner style
+  and name the input that is wrong.
+- Label every mask in the result view with its cyst id in one colour table shared with the videos,
+  show that colour in the annotation list, and outline the mask of the selected cyst.
+
+### Reports and exports
+
+- Name the source video, its hash prefix, the run, the model, the tracking software and the selected
+  source frames with their days on the PDF's summary and in `analysis_summary.json`.
+- Add `visualizations/cyst_key.png`, a labelled overlay embedded in the PDF. A re-export without videos
+  still draws it on the picture when the source video is readable, and on black otherwise.
+- Label masks with `C<id>` and write the time point and its source frame on overlay and side-by-side
+  video frames, identically for every caller of the export service. The mask video is unchanged.
+- Add `Source_Frame` (zero-based source-video frame) to `raw_cyst_data.csv`; CSV reloads keep it.
+- Recipient guide: add the confirmation step and describe labels and the report's first page.
+
+
 ## Unreleased — acquisition confirmation and report interpretation
 
 ### Scientific behavior (results version 5)

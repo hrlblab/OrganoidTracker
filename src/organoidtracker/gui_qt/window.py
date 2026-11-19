@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QByteArray, QObject, QSaveFile, QSettings, Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QAction, QDesktopServices, QUndoCommand, QUndoStack
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QIcon, QPixmap, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSlider,
     QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
     QToolBar,
     QTreeWidget,
@@ -33,11 +35,31 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.cyst_identity import cyst_color, cyst_label, mask_box
 from ..services.annotations import AnnotationSet, CystAnnotation, OrganoidAnnotation
 from ..services.export_service import DEFAULT_RUN_ROOT, new_run_directory
-from ..services.session import Calibration, Session, Timing, TrackingSpec, VideoReference, load_session
+from ..services.session import (
+    Calibration,
+    Session,
+    SessionError,
+    Timing,
+    TrackingSpec,
+    VideoReference,
+    load_session,
+)
 from .canvas import AnnotationCanvas
 from .worker import Opened, Operation
+
+START_TEXT = (
+    "1. Open a video.   2. Confirm its acquisition time points (left panel).   "
+    "3. On the annotation frame, click an organoid and drag boxes around its cysts.   4. Track and save run."
+)
+BANNER_STYLES = {
+    "info": "",
+    "attention": "background: #fff3cd; color: #5c4400; font-weight: bold; padding: 4px;",
+    "error": "background: #f8d7da; color: #7a1c24; font-weight: bold; padding: 4px;",
+}
+ACTION_NEEDED_STYLE = "font-weight: bold; border: 2px solid #c98a00; padding: 3px;"
 
 
 class _AnnotationEdit(QUndoCommand):
@@ -81,13 +103,21 @@ class MainWindow(QMainWindow):
         self.opened: Opened | None = None
         self.annotations = AnnotationSet(())
         self.active_organoid = None
+        # The direction under which the current annotations were drawn; boxes belong to that frame.
+        self.annotation_direction: str | None = None
+        self.selected_cyst: int | None = None
+        self._selection_hint = ""
+        self._confirmed = False
+        self._mapping_key: object = None
+        self._box_cache: dict[int, dict[int, tuple[int, int, int, int]]] = {}
         self.operation: Operation | None = None
         self._closing = False
         self.undo_stack = QUndoStack(self)
         self.run_root = Path(str(self.preferences.value("run_root", str(DEFAULT_RUN_ROOT)))).expanduser().absolute()
         self._build_ui()
         self.undo_stack.indexChanged.connect(self._sync)
-        for name in ("backend", "family", "model_size", "device", "direction"):
+        # The tracking direction is not a preference: every start uses the paper's reverse workflow.
+        for name in ("backend", "family", "model_size", "device"):
             combo = getattr(self, name)
             value = self.preferences.value(name)
             if value is not None:
@@ -144,7 +174,7 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        self.banner = QLabel("Open a video, click an organoid, then drag boxes around its cysts.")
+        self.banner = QLabel(START_TEXT)
         self.banner.setWordWrap(True)
         layout.addWidget(self.banner)
         split = QSplitter()
@@ -187,6 +217,12 @@ class MainWindow(QMainWindow):
             ("Weights", self.checkpoint),
         ]:
             form.addRow(label, widget)
+        self.direction_note = QLabel(
+            "Direction is locked while annotations exist: boxes belong to the frame they were drawn on."
+        )
+        self.direction_note.setWordWrap(True)
+        self.direction_note.setVisible(False)
+        form.addRow(self.direction_note)
         form.addRow(self.checkpoint_button)
         form.addRow(self.checkpoint_status)
         side_layout.addWidget(self.model_group)
@@ -199,9 +235,32 @@ class MainWindow(QMainWindow):
         selection_form.addRow("Source frames", self.source_indices)
         self.all_frames_button = self._button("Use every source frame", self.select_all_frames)
         self.daily_preset_button = self._button("7 daily points (11-frame export)", self.select_daily_preset)
-        self.confirm_frames_button = self._button("Confirm frames and days", self.confirm_frames)
-        for button in (self.all_frames_button, self.daily_preset_button, self.confirm_frames_button):
+        for button in (self.all_frames_button, self.daily_preset_button):
             selection_form.addRow(button)
+        # No default: a span nobody entered is not acquisition metadata.
+        self.duration = QLineEdit()
+        self.duration.setPlaceholderText("e.g. 6")
+        self.duration.setToolTip(
+            "Days from the first to the last selected frame, spread evenly from day 1 "
+            "(6 for daily frames on days 1 to 7). Leave empty when you enter one day per frame."
+        )
+        self.explicit_times = QLineEdit()
+        self.explicit_times.setPlaceholderText("e.g. 1, 2.5, 4")
+        self.explicit_times.setToolTip("One chronological day value per selected frame. Replaces the span.")
+        selection_form.addRow("First-to-last span (days)", self.duration)
+        selection_form.addRow("Days, one per frame", self.explicit_times)
+        self.mapping = QTableWidget(2, 0)
+        self.mapping.setVerticalHeaderLabels(["Source frame", "Day"])
+        self.mapping.horizontalHeader().setVisible(False)
+        self.mapping.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.mapping.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.mapping.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.mapping.verticalHeader().setDefaultSectionSize(22)
+        self.mapping.setFixedHeight(66)
+        self.mapping.setToolTip("What will be recorded: each selected source frame and its acquisition day.")
+        selection_form.addRow(self.mapping)
+        self.confirm_frames_button = self._button("Confirm frames and days", self.confirm_frames)
+        selection_form.addRow(self.confirm_frames_button)
         self.selection_status = QLabel("Open a video to confirm its acquisition time points.")
         self.selection_status.setWordWrap(True)
         selection_form.addRow(self.selection_status)
@@ -209,10 +268,6 @@ class MainWindow(QMainWindow):
         self.analysis_group = QGroupBox("Analysis and export")
         form = QFormLayout(self.analysis_group)
         self.calibration = QLineEdit("1.6934")
-        self.duration = QLineEdit("6")
-        self.explicit_times = QLineEdit()
-        self.explicit_times.setPlaceholderText("Optional: 1, 2.5, 4 …")
-        self.explicit_times.setToolTip("One chronological day value per unique frame. Overrides the duration.")
         self.quality = QComboBox()
         self.quality.addItems(["original", "mid", "low"])
         self.quality.setCurrentText(str(self.preferences.value("video_quality", "original")))
@@ -220,8 +275,6 @@ class MainWindow(QMainWindow):
         self.videos.setChecked(True)
         self.counts = QLabel("0 organoids · 0 cysts")
         form.addRow("µm / source pixel", self.calibration)
-        form.addRow("First-to-last span (days)", self.duration)
-        form.addRow("Explicit days", self.explicit_times)
         form.addRow("Video quality", self.quality)
         form.addRow(self.videos)
         form.addRow(self.counts)
@@ -246,6 +299,7 @@ class MainWindow(QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setWidget(side)
         scroll.setMinimumWidth(350)
+        self.side_scroll = scroll
         split.addWidget(scroll)
         right = QWidget()
         right_layout = QVBoxLayout(right)
@@ -257,6 +311,8 @@ class MainWindow(QMainWindow):
         view_layout.addWidget(self.canvas, 1)
         self.canvas.organoid_clicked.connect(self.add_organoid)
         self.canvas.cyst_drawn.connect(self.add_cyst)
+        self.canvas.reports_blocked_clicks = True
+        self.canvas.blocked_click.connect(self.explain_blocked_click)
         view_controls = QHBoxLayout()
         self.view_mode = QComboBox()
         self.view_mode.addItems(["Original", "Overlay", "Mask", "Side by side"])
@@ -308,23 +364,162 @@ class MainWindow(QMainWindow):
         self.checkpoint.textChanged.connect(self.update_checkpoint_status)
         self.direction.currentIndexChanged.connect(self._direction_changed)
         self.update_checkpoint_status()
-        self.source_indices.textChanged.connect(self._sync)
+        for field in (self.source_indices, self.duration, self.explicit_times):
+            field.textChanged.connect(self._sync)
 
-    def _sync(self):
-        saved = self.opened.saved if self.opened else None
-        editable = bool(self.opened and not saved and not self.busy)
-        confirmed = bool(
+    def _set_banner(self, text, level="info"):
+        self.banner.setStyleSheet(BANNER_STYLES[level])
+        self.banner.setText(text)
+        if level == "info":
+            self.statusBar().clearMessage()
+
+    @staticmethod
+    def _day_values(resolved, count):
+        return tuple(
+            resolved.frame_timestamps or [1 + i * resolved.time_lapse_days / max(count - 1, 1) for i in range(count)]
+        )
+
+    def _selected_indices(self):
+        """Zero-based source indices from the one-based input; a readable error for anything else."""
+        if not self.opened:
+            raise ValueError("Open a video first.")
+        total = self.opened.source.decoded_frames
+        example = f"for example 1, 3, 4; this video has frames 1 to {total}"
+        try:
+            numbers = [int(part.strip()) for part in self.source_indices.text().split(",")]
+        except ValueError:
+            raise ValueError(f"Source frames: enter frame numbers separated by commas ({example}).") from None
+        if any(number < 1 or number > total for number in numbers):
+            raise ValueError(f"Source frames: every number must be between 1 and {total}.")
+        if any(b <= a for a, b in zip(numbers, numbers[1:], strict=False)):
+            raise ValueError("Source frames: list them in increasing order, each frame once.")
+        return tuple(number - 1 for number in numbers)
+
+    def _frames_match(self):
+        return bool(
             self.opened
             and self.opened.session.video.frame_indices is not None
             and self.source_indices.text().replace(" ", "")
             == ",".join(str(i + 1) for i in self.opened.source.frame_map)
         )
+
+    def _pending_days(self, count=None):
+        """The days the inputs describe for ``count`` frames; ``None`` while they are missing or invalid."""
+        if not self.opened:
+            return None
+        count = self.opened.source.n_frames if count is None else count
+        try:
+            return self._day_values(self.selected_timing().resolve(count), count)
+        except ValueError:
+            return None
+
+    def _confirmed_days(self):
+        if not self.opened or (self.opened.session.video.frame_indices is None and not self.opened.saved):
+            return None
+        count = self.opened.source.n_frames
+        try:
+            return self._day_values(self.opened.session.timing.resolve(count), count)
+        except ValueError:
+            return None  # the recorded timing does not describe these frames
+
+    def _update_mapping(self, editable):
+        """Show what would be recorded (source frame and day per time point) and whether it is confirmed."""
+        saved = self.opened.saved if self.opened else None
+        try:
+            indices = self._selected_indices() if self.opened else ()
+            problem = ""
+        except ValueError as error:
+            indices, problem = (), str(error)
+        days = self._pending_days(len(indices)) if indices else None
+        key = (id(self.opened), indices, days, self._confirmed, bool(self.annotations.organoids), problem, editable)
+        if key == self._mapping_key:
+            return
+        self._mapping_key = key
+        self.mapping.setColumnCount(len(indices))
+        metrics = self.mapping.fontMetrics()
+        for column, index in enumerate(indices):
+            texts = (str(index + 1), f"{days[column]:g}" if days else "?")
+            for row, text in enumerate(texts):
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.mapping.setItem(row, column, item)
+            # Seven daily points fit without scrolling.
+            self.mapping.setColumnWidth(column, max(28, max(metrics.horizontalAdvance(text) for text in texts) + 12))
+        if not self.opened:
+            status = "Open a video to confirm its acquisition time points."
+        elif saved:
+            status = (
+                "Recorded with the saved run. Changed days or calibration apply to an exported copy; "
+                "the saved run is not altered."
+            )
+        elif problem:
+            status = problem
+        elif days is None:
+            try:
+                self.selected_timing().resolve(len(indices))
+                status = ""
+            except ValueError as error:
+                status = str(error)
+        elif self._confirmed:
+            status = "Confirmed: these frames and days will be recorded."
+            if self.annotations.organoids:
+                status += " Clear annotations to change the source frames; the days can still be corrected."
+        else:
+            status = "Not confirmed yet. Check each source frame and its day in the table, then confirm."
+            if self._selection_hint:
+                status = self._selection_hint + " " + status
+        self.selection_status.setText(status)
+
+    def explain_blocked_click(self):
+        """Say why a click on the image did nothing, and point at the control that unlocks it."""
+        if self.busy:
+            return
+        if not self.opened:
+            message = "Open a video first (toolbar, top left)."
+        elif self.opened.saved:
+            message = "Saved results are read-only. Choose 'Edit prompts for a new run' to annotate again."
+        elif not self._confirmed:
+            message = (
+                "Annotation is locked until the acquisition time points are confirmed. Check the source frames "
+                "and days on the left, then click 'Confirm frames and days'."
+            )
+            self.side_scroll.ensureWidgetVisible(self.confirm_frames_button)
+        else:
+            reverse = self.direction.currentData() == "reverse"
+            frame = self.opened.source.n_frames if reverse else 1
+            message = (
+                f"Annotations are drawn on the {'last' if reverse else 'first'} time point. "
+                f"Move the frame slider to frame {frame}."
+            )
+        self._set_banner(message, "attention")
+
+    def _sync(self):
+        saved = self.opened.saved if self.opened else None
+        editable = bool(self.opened and not saved and not self.busy)
+        # Confirmed means: the frames and the days on screen are exactly the recorded ones.
+        pending = self._pending_days()
+        confirmed = self._frames_match() and (
+            bool(saved) or (pending is not None and pending == self._confirmed_days())
+        )
+        self._confirmed = confirmed
         selection_editable = editable and not self.annotations.organoids
-        self.frame_group.setEnabled(bool(selection_editable))
-        self.daily_preset_button.setEnabled(bool(self.opened and self.opened.source.decoded_frames == 11))
+        self.source_indices.setEnabled(selection_editable)
+        self.all_frames_button.setEnabled(selection_editable)
+        self.daily_preset_button.setEnabled(
+            bool(selection_editable and self.opened and self.opened.source.decoded_frames == 11)
+        )
+        days_enabled = bool(self.opened) and not self.busy
+        self.explicit_times.setEnabled(days_enabled)
+        self.duration.setEnabled(days_enabled and not self.explicit_times.text().strip())
+        self.confirm_frames_button.setEnabled(editable)
+        self.confirm_frames_button.setStyleSheet(ACTION_NEEDED_STYLE if editable and not confirmed else "")
+        self._update_mapping(editable)
         for action in self.file_actions:
             action.setEnabled(not self.busy)
         self.model_group.setEnabled(not self.busy and not saved)
+        # Boxes belong to the frame they were drawn on, so the direction cannot change under them.
+        self.direction.setEnabled(not self.annotations.organoids)
+        self.direction_note.setVisible(bool(editable and self.annotations.organoids))
         self.analysis_group.setEnabled(not self.busy)
         annotation_frame = (
             (self.opened.source.n_frames - 1 if self.direction.currentData() == "reverse" else 0) if self.opened else 0
@@ -352,7 +547,7 @@ class MainWindow(QMainWindow):
         self.operation.progress.connect(self._progress)
         self.operation.finished.connect(self._finished)
         self.progress.setRange(0, 0)
-        self.banner.setText(
+        self._set_banner(
             {
                 "track": "Preparing model and video…",
                 "export": "Exporting a complete copy…",
@@ -371,7 +566,7 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, max(total, 1))
         self.progress.setValue(current)
         prefix = "Cancellation requested; saving retained frames. " if self.operation.cancel.is_set() else ""
-        self.banner.setText(f"{prefix}{phase}: {message}")
+        self._set_banner(f"{prefix}{phase}: {message}")
 
     @Slot()
     def _finished(self):
@@ -383,7 +578,7 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 100)
         self.progress.setValue(100)
         if operation.cancelled_without_masks:
-            self.banner.setText("Cancelled before any masks were kept. Prompts remain ready for a new run.")
+            self._set_banner("Cancelled before any masks were kept. Prompts remain ready for a new run.")
         elif operation.error:
             if operation.recovery is not None:
                 self._use_saved(operation.recovery)
@@ -399,7 +594,7 @@ class MainWindow(QMainWindow):
             self.use_opened(operation.value)
         else:
             self._use_saved(operation.value.saved_result)
-            self.banner.setText(
+            self._set_banner(
                 f"{operation.value.status.capitalize()}: {operation.value.result.frames_done}/{operation.value.result.frames_total} frames. Saved in {operation.value.output_dir}"
             )
         operation.deleteLater()
@@ -408,7 +603,7 @@ class MainWindow(QMainWindow):
             self.close()
 
     def show_error(self, message):
-        self.banner.setText(message)
+        self._set_banner(message, "error")
         self.log.appendPlainText("ERROR " + message)
         self.statusBar().showMessage(message)
 
@@ -429,16 +624,24 @@ class MainWindow(QMainWindow):
         self.slider.setRange(0, opened.source.n_frames - 1)
         self.slider.blockSignals(False)
         self.apply_session_fields(opened.session)
+        unconfirmed = not opened.saved and opened.session.video.frame_indices is None
+        if unconfirmed and not opened.timing_given:
+            # A video opened without a session has no acquisition days yet; the user supplies them.
+            self.duration.clear()
+            self.explicit_times.clear()
         self.source_indices.setText(", ".join(str(i + 1) for i in opened.source.frame_map))
-        self.selection_status.setText(
-            "Recorded selection. Clear annotations before changing source frames."
-            if opened.saved or opened.session.video.frame_indices is not None
-            else "Inspect source frames, choose their acquisition days below, then confirm. Imported prompts must be cleared before selecting frames."
+        self._selection_hint = (
+            "Imported prompts must be cleared before selecting other frames."
+            if unconfirmed and opened.session.annotations.organoids
+            else ""
         )
+        self._mapping_key = None
+        self._box_cache = {}
+        self.annotation_direction = None  # taken from the session's direction, which the fields now show
         self.set_annotations(opened.session.annotations)
         self.slider.setValue(opened.source.annotation_frame)
         self.render_frame(fit=True)
-        self.banner.setText(
+        self._set_banner(
             opened.warning
             or f"{opened.source.decoded_frames} decoded frames → {opened.source.n_frames} displayed frames. "
             + (
@@ -447,9 +650,11 @@ class MainWindow(QMainWindow):
                 else (
                     "Click an organoid, then drag its cyst boxes. Click again for the next organoid."
                     if opened.session.video.frame_indices is not None
-                    else "Confirm source frames and acquisition days before annotating."
+                    else "Next: check the source frames and their days on the left, then click "
+                    "'Confirm frames and days'. Annotation unlocks after that."
                 )
-            )
+            ),
+            "info" if opened.saved or opened.session.video.frame_indices is not None else "attention",
         )
         self.plot_choices.clear()
         self.figure.set_frame(np.zeros((1, 1, 3), dtype=np.uint8), fit=True)
@@ -489,31 +694,66 @@ class MainWindow(QMainWindow):
         self.device.setCurrentText(session.tracking.device)
         self.checkpoint.setText(str(session.tracking.checkpoint_path or ""))
         self.calibration.setText(str(session.calibration.um_per_pixel))
-        self.duration.setText(str(session.timing.time_lapse_days or 6))
+        times = session.timing.frame_times_days
+        self.duration.setText(str(session.timing.time_lapse_days) if times is None else f"{times[-1] - times[0]:g}")
         self.explicit_times.setText(
             ", ".join(str(v) for v in session.timing.frame_times_days) if session.timing.frame_times_days else ""
         )
         self.update_checkpoint_status()
 
+    def selected_calibration(self):
+        try:
+            value = float(self.calibration.text().strip())
+        except ValueError:
+            raise ValueError("µm / source pixel: enter a number (for example 1.6934).") from None
+        return Calibration(value)
+
     def selected_timing(self):
         explicit = self.explicit_times.text().strip()
-        return (
-            Timing(frame_times_days=tuple(float(v.strip()) for v in explicit.split(",")))
-            if explicit
-            else Timing(time_lapse_days=float(self.duration.text()))
-        )
+        if explicit:
+            try:
+                values = tuple(float(v.strip()) for v in explicit.split(","))
+            except ValueError:
+                raise ValueError(
+                    "Days: enter one number per selected frame, separated by commas (for example 1, 2, 4)."
+                ) from None
+            return Timing(frame_times_days=values)
+        span = self.duration.text().strip()
+        if not span:
+            raise ValueError("Enter the first-to-last span in days, or one day per selected frame.")
+        try:
+            return Timing(time_lapse_days=float(span))
+        except ValueError as error:
+            if isinstance(error, SessionError):
+                raise
+            raise ValueError("First-to-last span: enter a number of days (for example 6).") from None
+
+    def _check_annotation_direction(self):
+        if self.annotations.organoids and self.annotation_direction not in (None, self.direction.currentData()):
+            where = "last" if self.annotation_direction == "reverse" else "first"
+            raise ValueError(
+                f"The annotations were drawn on the {where} time point. Clear them before changing the "
+                "tracking direction: boxes cannot move to another frame."
+            )
 
     def current_session(self):
         if not self.opened:
             raise ValueError("Open a video first.")
-        if self.opened.session.video.frame_indices is None and not self.opened.saved:
-            raise ValueError("Confirm source frames and acquisition days before saving or tracking.")
-        if not self.opened.saved and self.source_indices.text().replace(" ", "") != ",".join(
-            str(i + 1) for i in self.opened.source.frame_map
-        ):
-            raise ValueError("Confirm the changed source frame selection before saving or tracking.")
-        timing = self.selected_timing()
-        timing.resolve(self.opened.source.n_frames)
+        if self.opened.saved:
+            # Re-analysis inputs for an exported copy; the saved run keeps its own.
+            timing = self.selected_timing()
+            timing.resolve(self.opened.source.n_frames)
+        else:
+            if self.opened.session.video.frame_indices is None:
+                raise ValueError("Confirm source frames and acquisition days before saving or tracking.")
+            if not self._frames_match():
+                raise ValueError("Confirm the changed source frame selection before saving or tracking.")
+            pending = self._pending_days()
+            if pending is None or pending != self._confirmed_days():
+                self.selected_timing().resolve(self.opened.source.n_frames)  # a readable reason, when there is one
+                raise ValueError("Confirm the changed acquisition days before saving or tracking.")
+            self._check_annotation_direction()
+            timing = self.opened.session.timing  # exactly what was confirmed and is shown per frame
         return Session(
             VideoReference(
                 self.opened.source.path,
@@ -522,7 +762,7 @@ class MainWindow(QMainWindow):
                 self.opened.source.decoded_frames,
             ),
             self.tracking_spec(),
-            Calibration(float(self.calibration.text())),
+            self.selected_calibration(),
             timing,
             self.annotations,
         )
@@ -530,21 +770,28 @@ class MainWindow(QMainWindow):
     def select_all_frames(self):
         if self.opened:
             self.source_indices.setText(", ".join(str(i + 1) for i in range(self.opened.source.decoded_frames)))
-            self.selection_status.setText("Every source frame selected. Confirm its days below.")
+            self._selection_hint = "Every source frame selected: enter its days."
+            self._mapping_key = None
+            self._sync()
 
     def select_daily_preset(self):
         if self.opened and self.opened.source.decoded_frames == 11:
             self.source_indices.setText("1, 3, 4, 6, 7, 9, 10")
             self.explicit_times.setText("1, 2, 3, 4, 5, 6, 7")
-            self.selection_status.setText(
-                "Preset for the confirmed 11-frame daily export only. Check the source frames, then confirm."
-            )
+            self._selection_hint = "Preset for the confirmed 11-frame daily export only."
+            self._mapping_key = None
+            self._sync()
 
     def confirm_frames(self):
-        if not self.opened or self.opened.saved or self.busy or self.annotations.organoids:
-            raise ValueError("Clear annotations before changing the acquisition selection.")
+        if not self.opened or self.opened.saved or self.busy:
+            raise ValueError("Open a video for a new run before confirming its acquisition time points.")
         source = self.opened.source
-        indices = tuple(int(i.strip()) - 1 for i in self.source_indices.text().split(","))
+        indices = self._selected_indices()
+        same_frames = self.opened.session.video.frame_indices is not None and indices == tuple(source.frame_map)
+        if self.annotations.organoids and not same_frames:
+            raise ValueError(
+                "Clear annotations before changing the source frames: boxes cannot move to another observation."
+            )
         video = VideoReference(source.path, source.sha256, indices, source.decoded_frames)
         timing = self.selected_timing()
         resolved = timing.resolve(len(indices))
@@ -559,6 +806,15 @@ class MainWindow(QMainWindow):
             tracking=self.tracking_spec(),
             annotations=self.annotations,
         )
+        self._selection_hint = ""
+        if same_frames:
+            # The same observations with corrected days: annotations, undo history and view stay.
+            self.opened = replace(self.opened, session=session, timing_given=True)
+            self.apply_session_fields(session)
+            self._mapping_key = None
+            self.render_frame()
+            self._set_banner("Acquisition days confirmed for the selected frames.")
+            return
         if self.opened.source_frames is None:
             self._begin("preview", session=session)
         else:
@@ -594,6 +850,12 @@ class MainWindow(QMainWindow):
 
     def set_annotations(self, annotations, selected=None):
         self.annotations = annotations
+        if not annotations.organoids:
+            self.annotation_direction = None
+        elif self.annotation_direction is None:
+            self.annotation_direction = self.direction.currentData()
+        if self.selected_cyst not in annotations.cyst_ids():
+            self.selected_cyst = None
         ids = [o.organoid_id for o in annotations.organoids]
         desired = selected if selected is not None else self.active_organoid
         self.active_organoid = desired if desired in ids else (ids[-1] if ids else None)
@@ -606,6 +868,9 @@ class MainWindow(QMainWindow):
             for cyst in organoid.cysts:
                 child = QTreeWidgetItem([f"Cyst {cyst.cyst_id}"])
                 child.setData(0, Qt.ItemDataRole.UserRole, ("cyst", cyst.cyst_id))
+                swatch = QPixmap(12, 12)
+                swatch.fill(QColor(*cyst_color(cyst.cyst_id)))
+                child.setIcon(0, QIcon(swatch))  # the colour of this cyst's mask in results and videos
                 parent.addChild(child)
             parent.setExpanded(True)
             if organoid.organoid_id == self.active_organoid:
@@ -644,11 +909,17 @@ class MainWindow(QMainWindow):
 
     def select_organoid(self):
         item = self.tree.currentItem()
+        selected_cyst = None
         if item:
             parent = item.parent()
             if parent is not None:
+                selected_cyst = item.data(0, Qt.ItemDataRole.UserRole)[1]
                 item = parent
             self.active_organoid = item.data(0, Qt.ItemDataRole.UserRole)[1]
+        if selected_cyst != self.selected_cyst:
+            self.selected_cyst = selected_cyst
+            if self.opened and self.opened.saved:
+                self.render_frame()  # highlight the selected cyst's mask
 
     def remove_selected(self):
         item = self.tree.currentItem()
@@ -663,6 +934,8 @@ class MainWindow(QMainWindow):
         self.edit_annotations(AnnotationSet(organs), "Remove annotation")
 
     def _direction_changed(self):
+        # An undo must not bring back boxes that were drawn on the other end of the video.
+        self.undo_stack.clear()
         if self.opened and not self.opened.saved:
             self.slider.setValue(self.opened.source.n_frames - 1 if self.direction.currentData() == "reverse" else 0)
             self.render_frame()
@@ -678,17 +951,35 @@ class MainWindow(QMainWindow):
             else np.zeros((source.height, source.width, 3), dtype=np.uint8)
         )
         saved = self.opened.saved
+        labels = []
         if saved and self.view_mode.currentText() != "Original":
             colors = np.zeros_like(rgb)
             foreground = np.zeros(rgb.shape[:2], dtype=bool)
+            boxes = self._box_cache.get(index)
+            measured: dict[int, tuple[int, int, int, int]] = {}
             for identifier, mask in saved.result.get(index, {}).items():
                 pixels = mask.numpy().astype(bool)
                 foreground |= pixels
-                colors[pixels] = [
-                    (identifier * 67) % 200 + 55,
-                    (identifier * 107) % 200 + 55,
-                    (identifier * 151) % 200 + 55,
-                ]
+                colors[pixels] = cyst_color(identifier)  # the same colour as in the exported videos
+                if boxes is None:
+                    box = mask_box(pixels)
+                    if box is not None:
+                        measured[identifier] = box
+            if boxes is None:
+                boxes = self._box_cache[index] = measured
+            offset = rgb.shape[1] if self.view_mode.currentText() == "Side by side" else 0
+            labels = [
+                (
+                    x + offset,
+                    y,
+                    width,
+                    height,
+                    cyst_label(identifier),
+                    cyst_color(identifier),
+                    identifier == self.selected_cyst,
+                )
+                for identifier, (x, y, width, height) in sorted(boxes.items())
+            ]
             overlay = rgb.copy()
             overlay[foreground] = (rgb[foreground] * 0.6 + colors[foreground] * 0.4).astype(np.uint8)
             rgb = (
@@ -699,6 +990,7 @@ class MainWindow(QMainWindow):
                 else overlay
             )
         self.canvas.set_frame(rgb, fit=fit)
+        self.canvas.set_mask_labels(labels)
         annotation_frame = source.n_frames - 1 if self.direction.currentData() == "reverse" else 0
         self.canvas.set_annotations(self.annotations, visible=not saved and index == annotation_frame)
         times = self.opened.session.timing.frame_times_days
@@ -762,11 +1054,11 @@ class MainWindow(QMainWindow):
             session = Session(
                 VideoReference(Path(path)),
                 self.tracking_spec(),
-                Calibration(float(self.calibration.text())),
-                Timing(time_lapse_days=float(self.duration.text())),
+                self.selected_calibration(),
+                Timing(time_lapse_days=1.0),  # placeholder, never shown or used: days are entered and confirmed
                 AnnotationSet(()),
             )
-            self._begin("preview", session=session)
+            self._begin("preview", session=session, timing_given=False)
 
     def choose_session(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open session or prompts", "", "JSON (*.json)")
@@ -841,7 +1133,7 @@ class MainWindow(QMainWindow):
     def cancel_tracking(self):
         if self.operation and self.operation.action == "track":
             self.operation.cancel.set()
-            self.banner.setText("Cancelling after the current frame; retained masks will be saved.")
+            self._set_banner("Cancelling after the current frame; retained masks will be saved.")
             self._sync()
 
     def edit_saved_prompts(self):
@@ -878,13 +1170,14 @@ class MainWindow(QMainWindow):
         if self.busy:
             self._closing = True
             self.cancel_tracking()
-            self.banner.setText("Closing after the operation finishes and retained results are saved…")
+            self._set_banner("Closing after the operation finishes and retained results are saved…")
             event.ignore()
             return
         self.preferences.setValue("geometry", self.saveGeometry())
         self.preferences.setValue("video_quality", self.quality.currentText())
-        for name in ("backend", "family", "model_size", "device", "direction"):
+        for name in ("backend", "family", "model_size", "device"):
             self.preferences.setValue(name, getattr(self, name).currentText())
+        self.preferences.remove("direction")
         self.preferences.setValue("checkpoint", self.checkpoint.text())
         logging.getLogger().removeHandler(self.log_handler)
         self.log_handler.close()

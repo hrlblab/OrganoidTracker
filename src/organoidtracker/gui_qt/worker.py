@@ -24,9 +24,11 @@ class Opened:
     saved: SavedResult | None = None
     warning: str | None = None
     source_frames: list[np.ndarray] | None = None
+    # False for a video opened without a session: its timing is a placeholder nobody entered.
+    timing_given: bool = True
 
 
-def preview_session(session):
+def preview_session(session, timing_given=True):
     from ..core.video_frames import selected_frame_indices
 
     digest = check_video(session)
@@ -48,7 +50,7 @@ def preview_session(session):
         session.tracking.direction,
         len(selected) - 1 if session.tracking.reverse else 0,
     )
-    return Opened(session, source, selected, source_frames=frames)
+    return Opened(session, source, selected, source_frames=frames, timing_given=timing_given)
 
 
 def open_saved(path):
@@ -78,7 +80,7 @@ class Operation(QThread):
     def run(self):
         try:
             if self.action == "preview":
-                self.value = preview_session(self.inputs["session"])
+                self.value = preview_session(self.inputs["session"], self.inputs.get("timing_given", True))
             elif self.action == "open":
                 self.value = open_saved(self.inputs["path"])
             elif self.action == "relocate":

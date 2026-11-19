@@ -42,12 +42,25 @@ The model cache survives application updates. Public model source and license:
 In the interface:
 
 1. Choose **Open video**. Your selected host video folder appears as `/videos`.
-2. Click an organoid, then drag boxes around its cysts. Add further organoids as needed.
-3. Choose **Track and save run**. Each run creates its own directory under `/results`.
-4. Use the chronological slider, display modes and figures to inspect saved results.
-5. Choose **Open report folder**, then the **Open report folder** link above the desktop. The
+2. Confirm the acquisition time points in the **Acquisition time points** panel on the left. Annotation
+   stays locked until you do, and a click on the picture says so. Check **Source frames**; for the
+   eleven-frame daily export choose **7 daily points (11-frame export)**, otherwise enter the frames
+   yourself. Enter either the span in days from the first to the last frame or one day per frame:
+   nothing is assumed for a newly opened video. The small table shows each source frame with the day
+   that will be recorded. When it is right, click **Confirm frames and days**.
+3. The picture now shows the annotation frame (the last time point). Click an organoid, then drag
+   boxes around its cysts. Add further organoids as needed, including organoids without cysts.
+   The tracking direction is locked while annotations exist, because boxes belong to the frame
+   they were drawn on. Days can still be corrected: change them and confirm again.
+4. Choose **Track and save run**. Each run creates its own directory under `/results`.
+5. Use the chronological slider, display modes and figures to inspect saved results. Every mask is
+   labelled `C` plus its cyst number, in the colour shown beside that cyst in the annotation list;
+   selecting a cyst in the list outlines its mask. The overlay video, the **Cyst Key** picture in
+   the PDF and the `Cyst_ID` column of the CSV tables use the same numbers.
+6. Choose **Open report folder**, then the **Open report folder** link above the desktop. The
    **Results** link also lists all saved files. PDF, CSV and video files download to your browser.
-   The same files are already in your selected host results directory.
+   The same files are already in your selected host results directory. The first page of the PDF
+   names the video, the run, the model, the source frames and their days.
 
 Use **Display at 1:1** to inspect the desktop without browser downscaling. Canvas zoom and right- or
 middle-button dragging change the view without changing source-pixel annotations. The pinned viewer

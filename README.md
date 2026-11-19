@@ -164,7 +164,8 @@ uv sync --extra qt                  # add --extra hf for the optional Transforme
 uv run --no-sync organoidtracker-qt
 ```
 
-Open a video or a saved session. Confirm the acquisition selection before annotating. The canvas then shows the last selected frame for
+Open a video or a saved session. Confirm the acquisition selection before annotating; until then a
+click on the picture explains what is missing. The canvas then shows the last selected frame for
 reverse tracking. Click an organoid, drag boxes around its cysts, then click the next organoid.
 Include organoids without cysts because they contribute to the population statistics. Select an
 existing organoid in the annotation list to add more cysts to it. Use the wheel to zoom, right or
@@ -175,18 +176,24 @@ Choose the model family, size, device and weights, then check the pixel calibrat
 The acquisition panel lets you inspect source frames with the slider and select their one-based
 numbers. **7 daily points (11-frame export)** fills source frames `1, 3, 4, 6, 7, 9, 10` and days
 `1–7` for that confirmed export layout only. Check the mapping and click **Confirm frames and days**.
-For other videos, select every source frame or enter your own list and dates. Clear annotations before
-changing frames so that existing boxes cannot move to another observation. The selected source indices
-and actual days are saved with each session and run. Reopening old results preserves their recorded map;
-old sessions without a map need confirmation before new tracking.
+For other videos, select every source frame or enter your own list and dates. A newly opened video has
+no default span: enter the days from the first to the last frame, or one day per frame, and check the
+table of source frames and days before confirming. Clear annotations before changing frames so that
+existing boxes cannot move to another observation; for the same reason the tracking direction is locked
+while annotations exist and is not remembered between sessions. Days of the same frames can be corrected
+with annotations in place, and the changed days must be confirmed again before tracking. The selected
+source indices and actual days are saved with each session and run. Reopening old results preserves their
+recorded map; old sessions without a map need confirmation before new tracking.
 
-Optional explicit days supply one timestamp for each selected time point. **Track and save run** writes
+**Track and save run** writes
 each run into its own directory under `data/output_videos/runs/` (change its parent with **Run folder**).
 Masks are saved before reports, so a report failure can be recovered with **Open results**. Cancel
 finishes the current frame and preserves retained masks; closing during a task waits for that task
 and its save to finish. Partial and cancelled runs retain their status.
 
-Use the frame slider to inspect originals, overlays, masks and side-by-side views. The Figures tab
+Use the frame slider to inspect originals, overlays, masks and side-by-side views. Each mask carries
+its cyst label (`C1`, `C2`, …) in the colour shown in the annotation list; selecting a cyst there
+outlines its mask. The Figures tab
 shows the generated plots; **Open report folder** provides the PDF, CSV tables and videos. Saved
 annotations stay read-only until **Edit prompts for a new run**. **Export reports to a new copy**
 re-analyzes retained masks with the selected calibration/timestamps, and preserves those inputs in
@@ -366,6 +373,15 @@ mean adjacent observed cyst slopes from endpoint total-area slopes. The JSON gro
 aggregation definition. Missing masks are not proof of biological absence; PDF measurement warnings and
 figure labels state this limitation. Keep `analysis_summary.json` with the CSV files when replotting:
 measurement rows alone cannot reconstruct acquisition times or tracking coverage.
+
+`raw_cyst_data.csv` ends with `Source_Frame`: the zero-based frame of the source video behind each row's
+`Frame` (the zero-based index among the selected time points). The window and the PDF count frames from 1.
+The overlay and side-by-side videos label each mask with `C` and its `Cyst_ID` and show the time point
+with its source frame (counted from 1); the mask video carries no text. Days are not written into video
+frames: they are analysis inputs that an exported copy may change, and the PDF lists them per source frame. `visualizations/cyst_key.png`, also on the PDF's first pages, is one
+labelled overlay of the frame with the most accepted masks. The PDF summary names the source video, the
+first characters of its SHA-256, the run, the model, the tracking software and the selected source frames
+with their days. These additions change no measurement.
 
 `original` video export preserves the requested source resolution (twice the width for side by side).
 `mid` and `low` apply factors of 0.5 and 0.25. Untracked frames are labelled **NOT TRACKED**.

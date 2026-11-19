@@ -365,10 +365,13 @@ def test_frame_confirmation_keeps_quiet_observations_and_locks_prompt_coordinate
     window.slider.setValue(3)
     window.add_organoid(20, 20)
     window.add_cyst(10, 10, 30, 30)
-    assert not window.frame_group.isEnabled()
+    # With annotations the source frames are locked; the days of the same frames stay correctable.
+    assert not window.source_indices.isEnabled() and not window.all_frames_button.isEnabled()
     before = window.current_session().video
+    window.source_indices.setText("1, 3, 5, 7")
     with pytest.raises(ValueError, match="Clear annotations"):
         window.confirm_frames()
+    window.source_indices.setText("1, 3, 5, 8")
     assert window.current_session().video == before
     window.clear_annotations()
     window.select_all_frames()
@@ -395,3 +398,194 @@ def test_daily_export_preset_requires_confirmation(window, small_disc, tmp_path)
     assert window.current_session().video.frame_indices == (0, 2, 3, 5, 6, 8, 9)
     assert window.current_session().timing.frame_times_days == (1, 2, 3, 4, 5, 6, 7)
     assert window.opened.source.annotation_frame == 6
+
+
+def confirmed_empty(window, small_disc, small_video, days="1, 2, 4, 7"):
+    """A new run on four selected frames, confirmed, without annotations (reverse: annotate on frame 4)."""
+    from organoidtracker.services.session import Timing, VideoReference
+
+    session = replace(
+        make_session(small_disc, small_video),
+        video=VideoReference(small_video),
+        annotations=AnnotationSet(()),
+        timing=Timing(time_lapse_days=6),
+    )
+    window.use_opened(preview_session(session))
+    window.source_indices.setText("1, 3, 5, 8")
+    window.explicit_times.setText(days)
+    window.confirm_frames()
+    assert window.canvas.editable
+
+
+def test_direction_cannot_change_under_existing_annotations(window, small_disc, small_video):
+    confirmed_empty(window, small_disc, small_video)
+    assert window.direction.isEnabled()
+    window.add_organoid(20, 20)
+    window.add_cyst(10, 10, 30, 30)
+    assert not window.direction.isEnabled() and window.direction_note.isVisibleTo(window)
+    # Even a change that bypasses the disabled control cannot move the boxes to the first frame.
+    window.direction.setCurrentIndex(window.direction.findData("forward"))
+    with pytest.raises(ValueError, match="drawn on the last time point"):
+        window.current_session()
+    with pytest.raises(ValueError, match="drawn on the last time point"):
+        window.start_tracking()
+    assert not window.busy and not window.run_root.exists()
+    window.direction.setCurrentIndex(window.direction.findData("reverse"))
+    assert window.current_session().tracking.direction == "reverse"
+    # Clearing unlocks the direction; undo cannot then bring the last-frame boxes back onto frame 1.
+    window.clear_annotations()
+    assert window.direction.isEnabled() and window.undo_stack.canUndo()
+    window.direction.setCurrentIndex(window.direction.findData("forward"))
+    assert not window.undo_stack.canUndo() and window.slider.value() == 0
+    window.add_organoid(20, 20)
+    window.add_cyst(10, 10, 30, 30)
+    assert window.current_session().tracking.direction == "forward"
+
+
+def test_direction_is_not_remembered_by_the_next_window(qtbot, tmp_path):
+    settings = QSettings(str(tmp_path / "preferences.ini"), QSettings.Format.IniFormat)
+    settings.setValue("direction", "First → last")  # written by an earlier version
+    first = MainWindow(settings=settings)
+    qtbot.addWidget(first)
+    assert first.direction.currentData() == "reverse"
+    first.direction.setCurrentIndex(first.direction.findData("forward"))
+    first.model_size.setCurrentIndex(first.model_size.findData("sam2_hiera_t"))
+    first.close()
+    second = MainWindow(settings=settings)
+    qtbot.addWidget(second)
+    assert second.direction.currentData() == "reverse" and second.model_size.currentData() == "sam2_hiera_t"
+    second.close()
+
+
+def test_new_video_has_no_default_days_and_cannot_be_confirmed_without_them(
+    window, small_disc, small_video, qtbot, monkeypatch
+):
+    from PySide6.QtWidgets import QFileDialog
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args, **kwargs: (str(small_video), ""))
+    window.choose_video()
+    qtbot.waitUntil(lambda: not window.busy, timeout=15000)
+    assert window.opened.source.n_frames == 8 and window.opened.session.video.frame_indices is None
+    assert window.duration.text() == "" and window.explicit_times.text() == ""
+    assert [window.mapping.item(1, column).text() for column in range(8)] == ["?"] * 8
+    with pytest.raises(ValueError, match="span in days, or one day per selected frame"):
+        window.confirm_frames()
+    assert window.opened.session.video.frame_indices is None and not window.canvas.editable
+    window.source_indices.setText("1; 2")
+    with pytest.raises(ValueError, match="frame numbers separated by commas"):
+        window.confirm_frames()
+    window.source_indices.setText("1, 9")
+    with pytest.raises(ValueError, match="between 1 and 8"):
+        window.confirm_frames()
+    window.source_indices.setText("1, 2, 4, 5, 8")
+    window.duration.setText("six")
+    with pytest.raises(ValueError, match="enter a number of days"):
+        window.confirm_frames()
+    window.duration.clear()
+    window.explicit_times.setText("1, 2, 4, 5, 8")
+    # The table shows what will be recorded before the confirmation is given.
+    assert [window.mapping.item(0, c).text() for c in range(5)] == ["1", "2", "4", "5", "8"]
+    assert [window.mapping.item(1, c).text() for c in range(5)] == ["1", "2", "4", "5", "8"]
+    window.confirm_frames()
+    qtbot.waitUntil(lambda: not window.busy, timeout=15000)
+    assert window.current_session().video.frame_indices == (0, 1, 3, 4, 7)
+    assert window.current_session().timing.frame_times_days == (1, 2, 4, 5, 8)
+
+
+def test_days_changed_after_confirmation_need_a_new_confirmation(window, small_disc, small_video):
+    confirmed_empty(window, small_disc, small_video)
+    window.add_organoid(20, 20)
+    window.add_cyst(10, 10, 30, 30)
+    assert window.track_button.isEnabled() and "day 7" in window.frame_label.text()
+    window.explicit_times.setText("1, 2, 4, 30")
+    # Not confirmed: nothing can be tracked or saved with days that are not the recorded ones.
+    assert not window.track_button.isEnabled() and not window.canvas.editable
+    assert "day 7" in window.frame_label.text() and "Not confirmed" in window.selection_status.text()
+    with pytest.raises(ValueError, match="Confirm the changed acquisition days"):
+        window.current_session()
+    with pytest.raises(ValueError, match="Confirm the changed acquisition days"):
+        window.start_tracking()
+    assert not window.run_root.exists()
+    window.explicit_times.setText("1, 2")
+    with pytest.raises(ValueError, match="selected frames"):
+        window.confirm_frames()
+    # Confirming corrected days for the same frames keeps the annotations and their undo history.
+    window.explicit_times.setText("1, 2, 4, 30")
+    window.confirm_frames()
+    assert len(window.annotations.cysts) == 1 and window.undo_stack.canUndo()
+    assert window.track_button.isEnabled() and "day 30" in window.frame_label.text()
+    assert window.current_session().timing.frame_times_days == (1, 2, 4, 30)
+    assert window.current_session().video.frame_indices == (0, 2, 4, 7)
+    # Returning the inputs to the confirmed values needs no further confirmation.
+    window.explicit_times.setText("1, 2, 4, 8")
+    assert not window.track_button.isEnabled()
+    window.explicit_times.setText("1, 2, 4, 30")
+    assert window.track_button.isEnabled()
+
+
+def test_a_click_that_cannot_annotate_says_why(window, small_disc, small_video, qtbot):
+    from organoidtracker.gui_qt.window import START_TEXT
+    from organoidtracker.services.session import Timing, VideoReference
+
+    assert "Confirm" in START_TEXT and window.banner.text() == START_TEXT
+    session = replace(
+        make_session(small_disc, small_video),
+        video=VideoReference(small_video),
+        annotations=AnnotationSet(()),
+        timing=Timing(time_lapse_days=6),
+    )
+    window.use_opened(preview_session(session))
+    assert "Confirm frames and days" in window.banner.text()
+
+    def click():
+        position = window.canvas.mapFromScene(QPointF(40, 40))
+        qtbot.mouseClick(window.canvas.viewport(), Qt.MouseButton.LeftButton, pos=position)
+
+    click()
+    assert not window.annotations.organoids
+    assert "locked until the acquisition time points are confirmed" in window.banner.text()
+    assert window.confirm_frames_button.styleSheet() != ""
+    window.explicit_times.setText("1, 2, 3, 4, 5, 6, 7, 8")
+    window.confirm_frames()
+    assert window.confirm_frames_button.styleSheet() == ""
+    window.slider.setValue(2)
+    click()
+    assert not window.annotations.organoids and "Move the frame slider to frame 8" in window.banner.text()
+    window.slider.setValue(7)
+    click()
+    assert len(window.annotations.organoids) == 1
+
+
+def test_result_view_shows_which_mask_is_which_cyst(window, small_disc, small_video, qtbot):
+    from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsSimpleTextItem
+
+    from organoidtracker.core.cyst_identity import cyst_color
+
+    session = make_session(small_disc, small_video, two_objects=True)
+    window.use_opened(preview_session(session))
+    window.start_tracking()
+    qtbot.waitUntil(lambda: not window.busy, timeout=60000)
+    assert window.opened.saved is not None
+
+    def texts():
+        return sorted({i.text() for i in window.canvas.mask_items if isinstance(i, QGraphicsSimpleTextItem)})
+
+    window.slider.setValue(7)
+    assert texts() == ["C1", "C2"]
+    window.view_mode.setCurrentText("Original")
+    assert texts() == []
+    window.view_mode.setCurrentText("Mask")
+    x, y = small_disc.centers[7]
+    pixel = window.canvas.image_item.pixmap().toImage().pixelColor(x - 20, y)  # inside cyst 1 only
+    assert (pixel.red(), pixel.green(), pixel.blue()) == cyst_color(1) == (255, 0, 0)
+    # The annotation list carries the same colours and selecting a cyst outlines its mask.
+    organoid = window.tree.topLevelItem(0)
+    assert not organoid.child(1).icon(0).isNull()
+    swatch = organoid.child(1).icon(0).pixmap(12, 12).toImage().pixelColor(6, 6)
+    assert (swatch.red(), swatch.green(), swatch.blue()) == cyst_color(2)
+    assert not any(isinstance(i, QGraphicsRectItem) for i in window.canvas.mask_items)
+    window.tree.setCurrentItem(organoid.child(1))
+    boxes = [i for i in window.canvas.mask_items if isinstance(i, QGraphicsRectItem)]
+    assert len(boxes) == 1 and boxes[0].pen().color().getRgb()[:3] == cyst_color(2)
+    window.view_mode.setCurrentText("Side by side")
+    assert all(i.pos().x() >= 128 for i in window.canvas.mask_items if isinstance(i, QGraphicsSimpleTextItem))
