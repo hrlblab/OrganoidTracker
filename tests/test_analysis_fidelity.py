@@ -170,3 +170,42 @@ def test_heatmap_order_and_percentile_classes_use_cyst_rates(tmp_path, monkeypat
     groups = visualizer.color_schemes["organoid_groups"]
     assert calls == [([4, 3, 2, 1, 0], [20, 8, 4, 0, -2], [groups[i] for i in (0, 0, 1, 2, 2)])]
     assert path.is_file()
+
+
+def test_single_observation_growth_is_missing_through_report_and_reload(tmp_path):
+    experiment = ExperimentData(2, 2, 1.0, frame_timestamps=[1, 3])
+    organoid = OrganoidData(1, (10, 10))
+    for identifier, areas in enumerate(([100], [100, 100], [100, 200]), 1):
+        cyst = CystTrajectory(identifier, 1)
+        for frame, area in enumerate(areas):
+            cyst.add_frame_data(CystFrameData(frame, area, 1.0, (10, 10)))
+        organoid.add_cyst(cyst)
+    experiment.add_organoid(organoid)
+    assert experiment.growth_rate_per_day(organoid.cysts[1]) is None
+    assert experiment.sort_organoids_by_growth_rate() == [(1, 25.0)]
+    exporter = OrganoidCSVExporter()
+    exporter.export_summary_table(experiment, str(tmp_path / "cyst_summary.csv"))
+    assert [r["Growth_Rate_um2_per_day"] for r in read_rows(tmp_path / "cyst_summary.csv")] == ["", "0.0000", "50.0000"]
+    raw = write_measurements(experiment, tmp_path)
+    again = experiment_from_csv(raw)
+    assert again.sort_organoids_by_growth_rate() == [(1, 25.0)]
+    assert again.growth_rate_per_day(again.organoids[1].cysts[1]) is None
+    summary = json.loads((tmp_path / "analysis_summary.json").read_text())
+    assert summary["growth_statistics"]["estimable_cysts"] == 2
+    assert summary["growth_statistics"]["mean_growth_rate_um2_per_day"] == 25.0
+    assert OrganoidVisualizationSuite().plot_lasagna_heatmap(again, str(tmp_path / "plot.png"))
+
+
+def test_no_estimable_growth_stays_missing_in_summary_and_plot(tmp_path):
+    experiment = ExperimentData(1, 6, 1.0)
+    organoid = OrganoidData(1, (10, 10))
+    cyst = CystTrajectory(1, 1)
+    cyst.add_frame_data(CystFrameData(0, 100, 1.0, (10, 10)))
+    organoid.add_cyst(cyst)
+    experiment.add_organoid(organoid)
+    experiment.add_organoid(OrganoidData(2, (20, 20)))
+    summary = OrganoidAnalysisReportGenerator()._create_analysis_summary(experiment, {}, {}, {}, None)
+    assert summary["growth_statistics"]["estimable_cysts"] == 0
+    assert summary["growth_statistics"]["estimable_organoids"] == 0
+    assert summary["growth_statistics"]["mean_growth_rate_um2_per_day"] is None
+    assert OrganoidVisualizationSuite().plot_lasagna_heatmap(experiment, str(tmp_path / "singleton.png"))

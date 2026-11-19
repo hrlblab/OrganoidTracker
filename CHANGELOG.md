@@ -1,5 +1,26 @@
 # Changelog
 
+
+## Unreleased — review corrections
+
+### Scientific behavior (results version 4)
+
+- Keep consecutive Qt cyst annotations attached to the selected organoid across edits and undo/redo.
+- Reject incomplete indexed videos before assigning experiment times; retain OpenCV pixel decoding.
+- Represent growth from fewer than two observations as missing, exclude it from growth averages and
+  percentile groups, label it N/A in the heatmap, and report the number of estimable cysts and organoids.
+- Retain the prompted mask when reverse tracking has only one unique time point.
+- Draw every positive cyst identifier in exported videos, including identifiers above 20.
+
+### Saved results and delivery
+
+- Preserve unrelated files across re-export, including files incorrectly inventoried by older versions.
+- Validate explicitly relocated video content even when exporting only reports.
+- Route Tk reanalysis through the shared saved-result exporter and require a copy for changed inputs.
+- Distinguish dirty source runs with a local-change fingerprint.
+- Open the container desktop independently of background model preparation, while validating known
+  public checkpoints immediately before inference.
+
 All notable changes to this project are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).

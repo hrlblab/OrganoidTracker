@@ -235,6 +235,9 @@ class VideoOutputGenerator:
             19: (152, 251, 152),  # Pale Green
             20: (245, 222, 179),  # Wheat
         }
+        for objects in video_segments.values():
+            for identifier in objects:
+                object_colors.setdefault(identifier, object_colors[1 + (int(identifier) - 1) % 20])
 
         # Get frame dimensions
         height, width = frames[0].shape[:2]
@@ -468,6 +471,9 @@ class VideoOutputGenerator:
             19: (152, 251, 152),
             20: (245, 222, 179),
         }
+        for objects in video_segments.values():
+            for identifier in objects:
+                object_colors.setdefault(identifier, object_colors[1 + (int(identifier) - 1) % 20])
 
         total_frames = len(frames)
 

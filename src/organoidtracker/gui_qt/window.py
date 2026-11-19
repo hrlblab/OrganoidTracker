@@ -41,15 +41,19 @@ from .worker import Opened, Operation
 
 
 class _AnnotationEdit(QUndoCommand):
-    def __init__(self, window, before, after, text):
+    def __init__(self, window, before, after, text, selected=None):
         super().__init__(text)
         self.window, self.before, self.after = window, before, after
+        self.before_selection = window.active_organoid
+        ids = [o.organoid_id for o in after.organoids]
+        desired = selected if selected is not None else self.before_selection
+        self.after_selection = desired if desired in ids else (ids[-1] if ids else None)
 
     def undo(self):
-        self.window.set_annotations(self.before)
+        self.window.set_annotations(self.before, self.before_selection)
 
     def redo(self):
-        self.window.set_annotations(self.after)
+        self.window.set_annotations(self.after, self.after_selection)
 
 
 class _LogBridge(QObject):
@@ -483,9 +487,12 @@ class MainWindow(QMainWindow):
             checkpoint_path=Path(checkpoint).expanduser().absolute() if checkpoint else None,
         )
 
-    def set_annotations(self, annotations):
+    def set_annotations(self, annotations, selected=None):
         self.annotations = annotations
-        self.active_organoid = annotations.organoids[-1].organoid_id if annotations.organoids else None
+        ids = [o.organoid_id for o in annotations.organoids]
+        desired = selected if selected is not None else self.active_organoid
+        self.active_organoid = desired if desired in ids else (ids[-1] if ids else None)
+        self.tree.blockSignals(True)
         self.tree.clear()
         for organoid in annotations.organoids:
             parent = QTreeWidgetItem([f"Organoid {organoid.organoid_id}"])
@@ -496,21 +503,26 @@ class MainWindow(QMainWindow):
                 child.setData(0, Qt.ItemDataRole.UserRole, ("cyst", cyst.cyst_id))
                 parent.addChild(child)
             parent.setExpanded(True)
+            if organoid.organoid_id == self.active_organoid:
+                self.tree.setCurrentItem(parent)
+        self.tree.blockSignals(False)
         self.counts.setText(f"{len(annotations.organoids)} organoids · {len(annotations.cysts)} cysts")
         self.render_frame()
         self._sync()
 
-    def edit_annotations(self, annotations, text):
+    def edit_annotations(self, annotations, text, selected=None):
         if not self.canvas.editable:
             return
-        self.undo_stack.push(_AnnotationEdit(self, self.annotations, annotations, text))
+        self.undo_stack.push(_AnnotationEdit(self, self.annotations, annotations, text, selected))
         self._sync()
 
     @Slot(float, float)
     def add_organoid(self, x, y):
         identifier = max((o.organoid_id for o in self.annotations.organoids), default=0) + 1
         self.edit_annotations(
-            AnnotationSet((*self.annotations.organoids, OrganoidAnnotation(identifier, (x, y)))), "Add organoid"
+            AnnotationSet((*self.annotations.organoids, OrganoidAnnotation(identifier, (x, y)))),
+            "Add organoid",
+            identifier,
         )
 
     @Slot(float, float, float, float)

@@ -13,9 +13,9 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-import cv2
 import numpy as np
 
+from ..core.video_decode import decode_frames
 from .session import SessionError
 from .video_source import VideoSource
 
@@ -30,20 +30,11 @@ def sha256_file(path: Path | str) -> str:
 
 def decode_video(path: Path | str) -> tuple[list[np.ndarray], float | None]:
     """Every frame of the file as an RGB array in decoded order, and the nominal frame rate."""
-    cap = cv2.VideoCapture(str(path))
-    if not cap.isOpened():
-        raise SessionError(f"cannot open video file: {path}")
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    frames: list[np.ndarray] = []
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    cap.release()
-    if not frames:
-        raise SessionError(f"no frames could be decoded from: {path}")
-    return frames, float(fps) if fps else None
+    try:
+        frames, fps, _indexed_count = decode_frames(path)
+    except ValueError as error:
+        raise SessionError(str(error)) from error
+    return frames, fps or None
 
 
 def load_video_frames(path: Path | str, video: VideoSource) -> list[np.ndarray]:

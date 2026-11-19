@@ -119,7 +119,7 @@ class OrganoidCSVExporter:
                     "Max_Area_um2": round(max(areas_um2), 2) if areas_um2 else 0,
                     "Mean_Area_um2": round(np.mean(areas_um2), 2) if areas_um2 else 0,
                     "Mean_Circularity": round(np.mean(circularities), 4) if circularities else 0,
-                    "Growth_Rate_um2_per_day": round(growth_rate, 4),
+                    "Growth_Rate_um2_per_day": round(growth_rate, 4) if growth_rate is not None else None,
                 }
 
                 summary_rows.append(row)
@@ -179,9 +179,9 @@ class OrganoidCSVExporter:
                         time_span = experiment.get_time_at_frame(sorted_frames[-1]) - experiment.get_time_at_frame(
                             sorted_frames[0]
                         )
-                        growth_rate = (final_area - initial_area) / time_span if time_span > 0 else 0
+                        growth_rate = (final_area - initial_area) / time_span if time_span > 0 else None
                     else:
-                        growth_rate = 0
+                        growth_rate = None
                 else:
                     initial_area = final_area = max_area = mean_area = growth_rate = 0
             else:
@@ -196,7 +196,7 @@ class OrganoidCSVExporter:
                 "Final_Total_Area_um2": round(final_area, 2),
                 "Max_Total_Area_um2": round(max_area, 2),
                 "Mean_Total_Area_um2": round(mean_area, 2),
-                "Growth_Rate_um2_per_day": round(growth_rate, 4),
+                "Growth_Rate_um2_per_day": round(growth_rate, 4) if growth_rate is not None else None,
             }
 
             organoid_rows.append(row)

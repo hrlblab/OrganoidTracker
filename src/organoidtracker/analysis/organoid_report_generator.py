@@ -541,11 +541,13 @@ class OrganoidAnalysisReportGenerator:
                 "organoids_with_cysts": sum(1 for org in experiment.organoids.values() if len(org.cysts) > 0),
             },
             "growth_statistics": {
+                "estimable_cysts": sum(experiment.growth_rate_per_day(c) is not None for c in all_cysts),
+                "estimable_organoids": len(growth_rate_values),
                 "mean_growth_rate_um2_per_day": round(sum(growth_rate_values) / len(growth_rate_values), 4)
                 if growth_rate_values
-                else 0,
-                "max_growth_rate_um2_per_day": round(max(growth_rate_values), 4) if growth_rate_values else 0,
-                "min_growth_rate_um2_per_day": round(min(growth_rate_values), 4) if growth_rate_values else 0,
+                else None,
+                "max_growth_rate_um2_per_day": round(max(growth_rate_values), 4) if growth_rate_values else None,
+                "min_growth_rate_um2_per_day": round(min(growth_rate_values), 4) if growth_rate_values else None,
             },
             "output_files": {"csv_files": csv_paths, "visualizations": viz_paths, "pdf_report": pdf_path},
             "validation_results": validation_results,

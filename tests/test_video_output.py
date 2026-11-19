@@ -83,3 +83,14 @@ def test_optimized_videos_create_a_missing_output_directory(tmp_path):
     created = gen.create_optimized_multi_object_videos(frames(), packed_segments(), target, fps=2.0, quality_scale=1.0)
     assert all(created.values()) and target.is_dir()
     assert len(read_video(created["overlay"])) == N
+
+
+@pytest.mark.parametrize("identifier", [20, 21, 10001])
+def test_all_positive_identifiers_are_visible_in_encoded_videos(tmp_path, identifier):
+    result = {k: {identifier: PackedMask(square_mask(k))} for k in range(N)}
+    created = VideoOutputGenerator().create_optimized_multi_object_videos(frames(), result, tmp_path)
+    for kind, path in created.items():
+        encoded = read_video(path)
+        pixels = encoded[0][:, W:] if kind == "side_by_side" else encoded[0]
+        inside = pixels[square_slice(0)].mean(axis=(0, 1))
+        assert inside.max() > (100 if kind == "mask" else 70), kind

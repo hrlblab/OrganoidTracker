@@ -707,7 +707,7 @@ class OrganoidVisualizationSuite:
 
             # Sort by individual cyst growth rate (highest to lowest) across all cysts
             # This shows the true growth rate ranking regardless of organoid grouping
-            cyst_growth_data.sort(key=lambda x: -x["growth_rate"])
+            cyst_growth_data.sort(key=lambda x: (x["growth_rate"] is None, -(x["growth_rate"] or 0)))
 
             sorted_cysts = [data["cyst"] for data in cyst_growth_data]
             sorted_growth_rates = [data["growth_rate"] for data in cyst_growth_data]
@@ -799,7 +799,7 @@ class OrganoidVisualizationSuite:
             # Growth rate bar chart (individual cyst growth rates)
             if sorted_growth_rates:
                 # Categorize individual cyst growth rates
-                rates_array = np.array(sorted_growth_rates)
+                rates_array = np.array([rate for rate in sorted_growth_rates if rate is not None])
                 if len(rates_array) > 1:
                     # Use percentiles for categorization
                     low_threshold = np.percentile(rates_array, 33)
@@ -807,7 +807,9 @@ class OrganoidVisualizationSuite:
 
                     colors = []
                     for rate in sorted_growth_rates:
-                        if rate <= low_threshold:
+                        if rate is None:
+                            colors.append("gray")
+                        elif rate <= low_threshold:
                             colors.append(self.color_schemes["organoid_groups"][2])  # Slow - green
                         elif rate <= high_threshold:
                             colors.append(self.color_schemes["organoid_groups"][1])  # Medium - orange
@@ -819,7 +821,15 @@ class OrganoidVisualizationSuite:
                 # Y-positions should match heatmap row order (top = highest growth rate)
                 # Since matplotlib puts y=0 at bottom, we need to reverse the positions
                 y_positions = list(range(n_cysts - 1, -1, -1))  # [n-1, n-2, ..., 1, 0]
-                ax_bar.barh(y_positions, sorted_growth_rates, color=colors, alpha=0.7)
+                ax_bar.barh(
+                    y_positions,
+                    [np.nan if rate is None else rate for rate in sorted_growth_rates],
+                    color=colors,
+                    alpha=0.7,
+                )
+                for position, rate in zip(y_positions, sorted_growth_rates):
+                    if rate is None:
+                        ax_bar.text(0, position, "N/A", va="center", fontsize=9, color="gray")
 
                 # Always show growth rate axis label and ticks (override text disabling for this specific chart)
                 ax_bar.set_xlabel("Growth Rate (μm²/day)", fontsize=12, fontweight="bold")

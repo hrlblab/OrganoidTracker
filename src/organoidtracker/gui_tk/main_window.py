@@ -27,6 +27,7 @@ from ..core.sam2_tracker import checkpoint_filename
 from ..services.analysis_service import AnalysisService
 from ..services.annotations import AnnotationError, AnnotationSet, CystAnnotation
 from ..services.export_service import DEFAULT_RUN_ROOT, ExportError, ExportService, new_run_directory
+from ..services.pipeline import export_saved_result
 from ..services.prompt_record import build_prompt_record
 from ..services.saved_results import SavedResult, load_saved_result
 from ..services.session import Calibration, SessionError, Timing, TrackingSpec, session_from_document
@@ -2269,6 +2270,14 @@ class VideoTrackerApp:
             self.log_event("❌ Invalid analysis parameters")
             return
 
+        target = Path(output_dir).resolve()
+        source_saved = self.opened.saved if self.opened is not None else None
+        if ExportService(target).previous_saved_run() and (
+            source_saved is None or target != source_saved.directory.resolve()
+        ):
+            self.set_status("Choose a new report directory; this directory already holds a saved run")
+            return
+
         if self.opened is None:
             # The saved run follows the inputs and annotations of its report, so that exporting it again agrees
             run, _problem = self._capture_saved_run()
@@ -2297,18 +2306,31 @@ class VideoTrackerApp:
 
         def analysis_thread():
             try:
-                # The same measurements and files as a headless run of this session
-                annotations = AnnotationSet.from_organoid_data(organoid_data)
-                analysis = AnalysisService().analyze(
-                    result,
-                    annotations,
-                    Calibration(conversion_factor),
-                    timing,
-                    debug_mode=debug,
-                )
-                analysis_summary = ExportService(output_dir).write_report(
-                    analysis, debug_mode=debug, original_frames=frames
-                )
+                if source_saved is not None:
+                    # Reopened runs share the CLI's provenance, ownership and reanalysis contract.
+                    calibration = Calibration(conversion_factor)
+                    outcome = export_saved_result(
+                        source_saved,
+                        output_dir,
+                        videos=False,
+                        overwrite=True,
+                        debug=debug,
+                        calibration=calibration if calibration != source_saved.session.calibration else None,
+                        timing=timing if timing != source_saved.session.timing else None,
+                    )
+                    analysis_summary = outcome.summary
+                else:
+                    annotations = AnnotationSet.from_organoid_data(organoid_data)
+                    analysis = AnalysisService().analyze(
+                        result,
+                        annotations,
+                        Calibration(conversion_factor),
+                        timing,
+                        debug_mode=debug,
+                    )
+                    analysis_summary = ExportService(output_dir).write_report(
+                        analysis, debug_mode=debug, original_frames=frames
+                    )
 
                 analysis_time = time.time() - start_time
 
@@ -2371,7 +2393,7 @@ class VideoTrackerApp:
 
         # Display growth statistics
         growth = analysis_summary.get("growth_statistics", {})
-        if growth.get("mean_growth_rate_um2_per_day", 0) > 0:
+        if growth.get("mean_growth_rate_um2_per_day") is not None:
             self.log_event("📈 Growth Statistics:")
             self.log_event(f"   • Mean Growth Rate: {growth.get('mean_growth_rate_um2_per_day', 0):.4f} μm²/day")
             self.log_event(f"   • Max Growth Rate: {growth.get('max_growth_rate_um2_per_day', 0):.4f} μm²/day")

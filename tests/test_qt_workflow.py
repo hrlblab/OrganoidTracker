@@ -320,3 +320,26 @@ def test_import_missing_source_session_relocates_with_hash_check(
         else:
             assert window.opened is previous
             assert "match" in window.banner.text().lower()
+
+
+def test_selected_organoid_survives_two_boxes_and_undo(window, small_disc, small_video):
+    opened(window, small_disc, small_video)
+    window.set_annotations(AnnotationSet(()))
+    window.add_organoid(20, 20)
+    window.add_organoid(60, 60)
+    assert window.active_organoid == 2
+    window.tree.setCurrentItem(window.tree.topLevelItem(0))
+    window.add_cyst(10, 10, 25, 25)
+    window.add_cyst(30, 30, 45, 45)
+    assert [len(o.cysts) for o in window.current_session().annotations.organoids] == [2, 0]
+    assert window.active_organoid == 1
+    window.undo_stack.undo()
+    window.undo_stack.redo()
+    assert window.active_organoid == 1
+    window.tree.setCurrentItem(window.tree.topLevelItem(0))
+    window.remove_selected()
+    assert window.active_organoid == 2
+    window.undo_stack.undo()
+    assert window.active_organoid == 1
+    window.undo_stack.redo()
+    assert window.active_organoid == 2

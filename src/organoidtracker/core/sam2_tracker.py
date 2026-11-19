@@ -279,25 +279,9 @@ class SAM2Tracker(BaseVideoTracker):
             raise RuntimeError("Model not loaded. Call load_model() first.")
 
         logger.info(f"Loading video: {video_path}")
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise ValueError(f"Cannot open video file: {video_path}")
+        from .video_decode import decode_frames
 
-        self.fps = cap.get(cv2.CAP_PROP_FPS)
-        reported_frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-        frames: list[np.ndarray] = []
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            if max_frames and len(frames) >= max_frames:
-                break
-        cap.release()
-
-        if not frames:
-            raise ValueError(f"No frames could be decoded from: {video_path}")
+        frames, self.fps, reported_frame_count = decode_frames(video_path, max_frames)
 
         decoded = len(frames)
         keep = self._unique_frame_indices(frames) if self.collapse_duplicates else list(range(decoded))
@@ -475,7 +459,9 @@ class SAM2Tracker(BaseVideoTracker):
             for out_frame_idx, out_obj_ids, out_mask_logits in self.predictor.propagate_in_video(
                 self.inference_state,
                 start_frame_idx=self.annotation_frame_index,
-                reverse=self.enable_reverse_tracking,
+                # Upstream reverse propagation starts below frame zero for a singleton.
+                # Forward propagation visits the same prompted frame exactly once.
+                reverse=self.enable_reverse_tracking and len(self.video_frames) > 1,
             ):
                 frame_idx = int(out_frame_idx)
                 frame_masks = {}

@@ -1699,3 +1699,56 @@ def test_a_manual_save_runs_in_a_thread_the_interpreter_waits_for(app, monkeypat
     finally:
         release.set()
     assert mask_digests(load_saved_result(save_dir).result) == mask_digests(app.video_segments)
+
+
+def test_tk_changed_calibration_requires_copy_and_refreshes_manifest(
+    app, monkeypatch, small_disc, small_video, tmp_path
+):
+    from organoidtracker.gui_tk import main_window
+    from organoidtracker.services.saved_results import load_saved_result
+    from test_services import make_session
+
+    outcome = run_session(
+        make_session(small_disc, small_video),
+        tmp_path / "source",
+        videos=False,
+        tracking_service_factory=lambda spec: TrackingService(FakeTracker(small_disc)),
+    )
+    app.on_results_opened(outcome.saved_result, None, "synthetic run", 0)
+    original = {p: p.read_bytes() for p in outcome.output_dir.rglob("*") if p.is_file()}
+    app.conversion_factor_var.set(2)
+    events = []
+    success, failure = app.on_organoid_analysis_complete_success, app.on_organoid_analysis_complete_error
+
+    def succeeded(*args):
+        events.append("success")
+        success(*args)
+
+    def failed(*args):
+        events.append("failure")
+        failure(*args)
+
+    monkeypatch.setattr(app, "on_organoid_analysis_complete_success", succeeded)
+    monkeypatch.setattr(app, "on_organoid_analysis_complete_error", failed)
+
+    def export(directory):
+        monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(directory))
+        app.generate_analysis_report()
+
+    TkDriver(app.root).step(
+        "refuse changed inputs in place", lambda: export(outcome.output_dir), lambda: bool(events), 60
+    ).run()
+    assert events == ["failure"]
+    assert all(p.read_bytes() == value for p, value in original.items())
+    target = tmp_path / "new-analysis"
+    TkDriver(app.root).step("export new analysis", lambda: export(target), lambda: len(events) == 2, 60).run()
+    assert events == ["failure", "success"]
+    saved = load_saved_result(target)
+    assert saved.session.calibration.um_per_pixel == 2
+    manifest = json.loads((target / "run_manifest.json").read_text())
+    assert manifest["session"]["calibration"]["um_per_pixel"] == 2
+    assert (
+        manifest["files"]["raw_cyst_data.csv"]["sha256"]
+        == hashlib.sha256((target / "raw_cyst_data.csv").read_bytes()).hexdigest()
+    )
+    assert all(p.read_bytes() == value for p, value in original.items())

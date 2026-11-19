@@ -89,3 +89,14 @@ def test_clearing_one_object_keeps_the_other(reverse_tracker, disc, disc_video_p
     result = tracker.run_tracking()
     assert result.object_ids() == [1]
     assert iou(result[n - 1][1].numpy(), disc.disc_mask(n - 1)) > 0.8
+
+
+def test_reverse_single_timepoint_retains_prompt_mask(reverse_tracker, disc, tmp_path):
+    source = disc.write(tmp_path / "repeated.mp4", repeat_pattern=[0, 0, 0])
+    info = reverse_tracker.load_video(str(source))
+    assert info["num_frames"] == 1 and info["decoded_frames"] == 3
+    assert reverse_tracker.add_bbox_prompt(*disc.box(0), obj_id=1)
+    result = reverse_tracker.run_tracking()
+    assert result.status == "completed" and result.frames_done == result.frames_total == 1
+    assert result.direction == "reverse" and result.tracked_frames == [0]
+    assert iou(result[0][1].numpy(), disc.disc_mask(0)) > 0.8
