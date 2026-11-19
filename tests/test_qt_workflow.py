@@ -614,3 +614,95 @@ def test_wrapped_status_lines_keep_the_height_their_text_needs(window, qtbot):
     before = status.minimumHeight()
     window.update_checkpoint_status()  # the container refreshes this every two seconds
     assert status.minimumHeight() == before
+
+
+def test_confirming_days_keeps_the_calibration_entered_before_it(window, small_disc, small_video, qtbot):
+    """Confirmation wrote the previous calibration back into the field, and the run measured with it."""
+    import csv
+
+    opened(window, small_disc, small_video)  # annotated and confirmed at 1 µm/pixel
+    window.calibration.setText("2")
+    window.explicit_times.setText("1, 1.2, 1.7, 2.8, 3, 4.4, 5.9, 9")
+    window.confirm_frames()  # the same frames with corrected days: annotations stay
+    assert float(window.calibration.text()) == 2 and len(window.annotations.cysts) == 1
+    assert window.current_session().calibration.um_per_pixel == 2
+    window.calibration.setText("0")
+    with pytest.raises(ValueError, match="um_per_pixel|calibration"):
+        window.confirm_frames()
+    assert window.calibration.text() == "0" and window.opened.session.calibration.um_per_pixel == 2
+    window.calibration.setText("2")
+    window.start_tracking()
+    qtbot.waitUntil(lambda: not window.busy, timeout=60000)
+    saved = load_saved_result(window.opened.saved.path)
+    assert saved.session.calibration.um_per_pixel == 2 and saved.session.timing.frame_times_days[-1] == 9
+    with (saved.directory / "raw_cyst_data.csv").open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert rows
+    for row in rows:  # 2 µm/pixel: every written area is four times its mask's pixel count
+        pixels = int(saved.result[int(row["Frame"])][int(row["Cyst_ID"])].numpy().sum())
+        assert pixels > 0 and float(row["Area_um2"]) == 4 * pixels
+
+
+def test_first_confirmation_keeps_the_calibration_entered_before_it(window, small_disc, small_video):
+    from organoidtracker.services.session import Timing, VideoReference
+
+    session = replace(
+        make_session(small_disc, small_video),
+        video=VideoReference(small_video),
+        annotations=AnnotationSet(()),
+        timing=Timing(time_lapse_days=6),
+    )
+    window.use_opened(preview_session(session))
+    window.source_indices.setText("1, 3, 5, 8")
+    window.explicit_times.setText("1, 2, 4, 7")
+    window.calibration.setText("1.6934")
+    window.confirm_frames()  # other frames than the preview's: the window reopens the selection
+    assert window.opened.source.frame_map == (0, 2, 4, 7) and window.calibration.text() == "1.6934"
+    window.add_organoid(20, 20)
+    window.add_cyst(10, 10, 30, 30)
+    assert window.current_session().calibration.um_per_pixel == 1.6934
+
+
+def test_reports_export_from_saved_masks_after_the_source_video_moved(
+    window, small_disc, small_video, qtbot, tmp_path, monkeypatch
+):
+    """The window named the recorded video path as a relocation, which made a report-only export read it."""
+    import shutil
+
+    from PySide6.QtWidgets import QFileDialog
+
+    session = opened(window, small_disc, small_video)
+    source = tmp_path / "source.mp4"
+    shutil.copyfile(small_video, source)
+    saved = run(session.with_video(source), tmp_path / "run", small_disc).saved_result
+    moved = tmp_path / "moved.mp4"
+    source.rename(moved)
+    window._begin("open", path=saved.path)
+    qtbot.waitUntil(lambda: not window.busy, timeout=15000)
+    assert not window.opened.frames and not window.videos.isChecked()
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path / "copies"))
+    window.export_copy()
+    qtbot.waitUntil(lambda: not window.busy, timeout=60000)
+    assert window.banner.text().startswith("Completed"), window.banner.text()
+    first = load_saved_result(window.opened.saved.path)
+    assert first.directory.parent == tmp_path / "copies" and first.session.video.path == source  # not relocated
+    assert (first.directory / "organoid_analysis_report.pdf").stat().st_size > 1000
+    assert (first.directory / "raw_cyst_data.csv").read_bytes() == (saved.directory / "raw_cyst_data.csv").read_bytes()
+    assert mask_digests(first.result) == mask_digests(saved.result)
+    # Videos still need the video: asking for them without it fails and writes no second copy.
+    window.videos.setChecked(True)
+    window.export_copy()
+    qtbot.waitUntil(lambda: not window.busy, timeout=60000)
+    assert "video not found" in window.banner.text()
+    assert len(list((tmp_path / "copies").rglob("organoid_analysis_report.pdf"))) == 1
+    # A re-analysis typed before locating the video survives it; the located video is checked and recorded.
+    window.calibration.setText("2")
+    window._begin("relocate", saved=window.opened.saved, path=moved)
+    qtbot.waitUntil(lambda: not window.busy, timeout=15000)
+    assert len(window.opened.frames) == 8 and window.calibration.text() == "2"
+    window.videos.setChecked(True)
+    window.export_copy()
+    qtbot.waitUntil(lambda: not window.busy, timeout=60000)
+    second = load_saved_result(window.opened.saved.path)
+    assert second.session.video.path == moved and second.session.calibration.um_per_pixel == 2
+    assert (second.directory / "videos" / "multi_object_overlay.mp4").is_file()

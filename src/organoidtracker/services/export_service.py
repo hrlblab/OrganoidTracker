@@ -644,6 +644,9 @@ class ExportService:
             outputs.get("cyst_key"),
             *video_paths.values(),
         ]
+        # A figure saved as SVG has a PNG beside it for the PDF and the desktop viewer: an output too.
+        companions = [Path(path).with_suffix(".png") for path in outputs["visualizations"].values() if path]
+        paths += [png for png in companions if png.is_file() and str(png) not in paths]
         names = [Path(path).resolve().relative_to(self.output_dir.resolve()).as_posix() for path in paths if path]
         names += [SESSION_NAME, PROMPT_RECORD_NAME, RESULTS_NAME, "analysis_summary.json"]
         if debug:

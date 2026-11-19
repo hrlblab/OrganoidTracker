@@ -615,7 +615,16 @@ class MainWindow(QMainWindow):
                 )
             )
         elif isinstance(operation.value, Opened):
+            # Locating the moved video of a saved result opens nothing new: the calibration and the
+            # days entered for a re-analysis stay as typed.
+            typed = (
+                [(field, field.text()) for field in (self.calibration, self.duration, self.explicit_times)]
+                if operation.action == "relocate"
+                else []
+            )
             self.use_opened(operation.value)
+            for field, text in typed:
+                field.setText(text)
         else:
             self._use_saved(operation.value.saved_result)
             self._set_banner(
@@ -828,6 +837,9 @@ class MainWindow(QMainWindow):
             video=video,
             timing=Timing(frame_times_days=tuple(days)),
             tracking=self.tracking_spec(),
+            # Like the tracking choices, the calibration is what the window shows now: the fields are
+            # written back from this session below, which must not undo a value entered before confirming.
+            calibration=self.selected_calibration(),
             annotations=self.annotations,
         )
         self._selection_hint = ""
@@ -1175,6 +1187,7 @@ class MainWindow(QMainWindow):
             return
         output = new_run_directory(session.video.path, uuid.uuid4().hex[:12], self.output_path(path))
         output.mkdir(parents=True, exist_ok=False)
+        relocated = Path(session.video.path) != Path(self.opened.saved.session.video.path)
         self._begin(
             "export",
             saved=self.opened.saved,
@@ -1183,7 +1196,9 @@ class MainWindow(QMainWindow):
             video_quality=self.quality.currentText(),
             calibration=session.calibration,
             timing=session.timing,
-            video_path=session.video.path,
+            # Only a video relocated in this window is passed on: naming the recorded path would make
+            # the export read a video that a report without videos does not need (it may be gone).
+            video_path=session.video.path if relocated else None,
         )
 
     def open_report_folder(self):

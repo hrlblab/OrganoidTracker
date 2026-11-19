@@ -523,3 +523,59 @@ def test_cli_explicit_selection_override_and_invalid_indices(monkeypatch, small_
         == 2
     )
     assert not (tmp_path / "invalid" / "results.json").exists()
+
+
+def test_frame_options_cannot_move_a_confirmed_session_to_other_frames(
+    monkeypatch, small_disc, small_video, tmp_path, caplog
+):
+    """A confirmed session's boxes and days belong to its frames: another selection is refused, not tracked."""
+    use_fake_backend(monkeypatch, small_disc)
+    indices, days = [0, 2, 4, 7], [1, 2, 4, 7]
+    session = session_file(
+        tmp_path,
+        small_disc,
+        small_video,
+        video={
+            "path": small_video.name,
+            "sha256": hashlib.sha256(small_video.read_bytes()).hexdigest(),
+            "frame_indices": indices,
+            "decoded_frames": N,
+        },
+        timing={"frame_times_days": days},
+    )
+
+    def attempt(name, frames, decoded, command="run"):
+        extra = ["--reference", str(tmp_path / "same")] if command == "bench" else []
+        arguments = [command, "--session", str(session), "--out", str(tmp_path / name), "--no-videos", *extra]
+        return cli.main([*arguments, "--frames", frames, "--decoded-frames", decoded])
+
+    # The same number of frames, so the recorded days would fit: only the last source frame differs.
+    assert attempt("moved", "1,3,5,7", "8") == 2
+    assert "differ from the selection this session confirmed (frames 1, 3, 5, 8 of 8)" in caplog.text
+    assert attempt("recount", "1,3,5,8", "9") == 2
+    for name in ("moved", "recount"):
+        assert not any((tmp_path / name).glob("*.json")), name  # nothing was tracked or saved
+    # Repeating the confirmed selection is not a change.
+    assert attempt("same", "1,3,5,8", "8") == 0
+    from organoidtracker.services.saved_results import load_saved_result
+
+    saved = load_saved_result(tmp_path / "same")
+    assert saved.video.frame_map == tuple(indices) and saved.session.timing.frame_times_days == tuple(days)
+    assert attempt("bench", "1,3,5,7", "8", command="bench") == 2
+
+
+def test_validate_rejects_days_that_do_not_match_the_selected_frames(tmp_path, small_disc, small_video, capsys):
+    video = {
+        "path": small_video.name,
+        "sha256": hashlib.sha256(small_video.read_bytes()).hexdigest(),
+        "frame_indices": [0, 7],
+        "decoded_frames": N,
+    }
+    path = session_file(tmp_path, small_disc, small_video, video=video, timing={"frame_times_days": [1, 4, 8]})
+    assert cli.main(["validate", "--session", str(path)]) == 2
+    captured = capsys.readouterr()
+    assert "3 values but the video has 2 selected frames" in captured.err and "valid\n" not in captured.out
+    # Whatever validate accepts, run accepts: the same session with one day per selected frame.
+    path = session_file(tmp_path, small_disc, small_video, video=video, timing={"frame_times_days": [1, 8]})
+    assert cli.main(["validate", "--session", str(path)]) == 0
+    assert capsys.readouterr().out.endswith("valid\n")

@@ -47,9 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--backend", choices=["sam2", "hf-sam2"], default=None, help="tracking backend")
     run.add_argument("--checkpoint", type=Path, default=None, help="checkpoint file, or local HF snapshot directory")
     run.add_argument(
-        "--frames", help="confirmed source frame numbers, 1-based, comma-separated (for example 1,3,4,6,7,9,10)"
+        "--frames",
+        help="for a session without a frame selection: its confirmed source frame numbers, 1-based, "
+        "comma-separated (for example 1,3,4,6,7,9,10)",
     )
-    run.add_argument("--decoded-frames", type=int, help="confirmed total number of decoded source frames")
+    run.add_argument("--decoded-frames", type=int, help="with --frames: the total number of decoded source frames")
     run.add_argument("--no-videos", action="store_true", help="skip the overlay, mask and side-by-side videos")
     run.add_argument("--video-quality", default="original", choices=["original", "mid", "low"])
     run.add_argument("--overwrite", action="store_true", help="allow writing into a directory that holds a run")
@@ -141,6 +143,12 @@ def _validate(session_path: Path, video_override: Path | None) -> int:
         print(f"invalid: {error}", file=sys.stderr)
         return EXIT_INVALID
     print(f"video sha256: {digest}" + ("" if session.video.sha256 else " (not recorded in the session)"))
+    if session.video.frame_indices is not None:
+        try:  # the same check a run makes before it writes anything
+            session.timing.resolve(len(session.video.frame_indices))
+        except SessionError as error:
+            print(f"invalid: {error}", file=sys.stderr)
+            return EXIT_INVALID
     print(
         "valid"
         if session.video.frame_indices is not None
@@ -181,14 +189,25 @@ def _run(args: argparse.Namespace, config) -> int:
         if args.frames is not None or args.decoded_frames is not None:
             if args.frames is None or args.decoded_frames is None:
                 raise SessionError("--frames and --decoded-frames are required together")
-            session = replace(
-                session,
-                video=replace(
-                    session.video,
-                    frame_indices=tuple(int(i.strip()) - 1 for i in args.frames.split(",")),
-                    decoded_frames=args.decoded_frames,
-                ),
+            recorded = session.video
+            video = replace(
+                recorded,
+                frame_indices=tuple(int(i.strip()) - 1 for i in args.frames.split(",")),
+                decoded_frames=args.decoded_frames,
             )
+            if recorded.frame_indices is not None and (video.frame_indices, video.decoded_frames) != (
+                recorded.frame_indices,
+                recorded.decoded_frames,
+            ):
+                # The boxes and the acquisition days of a confirmed session belong to its frames.
+                raise SessionError(
+                    "--frames and --decoded-frames differ from the selection this session confirmed (frames "
+                    f"{', '.join(str(i + 1) for i in recorded.frame_indices)} of {recorded.decoded_frames}): "
+                    "its boxes and acquisition days belong to those frames. The options complete an older "
+                    "session that has no selection; to track other frames, confirm them in the application, "
+                    "which asks for their days and for new boxes"
+                )
+            session = replace(session, video=video)
         if args.device or args.model or args.backend or args.checkpoint:
             session = replace(
                 session,

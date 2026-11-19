@@ -495,3 +495,27 @@ def test_saved_session_and_prompt_record_replay_from_any_directory(small_disc, s
     replay = load_session(outcome.output_dir / "prompts.json")
     assert replay.video.path.is_file() and replay.tracking.checkpoint_path == inputs / "weights.pt"
     assert replay.tracking.checkpoint_path.is_file()
+
+
+def test_the_manifest_lists_the_png_written_beside_every_svg_figure(small_disc, small_video, tmp_path, monkeypatch):
+    """The PDF and the desktop viewer read those PNGs; the inventory named only the SVGs."""
+    from organoidtracker.analysis import organoid_visualizations as plots
+
+    monkeypatch.setattr(plots, "VISUALIZATION_FORMAT", "svg")
+    out = run(make_session(small_disc, small_video), tmp_path / "run", small_disc).output_dir
+    note = out / "visualizations" / "my notes.png"
+    note.write_bytes(b"not an export")
+    listed = json.loads((out / "run_manifest.json").read_text())["files"]
+    written = {path.relative_to(out).as_posix() for path in (out / "visualizations").iterdir()} - {
+        "visualizations/my notes.png"
+    }
+    assert len(written) == 13 and written <= set(listed)
+    assert sum(name.endswith(".svg") for name in written) == 6 and sum(name.endswith(".png") for name in written) == 7
+    # An export over the run rewrites the figures and still leaves a file it did not write alone.
+    from organoidtracker.services.pipeline import export_saved_result
+    from organoidtracker.services.saved_results import load_saved_result
+
+    again = export_saved_result(load_saved_result(out), out, videos=False, overwrite=True)
+    assert again.exit_code == 0 and note.read_bytes() == b"not an export"
+    relisted = json.loads((out / "run_manifest.json").read_text())["files"]
+    assert written <= set(relisted) and "visualizations/my notes.png" not in relisted

@@ -20,6 +20,10 @@ from .organoid_csv_exporter import OrganoidCSVExporter
 from .organoid_cyst_data import ExperimentData
 from .organoid_visualizations import OrganoidVisualizationSuite
 
+# Time points a report lists in one table cell. A longer series gets a table of its own, in rows of
+# this many: a row cannot break across pages, so a cell holding every frame of a long series fails the PDF.
+MAPPING_ROW_POINTS = 30
+
 # Optional imports for enhanced reporting
 logger = logging.getLogger(__name__)
 
@@ -455,6 +459,33 @@ class OrganoidAnalysisReportGenerator:
             story.append(summary_table)
             story.append(Spacer(1, 20))
 
+            mapping_blocks = self._mapping_blocks(experiment, run)
+            if mapping_blocks:
+                story.append(Paragraph("Source Frames and Acquisition Days", styles["Heading2"]))
+                mapping_table = Table(
+                    [
+                        ["Time points", "Source frames", "Acquisition days"],
+                        *([block[0], *(Paragraph(text, cell_style) for text in block[1:])] for block in mapping_blocks),
+                    ],
+                    colWidths=[1.1 * inch, 2.45 * inch, 2.45 * inch],
+                    repeatRows=1,  # the rows continue over as many pages as the series needs
+                )
+                mapping_table.setStyle(
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("FONTSIZE", (0, 0), (-1, -1), 9),
+                            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                            ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                        ]
+                    )
+                )
+                story.append(mapping_table)
+                story.append(Spacer(1, 20))
+
             if key_image and Path(key_image).is_file():
                 try:
                     from reportlab.lib.utils import ImageReader
@@ -578,19 +609,54 @@ class OrganoidAnalysisReportGenerator:
             rows.append(("Model", str(source["model"])))
         if source.get("software"):
             rows.append(("Tracked with", str(source["software"])))
-        frame_map = list((run or {}).get("frame_map") or [])
-        if frame_map and len(frame_map) == experiment.total_frames:
+        frame_map = OrganoidAnalysisReportGenerator._frame_map(experiment, run)
+        if frame_map:
             total = source.get("decoded_frames")
+            numbers = [str(int(index) + 1) for index in frame_map]
+            days = [f"{day:g}" for day in experiment.frame_timestamps]
+            if len(frame_map) > MAPPING_ROW_POINTS:
+                # A table row cannot break across pages: the full list goes into its own table.
+                frames_text = f"{len(numbers)} frames, {numbers[0]} to {numbers[-1]}"
+                where = "; each frame and its day are listed under Source Frames and Acquisition Days below"
+                days_text = f"{days[0]} to {days[-1]}"
+            else:
+                frames_text, where, days_text = ", ".join(numbers), "", ", ".join(days)
             rows.append(
                 (
                     "Source frames",
-                    ", ".join(str(int(index) + 1) for index in frame_map)
+                    frames_text
                     + (f" of {total}" if total else "")
-                    + " (counted from 1 as in the window; the CSV columns Frame and Source_Frame count from 0)",
+                    + " (counted from 1 as in the window; the CSV columns Frame and Source_Frame count from 0"
+                    + where
+                    + ")",
                 )
             )
-            rows.append(("Acquisition days", ", ".join(f"{day:g}" for day in experiment.frame_timestamps)))
+            rows.append(("Acquisition days", days_text))
         return rows
+
+    @staticmethod
+    def _frame_map(experiment: ExperimentData, run: dict[str, Any] | None) -> list[int]:
+        """The source frame of every analyzed time point; empty when the run does not record one each."""
+        frame_map = list((run or {}).get("frame_map") or [])
+        return frame_map if len(frame_map) == experiment.total_frames else []
+
+    @staticmethod
+    def _mapping_blocks(experiment: ExperimentData, run: dict[str, Any] | None) -> list[list[str]]:
+        """Rows of a long frame-to-day list: time point range, source frames, days (empty when short)."""
+        frame_map = OrganoidAnalysisReportGenerator._frame_map(experiment, run)
+        if len(frame_map) <= MAPPING_ROW_POINTS:
+            return []
+        blocks = []
+        for start in range(0, len(frame_map), MAPPING_ROW_POINTS):
+            stop = min(start + MAPPING_ROW_POINTS, len(frame_map))
+            blocks.append(
+                [
+                    f"{start + 1} to {stop}",
+                    ", ".join(str(int(index) + 1) for index in frame_map[start:stop]),
+                    ", ".join(f"{day:g}" for day in experiment.frame_timestamps[start:stop]),
+                ]
+            )
+        return blocks
 
     def _create_analysis_summary(
         self,

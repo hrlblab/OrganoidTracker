@@ -1,6 +1,34 @@
 # Changelog
 
 
+## Unreleased — second review corrections
+
+No measurement changes for the same inputs: results version stays 5. The corrections stop two ways of
+giving a run other inputs than the ones shown or recorded.
+
+### Qt interface
+
+- Keep the calibration that is in its field when frames and days are confirmed. Confirmation wrote the
+  previous value back, so a run started afterwards measured areas with the old calibration (2 µm/pixel
+  entered, 1 µm/pixel used: every area a quarter of its value).
+- Export reports from saved masks when the source video has moved. The window named the recorded path
+  as a relocation, which made a report-only export read the missing video. Videos still need the video.
+- Keep the calibration and days entered for a re-analysis when the moved video of a saved result is located.
+
+### Command line
+
+- Refuse `--frames`/`--decoded-frames` that differ from the selection a session already confirmed
+  (exit 2, nothing written). They moved the session's boxes and acquisition days to other source frames
+  and the run still completed. Completing an older session without a selection is unchanged.
+- `validate` rejects a session whose `frame_times_days` count differs from its selected frames, as `run` does.
+
+### Reports and exports
+
+- List a series of more than 30 time points in a table of its own in the PDF, 30 time points per row.
+  One cell held every source frame, and past a page's height the PDF and so the whole export failed.
+  Reports of up to 30 time points are unchanged.
+- List the PNG written beside every SVG figure in `run_manifest.json`.
+
 ## Unreleased — usability review fixes
 
 No measurement changes: results version stays 5. `raw_cyst_data.csv` gains one trailing column, so it
