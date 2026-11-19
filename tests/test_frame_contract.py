@@ -60,10 +60,10 @@ def test_forward_mode_control(tiny_checkpoint, device, disc, disc_video_path):
         assert iou(result[k][1].numpy(), disc.disc_mask(k)) > 0.8
 
 
-def test_duplicated_frames_collapse_to_unique_time_points(reverse_tracker, disc, tmp_path):
+def test_explicit_selection_maps_to_acquisition_time_points(reverse_tracker, disc, tmp_path):
     pattern = [0, 0, 1, 2, 2, 3, 4, 4, 5, 6, 6, 7]  # 12 decoded frames, 8 unique
     path = disc.write(tmp_path / "dup.mp4", repeat_pattern=pattern)
-    info = reverse_tracker.load_video(str(path))
+    info = reverse_tracker.load_video(str(path), frame_indices=(0, 2, 3, 5, 6, 8, 9, 11), expected_decoded_frames=12)
     assert info["decoded_frames"] == 12 and info["num_frames"] == 8 and info["duplicate_frames_removed"] == 4
     assert info["frame_map"] == [0, 2, 3, 5, 6, 8, 9, 11]
     assert disc.closest_frame(reverse_tracker.get_first_frame()) == 7
@@ -93,7 +93,7 @@ def test_clearing_one_object_keeps_the_other(reverse_tracker, disc, disc_video_p
 
 def test_reverse_single_timepoint_retains_prompt_mask(reverse_tracker, disc, tmp_path):
     source = disc.write(tmp_path / "repeated.mp4", repeat_pattern=[0, 0, 0])
-    info = reverse_tracker.load_video(str(source))
+    info = reverse_tracker.load_video(str(source), frame_indices=(0,), expected_decoded_frames=3)
     assert info["num_frames"] == 1 and info["decoded_frames"] == 3
     assert reverse_tracker.add_bbox_prompt(*disc.box(0), obj_id=1)
     result = reverse_tracker.run_tracking()

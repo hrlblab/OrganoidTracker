@@ -53,6 +53,13 @@ def app(monkeypatch, small_disc, request, tmp_path):
     """
     from organoidtracker.gui_tk.main_window import VideoTrackerApp
 
+    monkeypatch.setattr(
+        "organoidtracker.gui_tk.main_window.choose_frames",
+        lambda parent, frames, span: (
+            tuple(range(len(frames))),
+            tuple(1 + i * span / max(len(frames) - 1, 1) for i in range(len(frames))),
+        ),
+    )
     monkeypatch.chdir(tmp_path)
     fake_kwargs = getattr(request, "param", {})
     monkeypatch.setattr(
@@ -134,6 +141,7 @@ def workflow(
             app.revert_last_action()
         if extra_empty_point is not None:
             app.on_canvas_click(*extra_empty_point)
+        app.frame_days_var.set("")
         app.time_lapse_var.set(time_lapse)
         app.conversion_factor_var.set(conversion)
         app.start_tracking()
@@ -188,7 +196,12 @@ def equivalent_session(video, organoids, time_lapse=7.0, conversion=1.0):
     return session_from_document(
         {
             "schema": "organoidtracker.session/1",
-            "video": {"path": str(video), "sha256": hashlib.sha256(video.read_bytes()).hexdigest()},
+            "video": {
+                "path": str(video),
+                "sha256": hashlib.sha256(video.read_bytes()).hexdigest(),
+                "frame_indices": list(range(N)),
+                "decoded_frames": N,
+            },
             "tracking": {"model_config": "sam2_hiera_s", "device": "cpu"},
             "calibration": {"um_per_pixel": conversion},
             "timing": {"time_lapse_days": time_lapse},
@@ -541,7 +554,12 @@ def test_window_opens_a_saved_run_without_a_model_and_exports_it(app, monkeypatc
     session = session_from_document(
         {
             "schema": "organoidtracker.session/1",
-            "video": {"path": str(small_video), "sha256": hashlib.sha256(small_video.read_bytes()).hexdigest()},
+            "video": {
+                "path": str(small_video),
+                "sha256": hashlib.sha256(small_video.read_bytes()).hexdigest(),
+                "frame_indices": list(range(N)),
+                "decoded_frames": N,
+            },
             "tracking": {"model_config": "sam2_hiera_s", "device": "cpu"},
             "calibration": {"um_per_pixel": 1.6934},
             "timing": {"frame_times_days": times},
@@ -1459,10 +1477,10 @@ def test_tracking_is_refused_while_a_video_loads(app, monkeypatch, small_disc, s
     release = threading.Event()
     original_open = TrackingService.open_video
 
-    def held_open(service, path):
+    def held_open(service, path, **kwargs):
         if Path(path) == other_video:
             release.wait(30)
-        return original_open(service, path)
+        return original_open(service, path, **kwargs)
 
     monkeypatch.setattr(TrackingService, "open_video", held_open)
     first = {}
@@ -1540,10 +1558,11 @@ def test_the_saved_run_follows_the_inputs_of_its_analysis_report(app, monkeypatc
         state["run_dir"] = run_dir = saved_run(app, app.tracking_run_id)
         state["masks"] = sorted(p.name for p in run_dir.glob("masks-*.npz"))
         saved = load_saved_result(run_dir)
-        assert saved.session.timing.time_lapse_days == 6.0 and saved.session.calibration.um_per_pixel == 1.0
+        assert saved.session.timing.resolve(N).time_lapse_days == 6.0 and saved.session.calibration.um_per_pixel == 1.0
 
     def report_into(directory, time_lapse):
         def request():
+            app.frame_days_var.set("")
             app.time_lapse_var.set(time_lapse)
             app.conversion_factor_var.set(2.0)
             monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(directory))
@@ -1632,6 +1651,7 @@ def test_a_report_requested_while_the_run_is_being_saved_updates_it_afterwards(
         return not app.tracking_in_progress and app.video_segments is not None and entered.is_set()
 
     def report_while_held():
+        app.frame_days_var.set("")
         app.time_lapse_var.set(14.0)
         monkeypatch.setattr(main_window.filedialog, "askdirectory", lambda *a, **k: str(report_dir))
         app.generate_analysis_report()
@@ -1752,3 +1772,87 @@ def test_tk_changed_calibration_requires_copy_and_refreshes_manifest(
         == hashlib.sha256((target / "raw_cyst_data.csv").read_bytes()).hexdigest()
     )
     assert all(p.read_bytes() == value for p, value in original.items())
+
+
+@pytest.mark.parametrize("edit", ["add", "undo", "clear"])
+def test_cyst_edits_invalidate_live_results_without_rewriting_saved_run(
+    app, monkeypatch, small_disc, small_video, edit
+):
+    from organoidtracker.services.saved_results import load_saved_result
+
+    box = tuple(int(v) for v in small_disc.box(N - 1))
+    state = {}
+
+    def edit_prompts():
+        directory = saved_run(app, app.tracking_run_id)
+        state["directory"] = directory
+        state["record"] = (directory / "results.json").read_bytes()
+        if edit == "add":
+            app.on_canvas_bbox(*box)
+        elif edit == "undo":
+            app.revert_last_action()
+        else:
+            app.clear_prompts()
+        app.generate_analysis_report()
+
+    (
+        _prepare_tracking(app, monkeypatch, small_video, box, (20, 20))
+        .step(
+            "track",
+            app.start_tracking,
+            lambda: not app.tracking_in_progress and app.video_segments is not None and not app.autosaves_in_progress,
+            60,
+        )
+        .step("edit", edit_prompts, None, 5)
+        .run()
+    )
+    assert app.video_segments is None and app.result_video is None
+    assert str(app.analysis_btn["state"]) == "disabled"
+    assert (state["directory"] / "results.json").read_bytes() == state["record"]
+    assert load_saved_result(state["directory"]).session.annotations.cyst_ids() == [1]
+
+
+def test_black_border_drag_does_not_reuse_an_earlier_press(app):
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    canvas = app.video_canvas
+    canvas.display_frame(np.zeros((100, 100, 3), dtype=np.uint8))
+    canvas.scale_factor, canvas.offset_x, canvas.offset_y = 1, 20, 20
+    boxes = []
+    canvas.set_bbox_callback(lambda *box: boxes.append(box))
+    canvas.on_mouse_press(SimpleNamespace(x=30, y=30))
+    canvas.on_mouse_release(SimpleNamespace(x=30, y=30))
+    canvas.on_mouse_press(SimpleNamespace(x=0, y=0))
+    canvas.on_mouse_drag(SimpleNamespace(x=100, y=100))
+    canvas.on_mouse_release(SimpleNamespace(x=100, y=100))
+    assert boxes == []
+
+
+def test_declined_export_replacement_preserves_existing_files(app, monkeypatch, tmp_path):
+    from organoidtracker.gui_tk import main_window
+
+    target = tmp_path / "raw_cyst_data.csv"
+    target.write_text("existing measurements")
+    monkeypatch.setattr(main_window.messagebox, "askyesno", lambda *a, **k: False)
+    assert not app._confirm_export_replacement(tmp_path)
+    assert target.read_text() == "existing measurements"
+
+
+def test_tk_daily_selection_dialog_requires_explicit_confirm(app):
+    import numpy as np
+
+    from organoidtracker.gui_tk.frame_selection import choose_frames
+
+    def accept():
+        dialog = next(widget for widget in app.root.winfo_children() if isinstance(widget, tkinter.Toplevel))
+        buttons = {
+            str(widget.cget("text")): widget for widget in dialog.winfo_children() if widget.winfo_class() == "TButton"
+        }
+        buttons["7 daily points (confirmed 11-frame export only)"].invoke()
+        buttons["Confirm frames and days"].invoke()
+
+    app.root.after(50, accept)
+    selected, days = choose_frames(app.root, [np.zeros((32, 32, 3), np.uint8) for _ in range(11)], 6)
+    assert selected == (0, 2, 3, 5, 6, 8, 9) and days == (1, 2, 3, 4, 5, 6, 7)

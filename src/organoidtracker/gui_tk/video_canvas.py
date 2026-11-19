@@ -42,6 +42,7 @@ class VideoCanvas:
         self.marker_counter = 0
 
         # Bounding box creation state
+        self.press_inside = False
         self.dragging = False
         self.drag_start_x = 0
         self.drag_start_y = 0
@@ -245,12 +246,15 @@ class VideoCanvas:
         if self.original_frame is None:
             return
 
+        self.press_inside = False
+        self.dragging = False
         # Convert to image coordinates
         image_coords = self.canvas_to_image_coords(event.x, event.y)
 
         if image_coords is None:
             return  # Click was outside image
 
+        self.press_inside = True
         # Store initial position for both click and drag detection
         self.drag_start_x = event.x
         self.drag_start_y = event.y
@@ -267,7 +271,7 @@ class VideoCanvas:
 
     def on_mouse_drag(self, event):
         """Handle mouse drag - update preview bounding box"""
-        if self.original_frame is None:
+        if self.original_frame is None or not self.press_inside:
             return
 
         # Calculate movement from start position
@@ -304,6 +308,10 @@ class VideoCanvas:
         """Handle mouse button release - either click or finalize bounding box"""
         if self.original_frame is None:
             return
+
+        if not self.press_inside:
+            return
+        self.press_inside = False
 
         # Clear preview
         if self.preview_bbox_id:

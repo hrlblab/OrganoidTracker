@@ -115,6 +115,11 @@ def run_session(
     exporter.video_export_parameters(video_quality)  # fail early on a bad quality name
     if not session.annotations.cysts:  # before anything is written: nothing to track
         raise AnnotationError("at least one cyst box is required to track")
+    if session.video.frame_indices is None:
+        raise SessionError(
+            "Confirm source frame selection before tracking: set video.frame_indices and video.decoded_frames, or use --frames and --decoded-frames"
+        )
+    session.timing.resolve(len(session.video.frame_indices))
     video_sha256 = check_video(session)
     exporter.prepare(overwrite=overwrite)
     exporter.write_session(session, video_sha256)
@@ -129,7 +134,11 @@ def run_session(
     timings["load_model_s"] = round(time.perf_counter() - started, 3)
 
     started = time.perf_counter()
-    source = service.open_video(session.video.path)
+    source = service.open_video(
+        session.video.path,
+        frame_indices=session.video.frame_indices,
+        expected_decoded_frames=session.video.decoded_frames,
+    )
     timings["load_video_s"] = round(time.perf_counter() - started, 3)
     if source.sha256 and source.sha256 != video_sha256:  # pragma: no cover - the file changed under us
         raise SessionError(f"video {session.video.path} changed while it was being read")

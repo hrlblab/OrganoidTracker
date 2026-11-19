@@ -46,6 +46,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--model", default=None, help="override the session's model size (sam2_hiera_t, _s, _b, _l)")
     run.add_argument("--backend", choices=["sam2", "hf-sam2"], default=None, help="tracking backend")
     run.add_argument("--checkpoint", type=Path, default=None, help="checkpoint file, or local HF snapshot directory")
+    run.add_argument(
+        "--frames", help="confirmed source frame numbers, 1-based, comma-separated (for example 1,3,4,6,7,9,10)"
+    )
+    run.add_argument("--decoded-frames", type=int, help="confirmed total number of decoded source frames")
     run.add_argument("--no-videos", action="store_true", help="skip the overlay, mask and side-by-side videos")
     run.add_argument("--video-quality", default="original", choices=["original", "mid", "low"])
     run.add_argument("--overwrite", action="store_true", help="allow writing into a directory that holds a run")
@@ -137,7 +141,11 @@ def _validate(session_path: Path, video_override: Path | None) -> int:
         print(f"invalid: {error}", file=sys.stderr)
         return EXIT_INVALID
     print(f"video sha256: {digest}" + ("" if session.video.sha256 else " (not recorded in the session)"))
-    print("valid")
+    print(
+        "valid"
+        if session.video.frame_indices is not None
+        else "valid legacy document; confirm source frames before tracking"
+    )
     return EXIT_OK
 
 
@@ -170,6 +178,17 @@ def _run(args: argparse.Namespace, config) -> int:
 
     try:
         session = _load(args.session, args.video)
+        if args.frames is not None or args.decoded_frames is not None:
+            if args.frames is None or args.decoded_frames is None:
+                raise SessionError("--frames and --decoded-frames are required together")
+            session = replace(
+                session,
+                video=replace(
+                    session.video,
+                    frame_indices=tuple(int(i.strip()) - 1 for i in args.frames.split(",")),
+                    decoded_frames=args.decoded_frames,
+                ),
+            )
         if args.device or args.model or args.backend or args.checkpoint:
             session = replace(
                 session,
@@ -186,7 +205,7 @@ def _run(args: argparse.Namespace, config) -> int:
             from .services.benchmark import Benchmark
 
             benchmark = Benchmark(session, args.reference)
-    except (SessionError, SavedResultError) as error:
+    except (ValueError, SavedResultError) as error:
         logger.error(f"Invalid session: {error}")
         return EXIT_INVALID
 

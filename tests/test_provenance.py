@@ -31,7 +31,7 @@ def test_tracker_provenance_names_software_and_mask_settings():
         "SAM2_MIN_CONFIDENCE",
         "SAM2_MEMORY_FRAMES",
     }
-    assert facts["collapse_duplicate_frames"] is True and facts["duplicate_threshold"] == 1.0
+    assert facts["collapse_duplicate_frames"] is False and facts["duplicate_threshold"] == 1.0
 
 
 def test_analysis_summary_carries_results_version_and_software():

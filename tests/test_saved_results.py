@@ -67,7 +67,12 @@ def make_session(disc, video, *, organoids=None, timing=None, calibration=CALIBR
     return session_from_document(
         {
             "schema": "organoidtracker.session/1",
-            "video": {"path": str(video), "sha256": hashlib.sha256(video.read_bytes()).hexdigest()},
+            "video": {
+                "path": str(video),
+                "sha256": hashlib.sha256(video.read_bytes()).hexdigest(),
+                "frame_indices": list(range(N)),
+                "decoded_frames": N,
+            },
             "tracking": {"model_config": "sam2_hiera_t", "device": "cpu"},
             "calibration": {"um_per_pixel": calibration},
             "timing": timing or {"frame_times_days": TIMES},

@@ -6,8 +6,8 @@ Implementation of BaseVideoTracker for the SAM 2 and SAM 2.1 model families.
 Frame contract
 --------------
 Every frame index that enters or leaves this module is a *chronological* index into
-``self.video_frames``, the unique frames of the video in acquisition order (consecutive
-near-identical frames produced by video generation are collapsed into one time point).
+``self.video_frames``, explicitly selected source frames in acquisition order. Without a
+selection the low-level loader retains every decoded frame; image similarity never defines time.
 With reverse tracking enabled, the user annotates the last chronological frame; prompts
 are placed on that frame and propagation runs backwards through time using the
 predictor's native reverse mode. Results are keyed by chronological frame index in both
@@ -185,8 +185,8 @@ class SAM2Tracker(BaseVideoTracker):
         self.config_file: str | None = None  # Hydra config name used by load_model
 
         # Duplicate-frame collapse (video generation can repeat frames)
-        self.collapse_duplicates = bool(_app_setting("COLLAPSE_DUPLICATE_FRAMES", True))
-        self.duplicate_threshold = float(_app_setting("DUPLICATE_FRAME_MAD_THRESHOLD", 1.0))
+        self.collapse_duplicates = False
+        self.duplicate_threshold = 1.0  # historical diagnostic only; never used for selection
 
         # Model and video state (the predictor type is only importable when SAM2 is available)
         self.predictor: Any = None
@@ -273,8 +273,15 @@ class SAM2Tracker(BaseVideoTracker):
         """Indices of frames that differ from their predecessor (mean absolute grayscale difference)."""
         return unique_frame_indices(frames, self.duplicate_threshold)
 
-    def load_video(self, video_path: str, max_frames: int | None = None) -> dict[str, Any]:
-        """Decode the video, collapse duplicated frames, and initialize the predictor state."""
+    def load_video(
+        self,
+        video_path: str,
+        max_frames: int | None = None,
+        *,
+        frame_indices: tuple[int, ...] | None = None,
+        expected_decoded_frames: int | None = None,
+    ) -> dict[str, Any]:
+        """Decode the video, validate the explicit selection, and initialize the predictor state."""
         if not self.is_loaded:
             raise RuntimeError("Model not loaded. Call load_model() first.")
 
@@ -284,7 +291,9 @@ class SAM2Tracker(BaseVideoTracker):
         frames, self.fps, reported_frame_count = decode_frames(video_path, max_frames)
 
         decoded = len(frames)
-        keep = self._unique_frame_indices(frames) if self.collapse_duplicates else list(range(decoded))
+        from .video_frames import selected_frame_indices
+
+        keep = selected_frame_indices(decoded, frame_indices, expected_decoded_frames)
 
         self.frame_map = keep
         self.video_frames = [frames[i] for i in keep]
@@ -302,7 +311,7 @@ class SAM2Tracker(BaseVideoTracker):
         if self.duplicate_frames_removed:
             removed = [i for i in range(decoded) if i not in set(keep)]
             logger.info(
-                f"Collapsed {self.duplicate_frames_removed} duplicated frame(s) {removed}: {decoded} decoded -> {n} unique time points"
+                f"Explicit selection omitted {self.duplicate_frames_removed} source frame(s) {removed}: {decoded} decoded -> {n} unique time points"
             )
         direction = "reverse" if self.enable_reverse_tracking else "forward"
         logger.info(

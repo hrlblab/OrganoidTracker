@@ -23,23 +23,20 @@ class Opened:
     frames: list[np.ndarray]
     saved: SavedResult | None = None
     warning: str | None = None
+    source_frames: list[np.ndarray] | None = None
 
 
 def preview_session(session):
-    from .. import config
-    from ..core.video_frames import unique_frame_indices
+    from ..core.video_frames import selected_frame_indices
 
     digest = check_video(session)
     frames, fps = decode_video(session.video.path)
-    indices = (
-        unique_frame_indices(frames, getattr(config, "DUPLICATE_FRAME_MAD_THRESHOLD", 1.0))
-        if getattr(config, "COLLAPSE_DUPLICATE_FRAMES", True)
-        else list(range(len(frames)))
-    )
+    indices = selected_frame_indices(len(frames), session.video.frame_indices, session.video.decoded_frames)
     selected = [frames[index] for index in indices]
     height, width = selected[0].shape[:2]
     session.annotations.check_inside(width, height)
-    session.timing.resolve(len(selected))
+    if session.video.frame_indices is not None:
+        session.timing.resolve(len(selected))
     source = VideoSource(
         session.video.path,
         digest,
@@ -51,7 +48,7 @@ def preview_session(session):
         session.tracking.direction,
         len(selected) - 1 if session.tracking.reverse else 0,
     )
-    return Opened(session, source, selected)
+    return Opened(session, source, selected, source_frames=frames)
 
 
 def open_saved(path):

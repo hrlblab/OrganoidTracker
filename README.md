@@ -138,7 +138,7 @@ types are checked at startup. A legacy `user_config.py` is still read for now, w
    - With Reverse Tracking enabled the canvas shows the final frame of the video, where cysts are clearest
    - Left-click an organoid, then click and drag bounding boxes around its cysts; left-click again to start the next organoid
    - Each cyst is assigned a unique color
-   - Repeated frames produced by video export are collapsed into single time points; the log shows the decoded and unique frame counts
+   - Confirm source frames and acquisition days before annotating. Similar-looking images are never automatically discarded.
 
 5. **Run Analysis**
    - Click "Start Tracking" to begin automated segmentation
@@ -164,7 +164,7 @@ uv sync --extra qt                  # add --extra hf for the optional Transforme
 uv run --no-sync organoidtracker-qt
 ```
 
-Open a video or a saved session. The canvas shows the annotation frame: the last unique frame for
+Open a video or a saved session. Confirm the acquisition selection before annotating. The canvas then shows the last selected frame for
 reverse tracking. Click an organoid, drag boxes around its cysts, then click the next organoid.
 Include organoids without cysts because they contribute to the population statistics. Select an
 existing organoid in the annotation list to add more cysts to it. Use the wheel to zoom, right or
@@ -172,7 +172,15 @@ middle drag to pan, and Fit to restore the view. Undo/Redo and removal operate o
 coordinates at every zoom level.
 
 Choose the model family, size, device and weights, then check the pixel calibration and time span.
-Optional explicit days supply one timestamp for each unique frame. **Track and save run** writes
+The acquisition panel lets you inspect source frames with the slider and select their one-based
+numbers. **7 daily points (11-frame export)** fills source frames `1, 3, 4, 6, 7, 9, 10` and days
+`1–7` for that confirmed export layout only. Check the mapping and click **Confirm frames and days**.
+For other videos, select every source frame or enter your own list and dates. Clear annotations before
+changing frames so that existing boxes cannot move to another observation. The selected source indices
+and actual days are saved with each session and run. Reopening old results preserves their recorded map;
+old sessions without a map need confirmation before new tracking.
+
+Optional explicit days supply one timestamp for each selected time point. **Track and save run** writes
 each run into its own directory under `data/output_videos/runs/` (change its parent with **Run folder**).
 Masks are saved before reports, so a report failure can be recovered with **Open results**. Cancel
 finishes the current frame and preserves retained masks; closing during a task waits for that task
@@ -205,7 +213,7 @@ be repeated headlessly.
 ```json
 {
   "schema": "organoidtracker.session/1",
-  "video": {"path": "well.mp4"},
+  "video": {"path": "well.mp4", "decoded_frames": 11, "frame_indices": [0, 2, 3, 5, 6, 8, 9]},
   "tracking": {"direction": "reverse", "model_config": "sam2_hiera_b", "device": "cuda"},
   "calibration": {"um_per_pixel": 1.6934},
   "timing": {"time_lapse_days": 6.0},
@@ -223,8 +231,12 @@ uv run organoidtracker run --session session.json --out runs/well-01 [--video ot
 uv run organoidtracker export --run runs/well-01 [--out runs/well-01-replot] [--video other/path.mp4] [--no-videos] [--video-quality original|mid|low] [--overwrite]
 ```
 
-`timing` takes either `time_lapse_days` (spread uniformly, days numbered from 1 as in the paper) or
-`frame_times_days`, one explicit time per unique frame. Every key of `tracking` is optional; `--video`
+A session's `video.frame_indices` is a strictly increasing list of **zero-based** source indices;
+`video.decoded_frames` records the expected decoded count. A mismatch fails before tracking.
+For an older session, CLI `run`/`bench` accept `--frames 1,3,4,6,7,9,10 --decoded-frames 11`
+(one-based CLI numbers). Confirm that the session's timing describes those selected observations.
+`timing` takes either `time_lapse_days` (spread uniformly from day 1 as in the paper) or
+`frame_times_days`, one explicit time per selected time point. Every key of `tracking` is optional; `--video`
 relocates a moved video (its recorded `sha256`, when present, must still match). The output directory
 receives the CSV tables, figures and PDF report (re-plottable with `scripts/csv_visualizer.py`), the
 videos under `videos/`, the prompt record (`prompts.json`), the validated session (`session.json`), the log,
@@ -348,3 +360,4 @@ This work builds upon the foundation of [Segment Anything Model 2 (SAM2)](https:
 
 This project is licensed under the Apache-2.0 License. See the [LICENSE](LICENSE) file for details.
 Third-party notices, including for the vendored SAM 2 code under `src/sam2`, are in [NOTICE](NOTICE).
+

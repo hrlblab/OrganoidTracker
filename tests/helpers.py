@@ -131,19 +131,23 @@ class FakeTracker:
         self.is_loaded = not self.fail_load
         return self.is_loaded
 
-    def load_video(self, video_path, max_frames=None):
-        frames = read_video(video_path)
+    def load_video(self, video_path, max_frames=None, *, frame_indices=None, expected_decoded_frames=None):
+        from organoidtracker.core.video_frames import selected_frame_indices
+
+        decoded = read_video(video_path)
+        selection = selected_frame_indices(len(decoded), frame_indices, expected_decoded_frames)
+        frames = [decoded[i] for i in selection]
         self.video_frames = frames
         self.video_path = video_path
         self.fps = 2.0
-        self.frame_map = list(range(len(frames)))
-        self.decoded_frame_count = len(frames)
+        self.frame_map = selection
+        self.decoded_frame_count = len(decoded)
         self.video_sha256 = self._hashlib.sha256(pathlib.Path(video_path).read_bytes()).hexdigest()
         self.annotation_frame_index = len(frames) - 1 if self.enable_reverse_tracking else 0
         self.prompts = {}
         return {
             "num_frames": len(frames),
-            "decoded_frames": len(frames),
+            "decoded_frames": len(decoded),
             "duplicate_frames_removed": 0,
             "frame_map": list(self.frame_map),
             "fps": self.fps,
@@ -190,8 +194,9 @@ class FakeTracker:
 
     def mask(self, k: int, obj_id: int) -> np.ndarray:
         yy, xx = np.mgrid[0 : self.disc.size, 0 : self.disc.size]
-        cx, cy = self.disc.centers[k]
-        r = self.disc.radius + self.grow * k
+        source_index = self.frame_map[k]
+        cx, cy = self.disc.centers[source_index]
+        r = self.disc.radius + self.grow * source_index
         return (xx - (cx + 5 * (obj_id - 1))) ** 2 + (yy - cy) ** 2 <= r * r
 
     def run_tracking(self, progress_callback=None, should_stop=None):

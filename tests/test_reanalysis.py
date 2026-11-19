@@ -42,6 +42,6 @@ def test_reanalysis_copy_preserves_scientific_inputs_and_original(small_disc, sm
     with pytest.raises(SessionError, match="new export directory"):
         export_saved_result(original, original.directory, videos=False, calibration=calibration, overwrite=True)
     assert original.path.read_bytes() == original_bytes
-    with pytest.raises(SessionError, match="unique frames"):
+    with pytest.raises(SessionError, match="selected frames"):
         export_saved_result(original, tmp_path / "bad", videos=False, timing=Timing(frame_times_days=(1, 2)))
     assert not (tmp_path / "bad/results.json").exists()

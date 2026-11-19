@@ -1,6 +1,16 @@
 # Changelog
 
 
+## Unreleased — acquisition confirmation
+
+### Scientific behavior (results version 5)
+
+- Require confirmed source frame indices and decoded count for new runs. The Qt and Tk interfaces
+  preview and confirm source frames and acquisition days; the seven-day preset is explicit opt-in.
+- Preserve quiet observations: image-difference thresholds no longer choose experiment time points.
+- Persist selections in sessions and prompt records; preserve existing saved-result mappings.
+- Invalidate Tk live results after cyst-prompt edits and reject invalid analysis parameters.
+
 ## Unreleased — review corrections
 
 ### Scientific behavior (results version 4)

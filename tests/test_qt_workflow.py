@@ -186,7 +186,7 @@ def test_stale_progress_and_invalid_analysis_cannot_start_work(window, small_dis
     window._progress("old-token", "tracking", 7, 8, "stale")
     assert window.banner.text() == text
     window.explicit_times.setText("1, 2")
-    with pytest.raises(ValueError, match="unique frames"):
+    with pytest.raises(ValueError, match="selected frames"):
         window.start_tracking()
     assert not window.busy and not window.run_root.exists()
 
@@ -343,3 +343,55 @@ def test_selected_organoid_survives_two_boxes_and_undo(window, small_disc, small
     assert window.active_organoid == 1
     window.undo_stack.redo()
     assert window.active_organoid == 2
+
+
+def test_frame_confirmation_keeps_quiet_observations_and_locks_prompt_coordinates(window, small_disc, small_video):
+    from organoidtracker.services.session import Timing, VideoReference
+
+    session = make_session(small_disc, small_video)
+    session = replace(
+        session, video=VideoReference(small_video), annotations=AnnotationSet(()), timing=Timing(time_lapse_days=6)
+    )
+    window.use_opened(preview_session(session))
+    assert not window.canvas.editable and not window.track_button.isEnabled()
+    assert window.slider.isEnabled()
+    window.source_indices.setText("1, 3, 5, 8")
+    window.explicit_times.setText("1, 2, 4, 7")
+    window.confirm_frames()
+    assert window.current_session().video.frame_indices == (0, 2, 4, 7)
+    assert window.current_session().timing.frame_times_days == (1, 2, 4, 7)
+    window.slider.setValue(0)
+    assert not window.canvas.editable
+    window.slider.setValue(3)
+    window.add_organoid(20, 20)
+    window.add_cyst(10, 10, 30, 30)
+    assert not window.frame_group.isEnabled()
+    before = window.current_session().video
+    with pytest.raises(ValueError, match="Clear annotations"):
+        window.confirm_frames()
+    assert window.current_session().video == before
+    window.clear_annotations()
+    window.select_all_frames()
+    assert not window.canvas.editable
+    with pytest.raises(ValueError, match="Confirm the changed"):
+        window.current_session()
+
+
+def test_daily_export_preset_requires_confirmation(window, small_disc, tmp_path):
+    from organoidtracker.services.session import Timing, VideoReference
+
+    pattern = [0, 0, 1, 2, 2, 3, 4, 4, 5, 6, 6]
+    video = small_disc.write(tmp_path / "daily.mp4", repeat_pattern=pattern)
+    session = replace(
+        make_session(small_disc, video),
+        video=VideoReference(video),
+        annotations=AnnotationSet(()),
+        timing=Timing(time_lapse_days=6),
+    )
+    window.use_opened(preview_session(session))
+    window.select_daily_preset()
+    assert not window.track_button.isEnabled() and window.opened.source.n_frames == 11
+    window.confirm_frames()
+    assert window.current_session().video.frame_indices == (0, 2, 3, 5, 6, 8, 9)
+    assert window.current_session().timing.frame_times_days == (1, 2, 3, 4, 5, 6, 7)
+    assert window.opened.source.annotation_frame == 6

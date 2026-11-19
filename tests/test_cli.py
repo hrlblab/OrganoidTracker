@@ -29,7 +29,12 @@ def session_file(tmp_path, disc, video_path, **overrides):
     cx, cy = disc.centers[N - 1]
     document = {
         "schema": "organoidtracker.session/1",
-        "video": {"path": video_path.name, "sha256": hashlib.sha256(video_path.read_bytes()).hexdigest()},
+        "video": {
+            "path": video_path.name,
+            "sha256": hashlib.sha256(video_path.read_bytes()).hexdigest(),
+            "frame_indices": list(range(N)),
+            "decoded_frames": N,
+        },
         "tracking": {"model_config": "sam2_hiera_t", "device": "cpu"},
         "calibration": {"um_per_pixel": 1.0},
         "timing": {"time_lapse_days": 7.0},
@@ -232,7 +237,11 @@ def test_end_to_end_run_with_the_real_model(tmp_path, disc, disc_video_path, dev
     cx, cy = disc.centers[disc.n_frames - 1]
     document = {
         "schema": "organoidtracker.session/1",
-        "video": {"path": str(disc_video_path)},
+        "video": {
+            "path": str(disc_video_path),
+            "frame_indices": list(range(disc.n_frames)),
+            "decoded_frames": disc.n_frames,
+        },
         "tracking": {"model_config": "sam2_hiera_t", "checkpoint_path": str(tiny_checkpoint), "device": device},
         "calibration": {"um_per_pixel": 1.0},
         "timing": {"time_lapse_days": 7.0},
@@ -467,3 +476,50 @@ def test_export_with_a_relocated_video_can_be_exported_again(tmp_path, small_dis
         )
     finally:
         os.replace(moved, small_video)
+
+
+def test_cli_explicit_selection_override_and_invalid_indices(monkeypatch, small_disc, small_video, tmp_path):
+    use_fake_backend(monkeypatch, small_disc)
+    session = session_file(tmp_path, small_disc, small_video)
+    document = json.loads(session.read_text())
+    document["video"].pop("frame_indices")
+    document["video"].pop("decoded_frames")
+    session.write_text(json.dumps(document))
+    target = tmp_path / "selected"
+    assert (
+        cli.main(
+            [
+                "run",
+                "--session",
+                str(session),
+                "--out",
+                str(target),
+                "--no-videos",
+                "--frames",
+                "1,3,5,8",
+                "--decoded-frames",
+                "8",
+            ]
+        )
+        == 0
+    )
+    from organoidtracker.services.saved_results import load_saved_result
+
+    assert load_saved_result(target).video.frame_map == (0, 2, 4, 7)
+    assert (
+        cli.main(
+            [
+                "run",
+                "--session",
+                str(session),
+                "--out",
+                str(tmp_path / "invalid"),
+                "--frames",
+                "one,two",
+                "--decoded-frames",
+                "8",
+            ]
+        )
+        == 2
+    )
+    assert not (tmp_path / "invalid" / "results.json").exists()

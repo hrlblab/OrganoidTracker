@@ -472,6 +472,10 @@ def load_saved_result(path: Path | str) -> SavedResult:
         raise SavedResultError(f"{where}: session: {error}") from error
     if session.video.sha256 and video.sha256 and session.video.sha256 != video.sha256:
         raise SavedResultError(f"{where}: the session and the video block record different video hashes")
+    if session.video.frame_indices is not None and (
+        session.video.frame_indices != video.frame_map or session.video.decoded_frames != video.decoded_frames
+    ):
+        raise SavedResultError(f"{where}: the session and the video block record different frame selections")
 
     result = TrackingResult(
         masks,

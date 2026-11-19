@@ -64,7 +64,12 @@ def make_session(disc, video, *, timing=None, calibration=1.0, **kwargs) -> Sess
     return session_from_document(
         {
             "schema": "organoidtracker.session/1",
-            "video": {"path": str(video), "sha256": hashlib.sha256(video.read_bytes()).hexdigest()},
+            "video": {
+                "path": str(video),
+                "sha256": hashlib.sha256(video.read_bytes()).hexdigest(),
+                "frame_indices": list(range(N)),
+                "decoded_frames": N,
+            },
             "tracking": {"model_config": "sam2_hiera_t", "device": "cpu"},
             "calibration": {"um_per_pixel": calibration},
             "timing": timing or {"time_lapse_days": 7.0},
@@ -330,7 +335,7 @@ def test_prompt_record_round_trips_into_a_session(small_disc, small_video):
         checkpoint_path=Path(os.path.abspath(tracker.checkpoint_path)),  # absolute on this platform
     )
     assert session.annotations.cyst_ids() == [1]
-    assert session.video == VideoReference(Path(str(small_video)), tracker.video_sha256)
+    assert session.video == VideoReference(Path(str(small_video)), tracker.video_sha256, tuple(range(N)), N)
 
 
 def test_the_prompt_record_holds_a_copy_of_the_prompts(small_disc, small_video):
@@ -459,7 +464,7 @@ def test_saved_session_and_prompt_record_replay_from_any_directory(small_disc, s
     (inputs / "weights.pt").touch()
     (inputs / "disc.mp4").write_bytes(small_video.read_bytes())
     document = make_session(small_disc, small_video).to_document()
-    document["video"] = {"path": "disc.mp4", "sha256": document["video"]["sha256"]}
+    document["video"]["path"] = "disc.mp4"
     document["tracking"]["checkpoint_path"] = "weights.pt"
     (inputs / "session.json").write_text(json.dumps(document))
     monkeypatch.chdir(tmp_path)

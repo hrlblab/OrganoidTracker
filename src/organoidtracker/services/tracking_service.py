@@ -83,10 +83,21 @@ class TrackingService:
             )
         logger.info(f"Run {self.run_id}: model loaded")
 
-    def open_video(self, path: Path | str) -> VideoSource:
+    def open_video(
+        self,
+        path: Path | str,
+        *,
+        frame_indices: tuple[int, ...] | None = None,
+        expected_decoded_frames: int | None = None,
+    ) -> VideoSource:
         """Decode the video through the backend and describe what it holds."""
         path = Path(path)
-        info = self.tracker.load_video(str(path))
+        self.video = None  # a failed load must never leave a previous source usable
+        info = self.tracker.load_video(
+            str(path), frame_indices=frame_indices, expected_decoded_frames=expected_decoded_frames
+        )
+        if frame_indices is not None and tuple(info.get("frame_map", ())) != frame_indices:
+            raise TrackingError("The backend did not use the confirmed source frame selection")
         dimensions = info.get("dimensions") or (0, 0)
         self.video = VideoSource(
             path=path,

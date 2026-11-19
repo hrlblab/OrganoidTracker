@@ -56,7 +56,14 @@ class BaseVideoTracker(ABC):
         pass
 
     @abstractmethod
-    def load_video(self, video_path: str, max_frames: int | None = None) -> dict[str, Any]:
+    def load_video(
+        self,
+        video_path: str,
+        max_frames: int | None = None,
+        *,
+        frame_indices: tuple[int, ...] | None = None,
+        expected_decoded_frames: int | None = None,
+    ) -> dict[str, Any]:
         """
         Load video for tracking
 

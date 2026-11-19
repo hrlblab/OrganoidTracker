@@ -81,8 +81,8 @@ class Settings:
     disable_visualization_titles: bool = False  # hide titles (publication mode)
 
     # Frames and checkpoints
-    collapse_duplicate_frames: bool = True  # merge consecutive near-identical frames into one time point
-    duplicate_frame_mad_threshold: float = 1.0  # mean absolute grayscale difference (0-255) below which frames repeat
+    collapse_duplicate_frames: bool = False  # legacy option, ignored: confirm acquisition frames in the session
+    duplicate_frame_mad_threshold: float = 1.0  # legacy option, ignored for selection
     sam2_checkpoint_family: str = "2.1"  # "2.1" (default) or "2" (the original SAM 2 checkpoints)
 
     # Tracking quality filter
@@ -134,6 +134,8 @@ def load_settings(path: Path | None = None) -> Settings:
             raise SettingsError(
                 f"{path}: unknown setting {key!r} (see organoidtracker.example.toml for the valid keys)"
             )
+        if key in {"collapse_duplicate_frames", "duplicate_frame_mad_threshold"}:
+            logger.warning("%s: %s is ignored; confirm source frame selection in the session", path, key)
         setattr(settings, key, _convert(value, hints[key], f"{path}: {key}"))
     return settings
 
