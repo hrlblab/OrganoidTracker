@@ -6,8 +6,8 @@ a release. The Linux prototype has been exercised outside the source checkout.
 
 ```bash
 # Use a separate environment so the working NVIDIA installation is not replaced.
-UV_PROJECT_ENVIRONMENT=.local/remote-run-payload/packaging-cpu uv sync --locked --extra cpu --extra qt --group packaging --no-dev
-.local/remote-run-payload/packaging-cpu/bin/pyinstaller --distpath .local/remote-run-payload/packaging-dist --workpath .local/remote-run-payload/packaging-build packaging/organoidtracker.spec
+UV_PROJECT_ENVIRONMENT=build/packaging-cpu uv sync --locked --extra cpu --extra qt --group packaging --no-dev
+build/packaging-cpu/bin/pyinstaller --distpath dist --workpath build/pyinstaller packaging/organoidtracker.spec
 ```
 
 On Windows set `UV_PROJECT_ENVIRONMENT` in PowerShell and use the environment's `Scripts/pyinstaller.exe`.

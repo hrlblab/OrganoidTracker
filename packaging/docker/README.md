@@ -19,6 +19,29 @@ The CUDA 13.0 image needs a driver supporting CUDA 13; this build is tested with
 The launcher checks actual GPU computation and fails if the selected GPU mode cannot run.
 Choose `cpu` explicitly to use a computer without a supported GPU.
 
+## Download
+
+Each [release](https://github.com/hrlblab/OrganoidTracker/releases) provides these files:
+
+- `organoidtracker-docker-<version>.tar.gz`: the launcher, this guide, the licenses, the checksums and
+  the image identifiers;
+- `images-cpu.tar`: the CPU image (about 0.9 GB);
+- `images-cuda.tar.part-00` and `images-cuda.tar.part-01`: the NVIDIA image (about 3.5 GB) in two parts,
+  because a release file must be smaller than 2 GiB.
+
+Download the first file and the image for your computer into one folder. Then unpack the bundle, move
+the image beside the launcher, join the NVIDIA parts and check the downloads:
+
+```bash
+tar -xzf organoidtracker-docker-<version>.tar.gz
+mv images-*.tar* organoidtracker-docker-<version>/
+cd organoidtracker-docker-<version>
+cat images-cuda.tar.part-* > images-cuda.tar && rm images-cuda.tar.part-*   # NVIDIA image only
+sha256sum -c --ignore-missing SHA256SUMS
+```
+
+Every listed file must report `OK`. Download a file again when it reports `FAILED`.
+
 Keep the complete versioned bundle together. CPU and CUDA image archives are separate, so recipients
 need only their selected variant. Allow storage for the image archive, Docker's unpacked image,
 model weights and your results. Initial installation loads the included image; it does not build it.
@@ -123,6 +146,18 @@ The build uses the locked application dependencies, digest-pinned Python/uv base
 noVNC 1.7.0 source archive. Debian packages are resolved at build time; the resulting image ID is the
 immutable runtime artifact. Rebuilding later is not promised to reproduce its bytes. Retain the
 versioned image archives and their checksums for exact distribution/rollback.
+
+To prepare the release files from a built bundle directory (`<version>` is the application version):
+
+```bash
+cd /path/to/bundle
+split -b 1900M -d images-cuda.tar images-cuda.tar.part-
+tar -czf organoidtracker-docker-<version>.tar.gz --transform 's,^,organoidtracker-docker-<version>/,' \
+    organoidtracker README.md LICENSE NOTICE SHA256SUMS source-revision.txt source.tar image-*.txt image-*.json
+```
+
+Upload the `.tar.gz`, `images-cpu.tar` and the `images-cuda.tar.part-*` files. `SHA256SUMS` covers the
+joined archives, so the recipient's check also proves the parts were joined correctly.
 
 The image includes application source in `/build/src`, the source revision in package build metadata,
 noVNC source and licenses in `/opt/novnc`, installed dependency license metadata, Qt license texts and

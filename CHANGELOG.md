@@ -1,12 +1,27 @@
 # Changelog
 
+All notable changes to this project are documented in this file. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
+[Semantic Versioning](https://semver.org/).
 
-## Unreleased — second review corrections
+Changes that alter scientific results (masks, measurements, time axes) are listed under
+a "Scientific behavior" heading so that analyses can be attributed to a version.
+
+## [Unreleased]
+
+## [2.0.0a1] - 2026-11-19
+
+First prerelease of the maintained code base, delivered as the Linux Docker desktop preview
+(`packaging/docker/README.md`). It covers everything changed since the code published with the paper
+(tag `legacy-baseline`). Exports carry results version 5. The limitations that affect how results are
+read are listed under "Known limitations of this prerelease" in the README. The newest changes come first.
+
+### Run inputs stay the ones shown and recorded
 
 No measurement changes for the same inputs: results version stays 5. The corrections stop two ways of
 giving a run other inputs than the ones shown or recorded.
 
-### Qt interface
+#### Qt interface
 
 - Keep the calibration that is in its field when frames and days are confirmed. Confirmation wrote the
   previous value back, so a run started afterwards measured areas with the old calibration (2 µm/pixel
@@ -16,7 +31,7 @@ giving a run other inputs than the ones shown or recorded.
 - Keep the calibration and days entered for a re-analysis when the moved video of a saved result is located.
 - Export reports from saved masks when a located video has gone offline again (an unplugged disk).
 
-### Command line
+#### Command line
 
 - Refuse `--frames`/`--decoded-frames` that differ from the selection a session already confirmed
   (exit 2, no tracking result written). They moved the session's boxes and acquisition days to other source frames
@@ -31,19 +46,19 @@ giving a run other inputs than the ones shown or recorded.
   `validate` reported a session declaring nine frames for an eight-frame video as valid, and `run`
   failed only after loading the model (now exit 2 from both).
 
-### Reports and exports
+#### Reports and exports
 
 - List a series of more than 30 time points in a table of its own in the PDF, 30 time points per row.
   One cell held every source frame, and past a page's height the PDF and so the whole export failed.
   Reports of up to 30 time points are unchanged.
 - List the PNG written beside every SVG figure in `run_manifest.json`.
 
-## Unreleased — usability review fixes
+### Cyst identity, tracking direction and acquisition days
 
 No measurement changes: results version stays 5. `raw_cyst_data.csv` gains one trailing column, so it
 is no longer byte-identical to earlier exports; every earlier column is unchanged.
 
-### Qt interface
+#### Qt interface
 
 - Lock the tracking direction while annotations exist, refuse a session whose direction differs from
   the one its boxes were drawn under, clear the undo history when the direction changes, and stop
@@ -59,7 +74,7 @@ is no longer byte-identical to earlier exports; every earlier column is unchange
 - Label every mask in the result view with its cyst id in one colour table shared with the videos,
   show that colour in the annotation list, and outline the mask of the selected cyst.
 
-### Reports and exports
+#### Reports and exports
 
 - Name the source video, its hash prefix, the run, the model, the tracking software and the selected
   source frames with their days on the PDF's summary and in `analysis_summary.json`.
@@ -71,9 +86,9 @@ is no longer byte-identical to earlier exports; every earlier column is unchange
 - Recipient guide: add the confirmation step and describe labels and the report's first page.
 
 
-## Unreleased — acquisition confirmation and report interpretation
+### Acquisition confirmation and report interpretation
 
-### Scientific behavior (results version 5)
+#### Scientific behavior (results version 5)
 
 - Require confirmed source frame indices and decoded count for new runs. The Qt and Tk interfaces
   preview and confirm source frames and acquisition days; the seven-day preset is explicit opt-in.
@@ -82,7 +97,7 @@ is no longer byte-identical to earlier exports; every earlier column is unchange
 - Invalidate Tk live results after cyst-prompt edits and reject invalid analysis parameters.
 - Show missing trajectory observations as gaps and retain single observations in figures.
 
-### Reports and delivery
+#### Reports and delivery
 
 - Align heatmap rows with growth bars; include units and honor text/title/DPI settings.
 - Describe accepted-mask counts and missing-mask limitations in figures and PDF warnings.
@@ -93,9 +108,9 @@ is no longer byte-identical to earlier exports; every earlier column is unchange
   replacement of existing Tk report/video outputs.
 - Document the Docker desktop's trusted single-user host boundary.
 
-## Unreleased — review corrections
+### Missing-data semantics and saved-result safety
 
-### Scientific behavior (results version 4)
+#### Scientific behavior (results version 4)
 
 - Keep consecutive Qt cyst annotations attached to the selected organoid across edits and undo/redo.
 - Reject incomplete indexed videos before assigning experiment times; retain OpenCV pixel decoding.
@@ -104,7 +119,7 @@ is no longer byte-identical to earlier exports; every earlier column is unchange
 - Retain the prompted mask when reverse tracking has only one unique time point.
 - Draw every positive cyst identifier in exported videos, including identifiers above 20.
 
-### Saved results and delivery
+#### Saved results and delivery
 
 - Preserve unrelated files across re-export, including files incorrectly inventoried by older versions.
 - Validate explicitly relocated video content even when exporting only reports.
@@ -113,16 +128,7 @@ is no longer byte-identical to earlier exports; every earlier column is unchange
 - Open the container desktop independently of background model preparation, while validating known
   public checkpoints immediately before inference.
 
-All notable changes to this project are documented in this file. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
-[Semantic Versioning](https://semver.org/).
-
-Changes that alter scientific results (masks, measurements, time axes) are listed under
-a "Scientific behavior" heading so that analyses can be attributed to a version.
-
-## [Unreleased]
-
-### Scientific behavior
+### Scientific behavior (results versions 2 and 3)
 - Raw CSV measurements retain floating-point precision, so short or irregular time intervals,
   calibrated areas and circularity survive CSV reload without deliberate rounding. Cyst-summary
   initial and final areas now follow chronological frame order even after raw CSV rows are reordered.
