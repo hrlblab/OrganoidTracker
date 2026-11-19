@@ -53,8 +53,8 @@ def plain(value):
     return json.loads(json.dumps(value, default=list))
 
 
-def test_defaults_equal_the_original_config_constants():
-    assert plain(Settings().as_constants()) == LEGACY_DEFAULTS
+def test_defaults_preserve_original_constants_except_retired_automatic_selection():
+    assert plain(Settings().as_constants()) == {**LEGACY_DEFAULTS, "COLLAPSE_DUPLICATE_FRAMES": False}
 
 
 def test_the_removed_settings_are_the_original_constants_nothing_read():

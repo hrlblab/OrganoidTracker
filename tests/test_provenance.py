@@ -15,7 +15,7 @@ def test_source_revision_is_a_commit_hash_in_a_checkout():
     if root is None or not (root / ".git").exists():
         assert revision is None
     else:
-        assert revision is not None and re.fullmatch(r"[0-9a-f]{40}", revision)
+        assert revision is not None and re.fullmatch(r"[0-9a-f]{40}(-dirty-[0-9a-f]{16})?", revision)
 
 
 def test_tracker_provenance_names_software_and_mask_settings():
@@ -31,7 +31,7 @@ def test_tracker_provenance_names_software_and_mask_settings():
         "SAM2_MIN_CONFIDENCE",
         "SAM2_MEMORY_FRAMES",
     }
-    assert facts["collapse_duplicate_frames"] is True and facts["duplicate_threshold"] == 1.0
+    assert facts["collapse_duplicate_frames"] is False and facts["duplicate_threshold"] == 1.0
 
 
 def test_analysis_summary_carries_results_version_and_software():

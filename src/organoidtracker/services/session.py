@@ -14,7 +14,7 @@ Schema ``organoidtracker.session/1`` (JSON)::
     }
 
 Every key of ``tracking`` is optional (the defaults are the application's). ``timing`` holds
-either ``time_lapse_days`` (the span from the first to the last unique frame, spread uniformly
+either ``time_lapse_days`` (the span from the first to the last selected frame, spread uniformly
 as in the paper, days numbered from 1) or ``frame_times_days`` (one explicit time per unique
 frame). A relative video path is resolved against the directory of the session file. The
 prompt record the application writes when tracking starts (schema ``organoidtracker.prompts/1``)
@@ -27,6 +27,7 @@ cannot silently fall back to a default.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 from collections.abc import Mapping, Sequence
@@ -38,12 +39,18 @@ from .annotations import AnnotationError, AnnotationSet
 
 SCHEMA = "organoidtracker.session/1"
 PROMPT_RECORD_SCHEMA = "organoidtracker.prompts/1"
+# Since this results version the source frames of a run are the ones a person confirmed. Earlier
+# software chose them itself (by image similarity), so their record is not a confirmation.
+CONFIRMED_FRAMES_SINCE = 5
+
+logger = logging.getLogger(__name__)
 
 # Kept in step with ``core.sam2_tracker`` (tested); listed here so that validating a session
 # does not import torch.
 MODEL_CONFIGS = ("sam2_hiera_t", "sam2_hiera_s", "sam2_hiera_b", "sam2_hiera_l")
 CHECKPOINT_FAMILIES = ("2", "2.1")
 DIRECTIONS = ("reverse", "forward")
+BACKENDS = ("sam2", "hf-sam2")
 DEFAULT_MODEL_CONFIG = "sam2_hiera_b"  # the GUI's default size (base-plus)
 DEFAULT_DEVICE = "cuda"
 
@@ -74,9 +81,32 @@ class VideoReference:
 
     path: Path
     sha256: str | None = None
+    frame_indices: tuple[int, ...] | None = None
+    decoded_frames: int | None = None
+
+    def __post_init__(self):
+        if self.frame_indices is None and self.decoded_frames is None:
+            return  # old documents remain readable; a new tracking run requires confirmation
+        if (
+            isinstance(self.decoded_frames, bool)
+            or not isinstance(self.decoded_frames, int)
+            or self.decoded_frames < 1
+            or self.frame_indices is None
+        ):
+            raise SessionError("video: frame_indices and a positive decoded_frames count are required together")
+        from ..core.video_frames import selected_frame_indices
+
+        try:
+            selected = selected_frame_indices(self.decoded_frames, self.frame_indices)
+        except (TypeError, ValueError) as error:
+            raise SessionError(f"video.frame_indices: {error}") from error
+        object.__setattr__(self, "frame_indices", tuple(selected))
 
     def to_document(self) -> dict[str, Any]:
-        return {"path": str(self.path), "sha256": self.sha256}
+        document: dict[str, Any] = {"path": str(self.path), "sha256": self.sha256}
+        if self.frame_indices is not None:
+            document.update(frame_indices=list(self.frame_indices), decoded_frames=self.decoded_frames)
+        return document
 
 
 @dataclass(frozen=True)
@@ -88,8 +118,11 @@ class TrackingSpec:
     checkpoint_family: str | None = None
     checkpoint_path: Path | None = None
     device: str = DEFAULT_DEVICE
+    backend: str = "sam2"
 
     def __post_init__(self) -> None:
+        if self.backend not in BACKENDS:
+            raise SessionError(f"tracking.backend: expected one of {list(BACKENDS)}, got {self.backend!r}")
         if self.direction not in DIRECTIONS:
             raise SessionError(f"tracking.direction: expected one of {list(DIRECTIONS)}, got {self.direction!r}")
         if self.model_config not in MODEL_CONFIGS:
@@ -110,6 +143,7 @@ class TrackingSpec:
 
     def to_document(self) -> dict[str, Any]:
         return {
+            **({"backend": self.backend} if self.backend != "sam2" else {}),
             "direction": self.direction,
             "model_config": self.model_config,
             "checkpoint_family": self.checkpoint_family,
@@ -133,7 +167,7 @@ class Calibration:
 
 @dataclass(frozen=True)
 class ResolvedTiming:
-    """The time axis for a known number of unique frames."""
+    """The time axis for a known number of selected frames."""
 
     time_lapse_days: float
     frame_timestamps: list[float] | None  # None: uniform spacing from day 1 (the paper's axis)
@@ -167,7 +201,7 @@ class Timing:
             object.__setattr__(self, "frame_times_days", tuple(values))
 
     def resolve(self, n_frames: int) -> ResolvedTiming:
-        """The time axis for ``n_frames`` unique frames; explicit times must match that count."""
+        """The time axis for ``n_frames`` selected frames; explicit times must match that count."""
         if n_frames < 1:
             raise SessionError("timing: the video has no frames")
         if self.frame_times_days is None:
@@ -176,7 +210,7 @@ class Timing:
         if len(self.frame_times_days) != n_frames:
             raise SessionError(
                 f"timing.frame_times_days has {len(self.frame_times_days)} values but the video has "
-                f"{n_frames} unique frames"
+                f"{n_frames} selected frames"
             )
         span = self.frame_times_days[-1] - self.frame_times_days[0] if n_frames > 1 else 0.0
         return ResolvedTiming(span, list(self.frame_times_days))
@@ -272,21 +306,28 @@ def _check_keys(section: Mapping[str, Any], allowed: Sequence[str], where: str, 
 
 
 def _video(section: Mapping[str, Any], base_dir: Path | None, where: str) -> VideoReference:
-    _check_keys(section, ("path", "sha256"), f"{where}: video")
+    _check_keys(section, ("path", "sha256", "frame_indices", "decoded_frames"), f"{where}: video")
     raw = section.get("path")
     if not isinstance(raw, str) or not raw:
         raise SessionError(f"{where}: video.path: expected a non-empty string")
     sha256 = section.get("sha256")
     if sha256 is not None and (not isinstance(sha256, str) or len(sha256) != 64):
         raise SessionError(f"{where}: video.sha256: expected a 64-character hex digest or null")
-    return VideoReference(_absolute(Path(raw).expanduser(), base_dir), sha256.lower() if sha256 else None)
+    return VideoReference(
+        _absolute(Path(raw).expanduser(), base_dir),
+        sha256.lower() if sha256 else None,
+        section.get("frame_indices"),
+        section.get("decoded_frames"),
+    )
 
 
 def _tracking(section: Any, base_dir: Path | None, where: str) -> TrackingSpec:
     if not isinstance(section, Mapping):
         raise SessionError(f"{where}: tracking: expected an object")
     _check_keys(
-        section, ("direction", "model_config", "checkpoint_family", "checkpoint_path", "device"), f"{where}: tracking"
+        section,
+        ("backend", "direction", "model_config", "checkpoint_family", "checkpoint_path", "device"),
+        f"{where}: tracking",
     )
     checkpoint = section.get("checkpoint_path")
     checkpoint_path = None
@@ -294,12 +335,13 @@ def _tracking(section: Any, base_dir: Path | None, where: str) -> TrackingSpec:
         if not isinstance(checkpoint, str):
             raise SessionError(f"{where}: tracking.checkpoint_path: expected a string or null")
         checkpoint_path = _absolute(Path(checkpoint).expanduser(), base_dir)
-    for key in ("direction", "model_config", "checkpoint_family", "device"):
+    for key in ("backend", "direction", "model_config", "checkpoint_family", "device"):
         value = section.get(key)
         if value is not None and not isinstance(value, str):
             raise SessionError(f"{where}: tracking.{key}: expected a string")
     try:
         return TrackingSpec(
+            backend=section.get("backend", "sam2"),
             direction=section.get("direction", "reverse"),
             model_config=section.get("model_config", DEFAULT_MODEL_CONFIG),
             checkpoint_family=section.get("checkpoint_family"),
@@ -331,10 +373,28 @@ def _from_prompt_record(data: Mapping[str, Any], base_dir: Path | None, source: 
     model: Mapping[str, Any] = model_block if isinstance(model_block, Mapping) else {}
     tracking_block: Mapping[str, Any] = tracking_raw if isinstance(tracking_raw, Mapping) else {}
     inputs: Mapping[str, Any] = inputs_raw if isinstance(inputs_raw, Mapping) else {}
+    selection = {}
+    if video.get("frame_map") and video.get("decoded_frames"):
+        version = data.get("results_version")
+        if isinstance(version, int) and not isinstance(version, bool) and version >= CONFIRMED_FRAMES_SINCE:
+            selection = {"frame_indices": video["frame_map"], "decoded_frames": video["decoded_frames"]}
+        else:
+            # Like an older session file: a new run needs the acquisition's frames confirmed first.
+            try:
+                frames = ",".join(str(int(index) + 1) for index in video["frame_map"])
+            except (TypeError, ValueError):
+                frames = "?"
+            logger.warning(
+                f"{where}: written by results version {version}, which selected the source frames itself "
+                f"({frames} of {video['decoded_frames']}). They are not taken as confirmed: give the acquisition's "
+                f"frames before tracking (--frames {frames} --decoded-frames {video['decoded_frames']} repeats "
+                "that selection)"
+            )
     document = {
         "schema": SCHEMA,
-        "video": {"path": video["path"], "sha256": video.get("sha256")},
+        "video": {"path": video["path"], "sha256": video.get("sha256"), **selection},
         "tracking": {
+            "backend": "hf-sam2" if model.get("backend") == "sam2-transformers" else "sam2",
             "direction": tracking_block.get("direction", "reverse"),
             "model_config": model.get("model_config", DEFAULT_MODEL_CONFIG),
             "checkpoint_family": model.get("checkpoint_family"),

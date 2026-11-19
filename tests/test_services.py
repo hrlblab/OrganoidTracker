@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from helpers import DiscVideo, FakeTracker, expected_growth_per_day
+from organoidtracker import RESULTS_VERSION
 from organoidtracker.analysis.csv_import import experiment_from_csv
 from organoidtracker.services.analysis_service import AnalysisService
 from organoidtracker.services.annotations import AnnotationError
@@ -63,7 +64,12 @@ def make_session(disc, video, *, timing=None, calibration=1.0, **kwargs) -> Sess
     return session_from_document(
         {
             "schema": "organoidtracker.session/1",
-            "video": {"path": str(video), "sha256": hashlib.sha256(video.read_bytes()).hexdigest()},
+            "video": {
+                "path": str(video),
+                "sha256": hashlib.sha256(video.read_bytes()).hexdigest(),
+                "frame_indices": list(range(N)),
+                "decoded_frames": N,
+            },
             "tracking": {"model_config": "sam2_hiera_t", "device": "cpu"},
             "calibration": {"um_per_pixel": calibration},
             "timing": timing or {"time_lapse_days": 7.0},
@@ -108,7 +114,7 @@ def test_complete_run_produces_every_export_and_a_truthful_manifest(small_disc, 
 
     manifest = json.loads((out / "run_manifest.json").read_text())
     assert manifest["schema"] == "organoidtracker.run/1" and manifest["status"] == "completed" and manifest["complete"]
-    assert manifest["results_version"] == 2
+    assert manifest["results_version"] == RESULTS_VERSION
     tracking = manifest["tracking"]
     assert (
         tracking["frames_total"] == N
@@ -142,7 +148,7 @@ def test_complete_run_produces_every_export_and_a_truthful_manifest(small_disc, 
     assert [float(r["Time_Days"]) for r in rows] == [1.0 + k for k in range(N)]  # 7 days over 8 frames, day 1 first
 
     record = json.loads((out / "prompts.json").read_text())
-    assert record["schema"] == PROMPT_RECORD_SCHEMA and record["results_version"] == 2
+    assert record["schema"] == PROMPT_RECORD_SCHEMA and record["results_version"] == RESULTS_VERSION
     assert record["prompts"]["1"][0]["frame_idx"] == N - 1 and record["analysis_inputs"]["time_lapse_days"] == 7.0
     assert record["organoids"][0]["cysts"][0]["cyst_id"] == 1
 
@@ -329,7 +335,7 @@ def test_prompt_record_round_trips_into_a_session(small_disc, small_video):
         checkpoint_path=Path(os.path.abspath(tracker.checkpoint_path)),  # absolute on this platform
     )
     assert session.annotations.cyst_ids() == [1]
-    assert session.video == VideoReference(Path(str(small_video)), tracker.video_sha256)
+    assert session.video == VideoReference(Path(str(small_video)), tracker.video_sha256, tuple(range(N)), N)
 
 
 def test_the_prompt_record_holds_a_copy_of_the_prompts(small_disc, small_video):
@@ -427,7 +433,7 @@ def test_an_unfinished_run_directory_is_refused_and_stray_files_survive(small_di
         tracking_service_factory=factory(small_disc),
     )
     assert outcome.complete and (out / "notes.txt").read_text() == "keep me"
-    assert "notes.txt" in json.loads(outcome.manifest_path.read_text())["files"]  # inventoried, never deleted
+    assert "notes.txt" not in json.loads(outcome.manifest_path.read_text())["files"]
 
 
 def test_a_missing_pdf_fails_the_run_and_marks_the_summary(small_disc, small_video, tmp_path, monkeypatch):
@@ -458,7 +464,7 @@ def test_saved_session_and_prompt_record_replay_from_any_directory(small_disc, s
     (inputs / "weights.pt").touch()
     (inputs / "disc.mp4").write_bytes(small_video.read_bytes())
     document = make_session(small_disc, small_video).to_document()
-    document["video"] = {"path": "disc.mp4", "sha256": document["video"]["sha256"]}
+    document["video"]["path"] = "disc.mp4"
     document["tracking"]["checkpoint_path"] = "weights.pt"
     (inputs / "session.json").write_text(json.dumps(document))
     monkeypatch.chdir(tmp_path)
@@ -489,3 +495,27 @@ def test_saved_session_and_prompt_record_replay_from_any_directory(small_disc, s
     replay = load_session(outcome.output_dir / "prompts.json")
     assert replay.video.path.is_file() and replay.tracking.checkpoint_path == inputs / "weights.pt"
     assert replay.tracking.checkpoint_path.is_file()
+
+
+def test_the_manifest_lists_the_png_written_beside_every_svg_figure(small_disc, small_video, tmp_path, monkeypatch):
+    """The PDF and the desktop viewer read those PNGs; the inventory named only the SVGs."""
+    from organoidtracker.analysis import organoid_visualizations as plots
+
+    monkeypatch.setattr(plots, "VISUALIZATION_FORMAT", "svg")
+    out = run(make_session(small_disc, small_video), tmp_path / "run", small_disc).output_dir
+    note = out / "visualizations" / "my notes.png"
+    note.write_bytes(b"not an export")
+    listed = json.loads((out / "run_manifest.json").read_text())["files"]
+    written = {path.relative_to(out).as_posix() for path in (out / "visualizations").iterdir()} - {
+        "visualizations/my notes.png"
+    }
+    assert len(written) == 13 and written <= set(listed)
+    assert sum(name.endswith(".svg") for name in written) == 6 and sum(name.endswith(".png") for name in written) == 7
+    # An export over the run rewrites the figures and still leaves a file it did not write alone.
+    from organoidtracker.services.pipeline import export_saved_result
+    from organoidtracker.services.saved_results import load_saved_result
+
+    again = export_saved_result(load_saved_result(out), out, videos=False, overwrite=True)
+    assert again.exit_code == 0 and note.read_bytes() == b"not an export"
+    relisted = json.loads((out / "run_manifest.json").read_text())["files"]
+    assert written <= set(relisted) and "visualizations/my notes.png" not in relisted

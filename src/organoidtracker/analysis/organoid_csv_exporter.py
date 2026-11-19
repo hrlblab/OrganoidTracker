@@ -27,12 +27,17 @@ class OrganoidCSVExporter:
         """
         Export complete raw data table with all metrics for each cyst at each frame
 
-        Format: [Organoid_ID, Cyst_ID, Frame, Time_Days, Area_um2, Circularity, Centroid_X, Centroid_Y]
+        Format: [Organoid_ID, Cyst_ID, Frame, Time_Days, Area_um2, Circularity, Centroid_X, Centroid_Y,
+        Radius_um] and, when the experiment records it, Source_Frame: the zero-based frame of the
+        source video behind ``Frame`` (the zero-based index among the selected time points).
         """
         logger.info(f"Exporting raw data table to: {output_path}")
 
         # Collect all data rows
         data_rows = []
+        source_frames = experiment.source_frames
+        if source_frames is not None and len(source_frames) != experiment.total_frames:
+            source_frames = None  # an inconsistent map is not written as if it were known
 
         for organoid_id, organoid in experiment.organoids.items():
             for cyst_id, cyst in organoid.cysts.items():
@@ -48,13 +53,15 @@ class OrganoidCSVExporter:
                         "Organoid_ID": organoid_id,
                         "Cyst_ID": cyst_id,
                         "Frame": frame_idx,
-                        "Time_Days": round(time_days, 3),
-                        "Area_um2": round(area_um2, 2),
-                        "Circularity": round(frame_data.circularity, 4),
-                        "Centroid_X": round(frame_data.centroid[0], 1),
-                        "Centroid_Y": round(frame_data.centroid[1], 1),
-                        "Radius_um": round(frame_data.get_radius_um(experiment.conversion_factor_um_per_pixel), 2),
+                        "Time_Days": time_days,
+                        "Area_um2": area_um2,
+                        "Circularity": frame_data.circularity,
+                        "Centroid_X": frame_data.centroid[0],
+                        "Centroid_Y": frame_data.centroid[1],
+                        "Radius_um": frame_data.get_radius_um(experiment.conversion_factor_um_per_pixel),
                     }
+                    if source_frames is not None and 0 <= frame_idx < len(source_frames):
+                        row["Source_Frame"] = int(source_frames[frame_idx])
 
                     data_rows.append(row)
 
@@ -66,7 +73,9 @@ class OrganoidCSVExporter:
             try:
                 # Use pandas for better formatting control
                 df = pd.DataFrame(data_rows)
-                df.to_csv(output_path, index=False, encoding=self.encoding, float_format="%.4f")
+                # This table is also the re-analysis input. Rounding here can collapse
+                # distinct timestamps and change calibrated areas and growth rates.
+                df.to_csv(output_path, index=False, encoding=self.encoding)
 
                 logger.info(f"Raw data exported: {len(data_rows)} rows")
                 return output_path
@@ -95,12 +104,13 @@ class OrganoidCSVExporter:
                 if not cyst.frame_data:
                     continue
 
-                # Calculate aggregate metrics
+                # The CSV importer accepts arbitrary row order; initial/final refer to
+                # chronological frames, never to dictionary insertion order.
+                observations = [cyst.frame_data[frame] for frame in sorted(cyst.frame_data)]
                 areas_um2 = [
-                    frame_data.get_area_um2(experiment.conversion_factor_um_per_pixel)
-                    for frame_data in cyst.frame_data.values()
+                    frame_data.get_area_um2(experiment.conversion_factor_um_per_pixel) for frame_data in observations
                 ]
-                circularities = [frame_data.circularity for frame_data in cyst.frame_data.values()]
+                circularities = [frame_data.circularity for frame_data in observations]
 
                 # Growth metrics (μm² per day over the experiment's time axis)
                 growth_rate = experiment.growth_rate_per_day(cyst)
@@ -116,7 +126,8 @@ class OrganoidCSVExporter:
                     "Max_Area_um2": round(max(areas_um2), 2) if areas_um2 else 0,
                     "Mean_Area_um2": round(np.mean(areas_um2), 2) if areas_um2 else 0,
                     "Mean_Circularity": round(np.mean(circularities), 4) if circularities else 0,
-                    "Growth_Rate_um2_per_day": round(growth_rate, 4),
+                    "Growth_Rate_um2_per_day": round(growth_rate, 4) if growth_rate is not None else None,
+                    "Growth_Rate_Definition": "mean adjacent observed cyst area slopes",
                 }
 
                 summary_rows.append(row)
@@ -176,9 +187,9 @@ class OrganoidCSVExporter:
                         time_span = experiment.get_time_at_frame(sorted_frames[-1]) - experiment.get_time_at_frame(
                             sorted_frames[0]
                         )
-                        growth_rate = (final_area - initial_area) / time_span if time_span > 0 else 0
+                        growth_rate = (final_area - initial_area) / time_span if time_span > 0 else None
                     else:
-                        growth_rate = 0
+                        growth_rate = None
                 else:
                     initial_area = final_area = max_area = mean_area = growth_rate = 0
             else:
@@ -193,7 +204,8 @@ class OrganoidCSVExporter:
                 "Final_Total_Area_um2": round(final_area, 2),
                 "Max_Total_Area_um2": round(max_area, 2),
                 "Mean_Total_Area_um2": round(mean_area, 2),
-                "Growth_Rate_um2_per_day": round(growth_rate, 4),
+                "Growth_Rate_um2_per_day": round(growth_rate, 4) if growth_rate is not None else None,
+                "Growth_Rate_Definition": "endpoint change in total accepted cyst area / elapsed days",
             }
 
             organoid_rows.append(row)
@@ -251,6 +263,7 @@ class OrganoidCSVExporter:
                         "Max_Total_Area_um2",
                         "Mean_Total_Area_um2",
                         "Growth_Rate_um2_per_day",
+                        "Growth_Rate_Definition",
                     ]
                 elif summary_headers:
                     headers = [
@@ -265,6 +278,7 @@ class OrganoidCSVExporter:
                         "Mean_Area_um2",
                         "Mean_Circularity",
                         "Growth_Rate_um2_per_day",
+                        "Growth_Rate_Definition",
                     ]
                 else:
                     headers = [

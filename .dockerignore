@@ -1,0 +1,17 @@
+# Explicit allow-list: never send local research, checkpoints or private videos.
+*
+!src/
+!src/**
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!NOTICE
+!packaging/
+packaging/*
+!packaging/docker/
+!packaging/docker/**
+!packaging/licenses/
+!packaging/licenses/**
+**/__pycache__/
+**/*.pyc

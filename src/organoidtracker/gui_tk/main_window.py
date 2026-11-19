@@ -27,11 +27,13 @@ from ..core.sam2_tracker import checkpoint_filename
 from ..services.analysis_service import AnalysisService
 from ..services.annotations import AnnotationError, AnnotationSet, CystAnnotation
 from ..services.export_service import DEFAULT_RUN_ROOT, ExportError, ExportService, new_run_directory
+from ..services.pipeline import export_saved_result
 from ..services.prompt_record import build_prompt_record
 from ..services.saved_results import SavedResult, load_saved_result
 from ..services.session import Calibration, SessionError, Timing, TrackingSpec, session_from_document
 from ..services.tracking_service import TrackingError, TrackingService
-from ..services.video_frames import load_video_frames
+from ..services.video_frames import decode_video, load_video_frames
+from .frame_selection import choose_frames
 from .progress_dialog import ProgressDialog
 from .video_canvas import VideoCanvas
 
@@ -408,6 +410,9 @@ class VideoTrackerApp:
             self.analysis_params_frame, width=10, textvariable=self.time_lapse_var, font=("Arial", 10)
         )
 
+        self.frame_days_var = tk.StringVar(self.root, "")
+        self.frame_days_label = ttk.Label(self.analysis_params_frame, text="Explicit days (overrides span):")
+        self.frame_days_entry = ttk.Entry(self.analysis_params_frame, textvariable=self.frame_days_var, width=25)
         self.conversion_factor_label = ttk.Label(self.analysis_params_frame, text="Conversion Factor (μm/pixel):")
         self.conversion_factor_entry = ttk.Entry(
             self.analysis_params_frame, width=15, textvariable=self.conversion_factor_var, font=("Arial", 10)
@@ -553,6 +558,8 @@ class VideoTrackerApp:
         # Analysis parameters layout (simplified)
         self.organoid_count_label.grid(row=0, column=0, sticky="w", padx=2, pady=2)
         self.organoid_count_display.grid(row=0, column=1, padx=5, pady=2, sticky="w")
+        self.frame_days_label.grid(row=3, column=0, sticky="w")
+        self.frame_days_entry.grid(row=3, column=1, sticky="ew")
 
         self.time_lapse_label.grid(row=1, column=0, sticky="w", padx=2, pady=2)
         self.time_lapse_entry.grid(row=1, column=1, padx=5, pady=2)
@@ -619,6 +626,10 @@ class VideoTrackerApp:
 
             model_options = []
             for model in available_models:
+                # This legacy window constructs the reference TrackingSpec. Optional
+                # backends have explicit selectors in the CLI and the Qt application.
+                if model.name != "sam2":
+                    continue
                 model_options.append(f"{model.display_name} ({model.name})")
 
             self.model_combo["values"] = model_options
@@ -733,6 +744,7 @@ class VideoTrackerApp:
         """
         had_results = self.video_segments is not None or self.current_video_path is not None or bool(self.organoid_data)
         self.current_video_path = None
+        self.acquisition_days = None
         self.video_segments = None
         self.opened = None
         self.tracking_run_id = None
@@ -838,6 +850,8 @@ class VideoTrackerApp:
         # ones) must not be exported, saved or viewed under the new video's identity
         self._close_opened_result()
         self._invalidate_results("a new video is being loaded")
+        self._discard_downstream_state("Loading another video")
+        self.tracking.video = None
 
         try:
             import time
@@ -851,29 +865,47 @@ class VideoTrackerApp:
             self.track_btn.config(state="disabled")
             self.log_event(f"🎬 Loading video: {Path(file_path).name}")
 
-            # Load video in thread to prevent GUI freeze
-            def load_video_thread():
+            def decode_thread():
                 try:
-                    source = self.tracking.open_video(file_path)
-                    video_info = {
-                        "num_frames": source.n_frames,
-                        "decoded_frames": source.decoded_frames,
-                        "duplicate_frames_removed": source.duplicate_frames_removed,
-                        "fps": source.nominal_fps,
-                        "dimensions": (source.height, source.width),
-                        "direction": source.direction,
-                    }
-                    load_time = time.time() - start_time
-                    self.post(self.on_video_loaded_success, file_path, video_info, load_time)
-                except Exception as e:
-                    load_time = time.time() - start_time
-                    self.post(self.on_video_loaded_error, str(e), load_time)
+                    frames, _fps = decode_video(file_path)
+                    self.post(self._confirm_video_frames, file_path, frames, start_time)
+                except Exception as error:
+                    self.post(self.on_video_loaded_error, str(error), time.time() - start_time)
 
-            threading.Thread(target=load_video_thread, daemon=True).start()
+            threading.Thread(target=decode_thread, daemon=True).start()
+        except Exception as error:
+            self.on_video_loaded_error(str(error), time.time() - start_time)
 
-        except Exception as e:
-            load_time = time.time() - start_time
-            self.on_video_loaded_error(str(e), load_time)
+    def _confirm_video_frames(self, file_path, frames, start_time):
+        try:
+            span = Timing(time_lapse_days=float(self.time_lapse_var.get())).time_lapse_days
+            selection = choose_frames(self.root, frames, span)
+            if selection is None:
+                self.on_video_loaded_error("Acquisition selection cancelled", time.time() - start_time)
+                return
+            indices, self.acquisition_days = selection
+            self.frame_days_var.set(", ".join(str(v) for v in self.acquisition_days))
+            count = len(frames)
+        except (ValueError, tk.TclError) as error:
+            self.on_video_loaded_error(str(error), time.time() - start_time)
+            return
+
+        def load_video_thread():
+            try:
+                source = self.tracking.open_video(file_path, frame_indices=indices, expected_decoded_frames=count)
+                video_info = {
+                    "num_frames": source.n_frames,
+                    "decoded_frames": source.decoded_frames,
+                    "duplicate_frames_removed": source.duplicate_frames_removed,
+                    "fps": source.nominal_fps,
+                    "dimensions": (source.height, source.width),
+                    "direction": source.direction,
+                }
+                self.post(self.on_video_loaded_success, file_path, video_info, time.time() - start_time)
+            except Exception as error:
+                self.post(self.on_video_loaded_error, str(error), time.time() - start_time)
+
+        threading.Thread(target=load_video_thread, daemon=True).start()
 
     def on_video_loaded_success(self, file_path, video_info, load_time):
         """Handle successful video loading"""
@@ -895,7 +927,7 @@ class VideoTrackerApp:
         decoded = video_info.get("decoded_frames", num_frames)
         removed = video_info.get("duplicate_frames_removed", 0)
         if removed:
-            info_text += f"Frames: {num_frames} unique time points ({decoded} decoded, {removed} duplicates removed)\n"
+            info_text += f"Frames: {num_frames} selected time points ({decoded} decoded, {removed} omitted)\n"
         else:
             info_text += f"Frames: {num_frames}\n"
         info_text += f"FPS: {video_info.get('fps', 'Unknown'):.1f}\n"
@@ -911,7 +943,7 @@ class VideoTrackerApp:
             height = video_info.get("height", "?")
             info_text += f"Size: {width}x{height}"
 
-            self.video_info_label.config(text=info_text)
+        self.video_info_label.config(text=info_text)
 
         # Display the annotation frame (the last chronological frame in reverse mode)
         if self.tracking and self.tracking.video is not None:
@@ -935,7 +967,9 @@ class VideoTrackerApp:
         self.load_video_btn.config(state="normal")
         self.set_status(f"Error loading video: {error_msg}")
         self.log_event(f"❌ Video loading failed after {load_time:.2f}s: {error_msg}")
-        # Remove popup - already handled with status and log above
+        self._discard_downstream_state("Video loading failed")
+        if self.tracking:
+            self.tracking.video = None
 
     def _validate_analysis_inputs(self, event=None):
         """Validate analysis input fields in real-time (simplified for new workflow)"""
@@ -985,7 +1019,13 @@ class VideoTrackerApp:
         if self.opened is not None:
             self.set_status("Reopened results are not editable: load the video through a model to annotate again")
             return
-        if not self.tracking or not self.current_video_path:
+        if (
+            not self.tracking
+            or self.tracking.video is None
+            or not self.current_video_path
+            or self.video_loading
+            or self.tracking_in_progress
+        ):
             return
 
         self.tracking.set_debug(self.debug_var.get())
@@ -1027,7 +1067,13 @@ class VideoTrackerApp:
         if self.opened is not None:
             self.set_status("Reopened results are not editable: load the video through a model to annotate again")
             return
-        if not self.tracking or not self.current_video_path:
+        if (
+            not self.tracking
+            or self.tracking.video is None
+            or not self.current_video_path
+            or self.video_loading
+            or self.tracking_in_progress
+        ):
             return
 
         self.tracking.set_debug(self.debug_var.get())
@@ -1049,6 +1095,7 @@ class VideoTrackerApp:
                 self.log_event(f"❌ Cyst box rejected: {error}")
 
             if success:
+                self._invalidate_results("cyst prompts changed; track again")
                 # Store cyst information
                 self.organoid_data[self.current_organoid_id]["cysts"].append(
                     {"cyst_id": cyst_id, "bbox": (x1, y1, x2, y2)}
@@ -1129,6 +1176,12 @@ class VideoTrackerApp:
             self.set_status("No action to revert")
             self.log_event("⚠️ No action to revert")
             return
+
+        if self.video_loading or self.tracking_in_progress or self.opened is not None:
+            return
+        last = self.action_history[-1]
+        if last["type"] == "add_cyst" or self.organoid_data.get(last.get("organoid_id"), {}).get("cysts"):
+            self._invalidate_results("cyst prompts changed; track again")
 
         # Pop the last action from history
         last_action = self.action_history.pop()
@@ -1324,10 +1377,11 @@ class VideoTrackerApp:
 
     def clear_prompts(self):
         """Clear all organoids and cysts - reset to initial state"""
-        if not self.tracking:
+        if not self.tracking or self.tracking_in_progress:
             return
 
         try:
+            self._invalidate_results("annotations cleared; track again")
             # Clear all prompts from the backend
             self.tracking.clear_prompts()
 
@@ -1363,6 +1417,10 @@ class VideoTrackerApp:
 
     def start_tracking(self):
         """Start multi-object tracking with timing"""
+        if self.video_loading:
+            self.set_status("A video is loading; track when it has loaded")
+            self.log_event("❌ Cannot start tracking - a video is loading")
+            return
         if not self.tracking or self.tracking.video is None:
             self.set_status("Error: Please load a video first")
             self.log_event("❌ Cannot start tracking - no video loaded")
@@ -1477,6 +1535,7 @@ class VideoTrackerApp:
                 self.organoid_data,
                 tk_value(self.time_lapse_var),
                 tk_value(self.conversion_factor_var),
+                self._analysis_timing().frame_times_days,
             )
             path = write_prompt_record(
                 record, default_prompt_record_path(str(self.current_video_path), run_id=self.tracking_run_id)
@@ -1570,6 +1629,30 @@ class VideoTrackerApp:
         self.set_status(f"Error during tracking: {error_msg}")
         self.log_event(f"❌ Tracking failed after {tracking_time:.2f}s: {error_msg}")
 
+    def _confirm_export_replacement(self, directory, *, videos=False):
+        target = Path(directory)
+        names = (
+            ["multi_object_overlay.mp4", "multi_object_mask.mp4", "multi_object_side_by_side.mp4"]
+            if videos
+            else [
+                "raw_cyst_data.csv",
+                "cyst_summary.csv",
+                "organoid_summary.csv",
+                "analysis_summary.json",
+                "organoid_analysis_report.pdf",
+                "visualizations",
+            ]
+        )
+        conflicts = [name for name in names if (target / name).exists()]
+        if conflicts and not messagebox.askyesno(
+            "Replace existing exports?",
+            "This folder already contains export files. Replace these outputs?\n" + "\n".join(conflicts),
+            parent=self.root,
+        ):
+            self.set_status("Export cancelled; existing files preserved")
+            return False
+        return True
+
     def generate_videos(self):
         """Generate output videos with timing"""
         if not self._ready_for_export("video generation"):
@@ -1580,6 +1663,9 @@ class VideoTrackerApp:
         output_dir = filedialog.askdirectory(title="Select Output Directory", initialdir="./data/output_videos")
 
         if not output_dir:
+            return
+
+        if not self._confirm_export_replacement(output_dir, videos=True):
             return
 
         # The chooser is modal and runs the event loop: a model reload may have completed meanwhile
@@ -1855,6 +1941,7 @@ class VideoTrackerApp:
         self.active_object_ids = set(saved.result.object_ids())
         timing = saved.session.timing.resolve(saved.video.n_frames)
         self.time_lapse_var.set(timing.time_lapse_days)
+        self.frame_days_var.set(", ".join(str(t) for t in (timing.frame_timestamps or ())))
         self.conversion_factor_var.set(saved.session.calibration.um_per_pixel)
 
         video = saved.video
@@ -2021,6 +2108,19 @@ class VideoTrackerApp:
         self.set_status(f"Saving the results failed: {error_msg}")
         self.log_event(f"❌ Saving the results failed after {elapsed:.2f}s: {error_msg}")
 
+    def _analysis_frame_count(self):
+        if self.opened is not None:
+            return self.opened.saved.video.n_frames
+        return (self.result_video or self.tracking.video).n_frames
+
+    def _analysis_timing(self):
+        explicit = self.frame_days_var.get().strip()
+        return (
+            Timing(frame_times_days=tuple(float(v.strip()) for v in explicit.split(",")))
+            if explicit
+            else Timing(time_lapse_days=float(self.time_lapse_var.get()))
+        )
+
     def _capture_saved_run(self) -> tuple[dict | None, str | None]:
         """What saving the shown live results needs, read on the GUI thread: ``save_run``'s arguments.
 
@@ -2029,8 +2129,9 @@ class VideoTrackerApp:
         or the record cannot be built.
         """
         try:
-            time_lapse_days = float(self.time_lapse_var.get())
-            conversion_factor = float(self.conversion_factor_var.get())
+            time_lapse_days = self._analysis_timing().resolve(self._analysis_frame_count()).time_lapse_days
+            conversion_factor = Calibration(float(self.conversion_factor_var.get())).um_per_pixel
+            self._analysis_timing().resolve(self._analysis_frame_count())
         except (tk.TclError, ValueError) as error:
             return None, f"check the time lapse and the conversion factor ({error})"
         organoid_data = {
@@ -2039,7 +2140,12 @@ class VideoTrackerApp:
         service = self.tracking
         try:
             record = build_prompt_record(
-                service.tracker, self.current_video_path, organoid_data, time_lapse_days, conversion_factor
+                service.tracker,
+                self.current_video_path,
+                organoid_data,
+                time_lapse_days,
+                conversion_factor,
+                self._analysis_timing().frame_times_days,
             )
             session = session_from_document(record)  # SessionError for a non-positive time lapse or calibration
         except Exception as error:
@@ -2177,28 +2283,9 @@ class VideoTrackerApp:
 
         # Get analysis parameters
         try:
-            try:
-                time_lapse_days = self.time_lapse_var.get()
-            except (tk.TclError, ValueError):
-                time_lapse_days = 7.0  # Fallback to default
-                self.log_event("⚠️ Using default value for time lapse: 7.0 days")
-
-            try:
-                conversion_factor = self.conversion_factor_var.get()
-            except (tk.TclError, ValueError):
-                conversion_factor = 1.0  # Fallback to default
-                self.log_event("⚠️ Using default value for conversion factor: 1.0")
-
-            # Validate ranges
-            if time_lapse_days <= 0:
-                time_lapse_days = 7.0
-                self.time_lapse_var.set(7.0)
-                self.log_event("⚠️ Invalid time lapse value, reset to default: 7.0 days")
-
-            if conversion_factor <= 0:
-                conversion_factor = 1.0
-                self.conversion_factor_var.set(1.0)
-                self.log_event("⚠️ Invalid conversion factor value, reset to default: 1.0 μm/px")
+            time_lapse_days = self._analysis_timing().resolve(self._analysis_frame_count()).time_lapse_days
+            conversion_factor = Calibration(float(self.conversion_factor_var.get())).um_per_pixel
+            self._analysis_timing().resolve(self._analysis_frame_count())
 
             # Count detected organoids and cysts
             total_organoids = len(self.organoid_data)
@@ -2254,15 +2341,38 @@ class VideoTrackerApp:
 
         # The parameters are read again now: they belong to the results shown after the chooser
         try:
-            time_lapse_days = float(self.time_lapse_var.get())
-            conversion_factor = float(self.conversion_factor_var.get())
+            time_lapse_days = self._analysis_timing().resolve(self._analysis_frame_count()).time_lapse_days
+            conversion_factor = Calibration(float(self.conversion_factor_var.get())).um_per_pixel
+            self._analysis_timing().resolve(self._analysis_frame_count())
         except (tk.TclError, ValueError) as error:
             self.set_status(f"Error reading analysis parameters: {error}")
             self.log_event(f"❌ Parameter validation error: {error}")
             return
-        if time_lapse_days <= 0 or conversion_factor <= 0:
+        if conversion_factor <= 0:
             self.set_status("The time lapse and the conversion factor must be positive")
             self.log_event("❌ Invalid analysis parameters")
+            return
+
+        target = Path(output_dir).resolve()
+        source_saved = self.opened.saved if self.opened is not None else None
+        if ExportService(target).previous_saved_run() and (
+            source_saved is None or target != source_saved.directory.resolve()
+        ):
+            self.set_status("Choose a new report directory; this directory already holds a saved run")
+            return
+        if (
+            source_saved is not None
+            and target == source_saved.directory.resolve()
+            and (
+                Calibration(conversion_factor) != source_saved.session.calibration
+                or self._analysis_timing() != source_saved.session.timing
+            )
+        ):
+            self.on_organoid_analysis_complete_error("changed analysis inputs require a new export directory", 0)
+            return
+        if not self._confirm_export_replacement(output_dir):
+            return
+        if not self._ready_for_export("the analysis report") or not self._same_results(token, "the analysis report"):
             return
 
         if self.opened is None:
@@ -2286,25 +2396,38 @@ class VideoTrackerApp:
         }
         frames = self._export_frames()
         result = self.video_segments  # the worker measures this snapshot
-        timing = Timing(time_lapse_days=time_lapse_days)
+        timing = self._analysis_timing()
         if self.opened is not None and self.opened.saved.session.timing.frame_times_days is not None:
             timing = self.opened.saved.session.timing  # the run's explicit frame times, not a uniform span
             self.log_event("🕒 Using the explicit frame times recorded with the reopened run")
 
         def analysis_thread():
             try:
-                # The same measurements and files as a headless run of this session
-                annotations = AnnotationSet.from_organoid_data(organoid_data)
-                analysis = AnalysisService().analyze(
-                    result,
-                    annotations,
-                    Calibration(conversion_factor),
-                    timing,
-                    debug_mode=debug,
-                )
-                analysis_summary = ExportService(output_dir).write_report(
-                    analysis, debug_mode=debug, original_frames=frames
-                )
+                if source_saved is not None:
+                    # Reopened runs share the CLI's provenance, ownership and reanalysis contract.
+                    calibration = Calibration(conversion_factor)
+                    outcome = export_saved_result(
+                        source_saved,
+                        output_dir,
+                        videos=False,
+                        overwrite=True,
+                        debug=debug,
+                        calibration=calibration if calibration != source_saved.session.calibration else None,
+                        timing=timing if timing != source_saved.session.timing else None,
+                    )
+                    analysis_summary = outcome.summary
+                else:
+                    annotations = AnnotationSet.from_organoid_data(organoid_data)
+                    analysis = AnalysisService().analyze(
+                        result,
+                        annotations,
+                        Calibration(conversion_factor),
+                        timing,
+                        debug_mode=debug,
+                    )
+                    analysis_summary = ExportService(output_dir).write_report(
+                        analysis, debug_mode=debug, original_frames=frames
+                    )
 
                 analysis_time = time.time() - start_time
 
@@ -2367,7 +2490,7 @@ class VideoTrackerApp:
 
         # Display growth statistics
         growth = analysis_summary.get("growth_statistics", {})
-        if growth.get("mean_growth_rate_um2_per_day", 0) > 0:
+        if growth.get("mean_growth_rate_um2_per_day") is not None:
             self.log_event("📈 Growth Statistics:")
             self.log_event(f"   • Mean Growth Rate: {growth.get('mean_growth_rate_um2_per_day', 0):.4f} μm²/day")
             self.log_event(f"   • Max Growth Rate: {growth.get('max_growth_rate_um2_per_day', 0):.4f} μm²/day")

@@ -9,7 +9,131 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
 
 ## [Unreleased]
 
-### Scientific behavior
+## [2.0.0a1] - 2026-11-19
+
+First prerelease of the maintained code base, delivered as the Linux Docker desktop preview
+(`packaging/docker/README.md`). It covers everything changed since the code published with the paper
+(tag `legacy-baseline`). Exports carry results version 5. The limitations that affect how results are
+read are listed under "Known limitations of this prerelease" in the README. The newest changes come first.
+
+### Run inputs stay the ones shown and recorded
+
+No measurement changes for the same inputs: results version stays 5. The corrections stop two ways of
+giving a run other inputs than the ones shown or recorded.
+
+#### Qt interface
+
+- Keep the calibration that is in its field when frames and days are confirmed. Confirmation wrote the
+  previous value back, so a run started afterwards measured areas with the old calibration (2 µm/pixel
+  entered, 1 µm/pixel used: every area a quarter of its value).
+- Export reports from saved masks when the source video has moved. The window named the recorded path
+  as a relocation, which made a report-only export read the missing video. Videos still need the video.
+- Keep the calibration and days entered for a re-analysis when the moved video of a saved result is located.
+- Export reports from saved masks when a located video has gone offline again (an unplugged disk).
+
+#### Command line
+
+- Refuse `--frames`/`--decoded-frames` that differ from the selection a session already confirmed
+  (exit 2, no tracking result written). They moved the session's boxes and acquisition days to other source frames
+  and the run still completed. Completing an older session without a selection is unchanged.
+- `validate` rejects a session whose `frame_times_days` count differs from its selected frames, as `run` does.
+- Read the source frames in a prompt record written before results version 5 as unconfirmed, like an
+  older session file. That software selected them itself by image similarity; a new run from such a record
+  used them and their inferred days without asking (source frame 5 of eight daily frames as day 4.5). The
+  command line now needs `--frames`, and the window asks for confirmation. Saved results reopen and
+  re-export with their recorded frames as before.
+- Check a confirmed selection against the frame count in the video's index before the model is loaded.
+  `validate` reported a session declaring nine frames for an eight-frame video as valid, and `run`
+  failed only after loading the model (now exit 2 from both).
+
+#### Reports and exports
+
+- List a series of more than 30 time points in a table of its own in the PDF, 30 time points per row.
+  One cell held every source frame, and past a page's height the PDF and so the whole export failed.
+  Reports of up to 30 time points are unchanged.
+- List the PNG written beside every SVG figure in `run_manifest.json`.
+
+### Cyst identity, tracking direction and acquisition days
+
+No measurement changes: results version stays 5. `raw_cyst_data.csv` gains one trailing column, so it
+is no longer byte-identical to earlier exports; every earlier column is unchanged.
+
+#### Qt interface
+
+- Lock the tracking direction while annotations exist, refuse a session whose direction differs from
+  the one its boxes were drawn under, clear the undo history when the direction changes, and stop
+  remembering the direction between sessions. Boxes drawn on the last time point could previously be
+  applied to the first and produce a completed run with wrong areas.
+- Give a newly opened video no default span. Confirmation needs days that were entered or chosen with
+  the preset; a table shows each source frame with its day before confirming.
+- Treat days edited after confirmation as unconfirmed: tracking and saving wait for a new confirmation,
+  which keeps annotations when the frames are unchanged. The frame label always shows the recorded day.
+- Explain a click that cannot annotate (no video, unconfirmed time points, wrong frame, saved result)
+  and highlight the confirm button while confirmation is needed. Errors use a distinct banner style
+  and name the input that is wrong.
+- Label every mask in the result view with its cyst id in one colour table shared with the videos,
+  show that colour in the annotation list, and outline the mask of the selected cyst.
+
+#### Reports and exports
+
+- Name the source video, its hash prefix, the run, the model, the tracking software and the selected
+  source frames with their days on the PDF's summary and in `analysis_summary.json`.
+- Add `visualizations/cyst_key.png`, a labelled overlay embedded in the PDF. A re-export without videos
+  still draws it on the picture when the source video is readable, and on black otherwise.
+- Label masks with `C<id>` and write the time point and its source frame on overlay and side-by-side
+  video frames, identically for every caller of the export service. The mask video is unchanged.
+- Add `Source_Frame` (zero-based source-video frame) to `raw_cyst_data.csv`; CSV reloads keep it.
+- Recipient guide: add the confirmation step and describe labels and the report's first page.
+
+
+### Acquisition confirmation and report interpretation
+
+#### Scientific behavior (results version 5)
+
+- Require confirmed source frame indices and decoded count for new runs. The Qt and Tk interfaces
+  preview and confirm source frames and acquisition days; the seven-day preset is explicit opt-in.
+- Preserve quiet observations: image-difference thresholds no longer choose experiment time points.
+- Persist selections in sessions and prompt records; preserve existing saved-result mappings.
+- Invalidate Tk live results after cyst-prompt edits and reject invalid analysis parameters.
+- Show missing trajectory observations as gaps and retain single observations in figures.
+
+#### Reports and delivery
+
+- Align heatmap rows with growth bars; include units and honor text/title/DPI settings.
+- Describe accepted-mask counts and missing-mask limitations in figures and PDF warnings.
+- Document each growth estimator in the exported CSV/JSON without changing its formula.
+- Preserve requested original video resolution and label untracked output frames.
+- Embed raster companions for SVG reports; require summary metadata for CSV replotting.
+- Clear stale Tk video state after failed loads, reject drags from outside the image, and confirm
+  replacement of existing Tk report/video outputs.
+- Document the Docker desktop's trusted single-user host boundary.
+
+### Missing-data semantics and saved-result safety
+
+#### Scientific behavior (results version 4)
+
+- Keep consecutive Qt cyst annotations attached to the selected organoid across edits and undo/redo.
+- Reject incomplete indexed videos before assigning experiment times; retain OpenCV pixel decoding.
+- Represent growth from fewer than two observations as missing, exclude it from growth averages and
+  percentile groups, label it N/A in the heatmap, and report the number of estimable cysts and organoids.
+- Retain the prompted mask when reverse tracking has only one unique time point.
+- Draw every positive cyst identifier in exported videos, including identifiers above 20.
+
+#### Saved results and delivery
+
+- Preserve unrelated files across re-export, including files incorrectly inventoried by older versions.
+- Validate explicitly relocated video content even when exporting only reports.
+- Route Tk reanalysis through the shared saved-result exporter and require a copy for changed inputs.
+- Distinguish dirty source runs with a local-change fingerprint.
+- Open the container desktop independently of background model preparation, while validating known
+  public checkpoints immediately before inference.
+
+### Scientific behavior (results versions 2 and 3)
+- Raw CSV measurements retain floating-point precision, so short or irregular time intervals,
+  calibrated areas and circularity survive CSV reload without deliberate rounding. Cyst-summary
+  initial and final areas now follow chronological frame order even after raw CSV rows are reordered.
+  These corrections are results version 3. Tracking masks and measurement formulas are unchanged;
+  older saved results can still be exported, with their original results version recorded as the source.
 - Reverse tracking now does what the paper describes: the prompt is placed on the last
   chronological frame and SAM2 propagates backwards in time. The released code applied the
   prompt to the first frame and tracked forward, then mirrored the output indices. Results,
@@ -48,6 +172,21 @@ a "Scientific behavior" heading so that analyses can be attributed to a version.
   analysis summary).
 
 ### Added
+- Reproducible CPU directory-bundle recipe with a bundled CLI, Qt smoke check, dependency notices,
+  package inventory and source revision in run provenance. Native Windows distribution validation
+  and installer selection remain pending; NVIDIA use continues through the locked source installation.
+- PySide6 desktop preview (`organoidtracker-qt`): source-pixel annotation canvas, zoom/pan,
+  undo/redo, model settings, cooperative tracking/cancellation, automatic run directories,
+  saved-result reopening, mask views, figures, reports and video exports. Missing source videos
+  can be relocated by content hash. The Tk interface remains available during acceptance.
+- Reanalysis copies accept changed calibration and timing while retaining masks and inference
+  provenance. The saved result, session, prompt record and report use the same inputs, including
+  after a second reopen/export; the original run remains intact.
+- Optional local-snapshot Transformers SAM 2/2.1 backend (`hf-sam2`), selected in sessions or with
+  `run --backend` / `--checkpoint`. The reference backend remains the default. Model size and family
+  are checked, snapshot hashes enter provenance, and cancelled runs can be repeated from their prompts.
+- `organoidtracker bench` writes timing, memory and mask-comparison CSV/JSON alongside a complete
+  saved run. Missing masks and identity swaps are visible; comparison against an unrelated video is refused.
 - The window saves every tracking run that kept masks right after tracking, without a dialog, into a new
   directory `data/output_videos/runs/<video>_<timestamp>_<run id>/` holding the files Save Results writes
   (`results.json`, the mask file, `session.json`, `prompts.json`). A run that is never exported or saved by hand

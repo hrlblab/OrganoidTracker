@@ -73,7 +73,7 @@ def test_explicit_irregular_axis_survives_the_csv_reload_for_frames_without_rows
     session = session_from_document(
         {
             "schema": "organoidtracker.session/1",
-            "video": {"path": str(video)},
+            "video": {"path": str(video), "frame_indices": list(range(8)), "decoded_frames": 8},
             "tracking": {"model_config": "sam2_hiera_t", "device": "cpu"},
             "calibration": {"um_per_pixel": 1.0},
             "timing": {"frame_times_days": EXPLICIT_AXIS},

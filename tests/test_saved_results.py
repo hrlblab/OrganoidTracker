@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from helpers import DiscVideo, FakeTracker, expected_growth_per_day, read_video
+from organoidtracker import RESULTS_VERSION
 from organoidtracker.core.masks import PackedMask
 from organoidtracker.services import saved_results
 from organoidtracker.services.export_service import ExportError
@@ -66,7 +67,12 @@ def make_session(disc, video, *, organoids=None, timing=None, calibration=CALIBR
     return session_from_document(
         {
             "schema": "organoidtracker.session/1",
-            "video": {"path": str(video), "sha256": hashlib.sha256(video.read_bytes()).hexdigest()},
+            "video": {
+                "path": str(video),
+                "sha256": hashlib.sha256(video.read_bytes()).hexdigest(),
+                "frame_indices": list(range(N)),
+                "decoded_frames": N,
+            },
             "tracking": {"model_config": "sam2_hiera_t", "device": "cpu"},
             "calibration": {"um_per_pixel": calibration},
             "timing": timing or {"frame_times_days": TIMES},
@@ -95,18 +101,32 @@ def hard_run(small_disc, small_video, tmp_path):
 
 
 def normalized_summary(path):
-    return {k: v for k, v in json.loads(Path(path).read_text()).items() if k not in VOLATILE_SUMMARY_KEYS}
+    summary = {k: v for k, v in json.loads(Path(path).read_text()).items() if k not in VOLATILE_SUMMARY_KEYS}
+    if "source" in summary:
+        # A relocated video keeps its content hash, run and model; only its file name may differ.
+        summary["source"] = {k: v for k, v in summary["source"].items() if k != "video_name"}
+    return summary
+
+
+CYST_KEY = "visualizations/cyst_key.png"
 
 
 def report_files(directory):
+    """The tables and the six figures. The cyst key is compared apart: it needs the source video."""
     names = ["raw_cyst_data.csv", "cyst_summary.csv", "organoid_summary.csv"]
-    names += sorted(p.relative_to(directory).as_posix() for p in (directory / "visualizations").glob("*.png"))
+    names += sorted(
+        name
+        for name in (p.relative_to(directory).as_posix() for p in (directory / "visualizations").glob("*.png"))
+        if name != CYST_KEY
+    )
     return names
 
 
 def assert_same_exports(original: Path, again: Path, *, videos=True):
     names = report_files(original)
     assert len([n for n in names if n.startswith("visualizations/")]) == 6
+    # Both exports carry the labelled key whenever the run kept a mask of an annotated cyst.
+    assert (again / CYST_KEY).is_file() == (original / CYST_KEY).is_file()
     for name in names:
         assert (again / name).read_bytes() == (original / name).read_bytes(), name
     assert normalized_summary(again / "analysis_summary.json") == normalized_summary(original / "analysis_summary.json")
@@ -135,7 +155,7 @@ def test_a_run_saves_a_result_that_reloads_bit_for_bit(hard_run):
         "masks_file": saved.masks_path.name,
         "run_id": manifest["run_id"],
         "created": saved.created,
-        "results_version": 2,
+        "results_version": RESULTS_VERSION,
     }
     assert manifest["produced_by"] == "run" and manifest["source"] is None
     for name in ("results.json", saved.masks_path.name):
@@ -162,7 +182,7 @@ def test_a_run_saves_a_result_that_reloads_bit_for_bit(hard_run):
     assert reloaded.session.video.path == original.video.path and reloaded.session.video.sha256 == original.video.sha256
     assert reloaded.video == hard_run.saved_result.video
     assert reloaded.video.frame_map == tuple(range(N)) and (reloaded.video.height, reloaded.video.width) == (128, 128)
-    assert reloaded.run_id == manifest["run_id"] and reloaded.results_version == 2
+    assert reloaded.run_id == manifest["run_id"] and reloaded.results_version == RESULTS_VERSION
     assert reloaded.provenance["backend"] == "fake" and "SAM2_MIN_MASK_AREA" in reloaded.settings
     assert "python" in reloaded.environment and reloaded.software["organoidtracker"]
 
@@ -177,7 +197,9 @@ def test_export_reproduces_the_run_byte_for_byte_without_the_tracker(hard_run, t
     original = json.loads(hard_run.manifest_path.read_text())
     assert manifest["produced_by"] == "export" and manifest["status"] == "partial" and not manifest["complete"]
     assert manifest["source"]["run_directory"] == str(hard_run.output_dir)
-    assert manifest["source"]["run_created"] == saved.created and manifest["source"]["results_version"] == 2
+    assert (
+        manifest["source"]["run_created"] == saved.created and manifest["source"]["results_version"] == RESULTS_VERSION
+    )
     assert manifest["source"]["settings"] == original["settings"]
     assert manifest["run_id"] == original["run_id"]
     for key in ("masks", "tracking", "provenance", "video", "session", "analysis"):
@@ -835,3 +857,33 @@ def test_a_failed_save_into_a_new_run_directory_keeps_what_it_did_not_write(hard
         ExportService(target).save_new_run(**_run_arguments(hard_run))
     assert sorted(p.name for p in target.iterdir()) == [other.name]
     assert other.read_text() == "staged by another save\n"
+
+
+def test_reexport_never_owns_or_deletes_unrelated_files(hard_run, tmp_path):
+    target = tmp_path / "export"
+    target.mkdir()
+    note = target / "notes.txt"
+    note.write_text("original notes")
+    first = export_saved_result(hard_run.saved_result, target, videos=False)
+    assert note.name not in json.loads(first.manifest_path.read_text())["files"]
+    for subdir in ("videos", "visualizations"):
+        (target / subdir).mkdir(exist_ok=True)
+        (target / subdir / "user-notes.txt").write_text("nested notes")
+    # Legacy inventories could already have claimed unrelated files. Do not trust them.
+    manifest = json.loads(first.manifest_path.read_text())
+    manifest.pop("file_inventory_kind", None)
+    manifest["files"]["notes.txt"] = {"bytes": note.stat().st_size}
+    first.manifest_path.write_text(json.dumps(manifest))
+    for _ in range(2):
+        export_saved_result(load_saved_result(target), target, videos=False, overwrite=True)
+        assert note.read_text() == "original notes"
+        for subdir in ("videos", "visualizations"):
+            assert (target / subdir / "user-notes.txt").read_text() == "nested notes"
+
+
+def test_report_only_explicit_relocation_rejects_wrong_video_before_writes(hard_run, tmp_path):
+    wrong = DiscVideo(2).write(tmp_path / "wrong.mp4")
+    before = {p: p.read_bytes() for p in hard_run.output_dir.rglob("*") if p.is_file()}
+    with pytest.raises(SessionError, match="different video"):
+        export_saved_result(hard_run.saved_result, hard_run.output_dir, videos=False, video_path=wrong, overwrite=True)
+    assert all(p.read_bytes() == content for p, content in before.items())

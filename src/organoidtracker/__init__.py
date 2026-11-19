@@ -12,4 +12,6 @@ except PackageNotFoundError:  # imported from a source tree that was not install
 # records each bump under "Scientific behavior". 0 is the untouched upstream code (tag
 # legacy-baseline); 1 is the corrected frame contract of WP1; 2 corrects the analysis
 # bookkeeping (phantom cysts, borrowed masks, frame count, growth-rate unit).
-RESULTS_VERSION = 2
+# 3 preserves raw CSV precision and chronological summary endpoints after CSV reload.
+# 5 requires confirmed acquisition selection; missing observations remain explicit in figures.
+RESULTS_VERSION = 5

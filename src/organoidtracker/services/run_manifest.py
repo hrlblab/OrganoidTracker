@@ -123,17 +123,14 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def file_inventory(root: Path, exclude: Iterable[str] = ()) -> dict[str, dict[str, Any]]:
-    """``{relative posix path: {"sha256", "bytes"}}`` for every file under ``root``."""
-    skipped = set(exclude)
+def file_inventory(root: Path, paths: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Inventory only named generated files, never unrelated directory contents."""
     inventory = {}
-    for path in sorted(p for p in Path(root).rglob("*") if p.is_file()):
-        relative = path.relative_to(root).as_posix()
-        if relative in skipped or any(relative.startswith(prefix) for prefix in skipped if prefix.endswith("/")):
-            continue
-        if relative.startswith("organoidtracker.log"):
-            continue  # still being written
-        inventory[relative] = {"sha256": sha256_file(path), "bytes": path.stat().st_size}
+    root = root.resolve()
+    for relative in sorted(set(paths)):
+        path = root / relative
+        if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(root):
+            inventory[relative] = {"sha256": sha256_file(path), "bytes": path.stat().st_size}
     return inventory
 
 
@@ -147,6 +144,7 @@ def build_manifest(
     analysis: Analysis,
     video_export: dict[str, Any] | None,
     output_dir: Path,
+    artifacts: Iterable[str],
     timings_s: dict[str, float],
     produced_by: str = "run",
     source: dict[str, Any] | None = None,
@@ -191,6 +189,7 @@ def build_manifest(
             "conversion_um_per_pixel": experiment.conversion_factor_um_per_pixel,
             "warnings": list(analysis.validation.get("warnings", [])),
         },
-        "files": file_inventory(output_dir, exclude=(RUN_MANIFEST_NAME,)),
+        "file_inventory_kind": "generated-files/1",
+        "files": file_inventory(output_dir, artifacts),
         "timings_s": timings_s,
     }

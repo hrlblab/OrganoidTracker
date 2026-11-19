@@ -20,8 +20,9 @@
 # disable_visualization_titles = false  # hide titles (publication mode)
 
 # --- Frames and checkpoints ---
-# collapse_duplicate_frames = true  # merge consecutive near-identical frames into one time point
-# duplicate_frame_mad_threshold = 1.0  # mean absolute grayscale difference (0-255) below which frames repeat
+# Legacy compatibility only: both options below are ignored. Confirm acquisition frames in the app/session.
+# collapse_duplicate_frames = false
+# duplicate_frame_mad_threshold = 1.0
 # sam2_checkpoint_family = "2.1"  # "2.1" (default) or "2" (the original SAM 2 checkpoints)
 
 # --- Tracking quality filter ---

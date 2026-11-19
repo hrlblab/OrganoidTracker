@@ -35,6 +35,10 @@ def experiment_from_csv(
         summary_json_path = raw_csv_path.parent / "analysis_summary.json"
     if organoid_csv_path is None and (raw_csv_path.parent / "organoid_summary.csv").is_file():
         organoid_csv_path = raw_csv_path.parent / "organoid_summary.csv"
+    if summary_json_path is None or not Path(summary_json_path).is_file():
+        raise ValueError(
+            "Replotting requires analysis_summary.json alongside the CSV: source frame times and tracking coverage cannot be inferred from measurement rows"
+        )
 
     with open(raw_csv_path, newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
@@ -69,14 +73,15 @@ def experiment_from_csv(
         if isinstance(explicit_axis, list) and len(explicit_axis) == total_frames:
             experiment.frame_timestamps = [float(t) for t in explicit_axis]
         else:
-            logger.warning(
-                f"{summary_json_path}: frame_timestamps does not match {total_frames} frames; using the uniform axis"
-            )
+            raise ValueError(f"{summary_json_path}: frame_timestamps does not match {total_frames} frames")
     for frame_idx, time_days in times_by_frame.items():
         if 0 <= frame_idx < total_frames:
             experiment.frame_timestamps[frame_idx] = time_days
+    frame_map = tracking.get("frame_map")
+    if isinstance(frame_map, list) and len(frame_map) == total_frames:
+        experiment.source_frames = [int(index) for index in frame_map]
     tracked = tracking.get("tracked_frames")
-    experiment.observed_frames = sorted(int(f) for f in tracked) if tracked else None
+    experiment.observed_frames = sorted(int(f) for f in tracked) if tracked is not None else sorted(set(frames))
 
     # Every organoid, with its marker point, from the organoid summary; organoids without
     # cysts have no raw rows and would otherwise disappear.

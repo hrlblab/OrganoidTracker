@@ -66,6 +66,36 @@ jobs:
         if: runner.os == 'Windows'
         run: uv run --no-sync pytest -m gui
 
+  qt:
+    name: Qt workflow (${{ matrix.os }}, offscreen)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra cpu --extra qt --group qt-test
+      # The PySide6 wheels load these system libraries on import, offscreen too; the runner image
+      # has no libEGL. The list is what a bare Ubuntu image needs for the Qt tests.
+      - name: Qt system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libglib2.0-0
+      - run: uv run --no-sync pytest -m qt
+      - name: Coordinate checks at 150 percent scaling
+        if: runner.os == 'Linux'
+        env:
+          QT_SCALE_FACTOR: "1.5"
+        run: uv run --no-sync pytest -m qt -k canvas
+
   model:
     name: Real-model tests (SAM 2.1 tiny, CPU)
     runs-on: ubuntu-latest
@@ -75,7 +105,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --extra cpu
+      - run: uv sync --extra cpu --extra hf
       - name: Cache the SAM 2.1 tiny checkpoint
         id: ckpt
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -88,4 +118,37 @@ jobs:
           curl -sSL -o checkpoints/sam2.1_hiera_tiny.pt \
             https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt
           echo "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69  checkpoints/sam2.1_hiera_tiny.pt" | sha256sum -c -
+      - name: Cache the Transformers SAM 2.1 tiny snapshot
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: checkpoints/hf/sam2.1-hiera-tiny
+          key: hf-sam2.1-hiera-tiny-de431c4043854a71d8101e17995dfe596bf101a5
+      - name: Download the pinned public Transformers snapshot
+        env:
+          HF_HUB_DISABLE_IMPLICIT_TOKEN: "1"
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: >-
+          uv run --no-sync python -c "from huggingface_hub import snapshot_download;
+          snapshot_download('facebook/sam2.1-hiera-tiny', revision='de431c4043854a71d8101e17995dfe596bf101a5',
+          allow_patterns=['*.json','model.safetensors'], local_dir='checkpoints/hf/sam2.1-hiera-tiny')"
       - run: uv run --no-sync pytest -m model
+
+  desktop:
+    name: Linux container desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra cpu --extra qt --extra desktop --group qt-test
+      - name: Qt system libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libglib2.0-0
+      - run: uv run --no-sync pytest tests/test_desktop.py tests/test_qt_workflow.py
+        env:
+          QT_QPA_PLATFORM: offscreen
+      - run: docker build --build-arg ACCELERATOR=cpu --build-arg SOURCE_REVISION="$GITHUB_SHA" --build-arg SOURCE_DIRTY=false -f packaging/docker/Dockerfile -t organoidtracker:ci .
+      - run: packaging/docker/smoke.sh organoidtracker:ci

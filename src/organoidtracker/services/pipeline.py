@@ -19,11 +19,11 @@ from ..analysis.organoid_report_generator import Analysis
 from ..core.tracking_result import TrackingResult
 from .analysis_service import AnalysisService
 from .annotations import AnnotationError
-from .export_service import PROMPT_RECORD_NAME, ExportService
+from .export_service import PROMPT_RECORD_NAME, ExportService, report_source
 from .prompt_record import build_prompt_record
 from .run_manifest import build_manifest
 from .saved_results import SavedResult
-from .session import Session, SessionError, TrackingSpec
+from .session import Calibration, Session, SessionError, Timing, TrackingSpec
 from .tracking_service import TrackingService
 from .video_frames import load_video_frames, sha256_file
 
@@ -75,7 +75,7 @@ class RunOutcome:
 
 
 def check_video(session: Session) -> str:
-    """The video must exist and, when the session records a hash, have that content. Returns the sha256."""
+    """The video must exist, have the recorded content and hold the confirmed frames. Returns the sha256."""
     path = Path(session.video.path)
     if not path.is_file():
         raise SessionError(f"video not found: {path} (relocate it with --video)")
@@ -85,6 +85,21 @@ def check_video(session: Session) -> str:
             f"video {path} does not match the session's recorded content (sha256 {digest[:12]}... vs "
             f"{session.video.sha256[:12]}...); this is a different video"
         )
+    if session.video.frame_indices is not None:
+        # The confirmed selection against the frame count in the file's index, before any model is
+        # loaded. Decoding checks it again; an index without a count (0) leaves it to the decoding.
+        from ..core.video_decode import indexed_frame_count
+        from ..core.video_frames import selected_frame_indices
+
+        try:
+            count = indexed_frame_count(path)
+        except (OSError, ValueError):
+            count = 0
+        if count > 0:
+            try:
+                selected_frame_indices(count, session.video.frame_indices, session.video.decoded_frames)
+            except ValueError as error:
+                raise SessionError(f"video {path}: {error}") from error
     return digest
 
 
@@ -115,6 +130,11 @@ def run_session(
     exporter.video_export_parameters(video_quality)  # fail early on a bad quality name
     if not session.annotations.cysts:  # before anything is written: nothing to track
         raise AnnotationError("at least one cyst box is required to track")
+    if session.video.frame_indices is None:
+        raise SessionError(
+            "Confirm source frame selection before tracking: set video.frame_indices and video.decoded_frames, or use --frames and --decoded-frames"
+        )
+    session.timing.resolve(len(session.video.frame_indices))
     video_sha256 = check_video(session)
     exporter.prepare(overwrite=overwrite)
     exporter.write_session(session, video_sha256)
@@ -129,7 +149,11 @@ def run_session(
     timings["load_model_s"] = round(time.perf_counter() - started, 3)
 
     started = time.perf_counter()
-    source = service.open_video(session.video.path)
+    source = service.open_video(
+        session.video.path,
+        frame_indices=session.video.frame_indices,
+        expected_decoded_frames=session.video.decoded_frames,
+    )
     timings["load_video_s"] = round(time.perf_counter() - started, 3)
     if source.sha256 and source.sha256 != video_sha256:  # pragma: no cover - the file changed under us
         raise SessionError(f"video {session.video.path} changed while it was being read")
@@ -159,6 +183,8 @@ def run_session(
         logger.warning(f"Tracking cancelled: {result.summary()}; the exports cover the tracked frames only")
 
     # The complete experiment goes to disk before any export, so that a failed export loses nothing
+    if progress:
+        progress("saving", 0, 1, "Saving retained masks")
     started = time.perf_counter()
     saved = exporter.write_results(
         run_id=service.run_id, session=session, video=source, provenance=service.provenance(), result=result
@@ -166,6 +192,8 @@ def run_session(
     timings["save_results_s"] = round(time.perf_counter() - started, 3)
     logger.info(f"Run {service.run_id}: results saved ({saved.path.name}, {saved.masks_path.name})")
 
+    if progress:
+        progress("analysis", 0, 1, "Measuring tracked cysts")
     analysis = AnalysisService(exporter.generator).analyze(
         result, session.annotations, session.calibration, session.timing, debug_mode=debug
     )
@@ -181,7 +209,15 @@ def run_session(
         video_export = exporter.video_export_parameters(video_quality)
 
     started = time.perf_counter()
-    summary = exporter.write_report(analysis, debug_mode=debug, original_frames=service.frames)
+    if progress:
+        progress("report", 0, 1, "Writing CSV tables, figures and PDF")
+    summary = exporter.write_report(
+        analysis,
+        debug_mode=debug,
+        original_frames=service.frames,
+        result=result,
+        source=report_source(service.run_id, source, service.provenance()),
+    )
     timings["report_s"] = round(time.perf_counter() - started, 3)
 
     manifest = build_manifest(
@@ -193,6 +229,7 @@ def run_session(
         analysis=analysis,
         video_export=video_export,
         output_dir=exporter.output_dir,
+        artifacts=exporter.report_artifacts(summary, video_paths, debug=debug),
         timings_s=timings,
         results=saved.to_manifest_block(),
     )
@@ -221,6 +258,8 @@ def export_saved_result(
     debug: bool = False,
     video_path: Path | str | None = None,
     progress: PhaseProgress | None = None,
+    calibration: Calibration | None = None,
+    timing: Timing | None = None,
 ) -> RunOutcome:
     """Analyze and export a saved result again into ``output_dir``, without a model.
 
@@ -231,12 +270,20 @@ def export_saved_result(
     video (same content) for the videos; without videos the video file is not needed. Raises
     ``SessionError`` for a missing or different video, ``ExportError`` for an unusable output
     directory or a failed export. The status, and so the exit code, is the saved run's.
+    Optional ``calibration`` and ``timing`` re-analyze the masks in a new output directory;
+    every copied input document records those values and the original saved run remains intact.
     """
     timings: dict[str, float] = {}
     exporter = ExportService(output_dir)
     exporter.video_export_parameters(video_quality)  # fail early on a bad quality name
     session = saved.session if video_path is None else saved.session.with_video(video_path)
     in_place = exporter.output_dir.resolve() == saved.directory.resolve()
+    reanalysis = calibration is not None or timing is not None
+    if reanalysis:
+        if in_place:
+            raise SessionError("changed analysis inputs require a new export directory")
+        session = replace(session, calibration=calibration or session.calibration, timing=timing or session.timing)
+        session.timing.resolve(saved.video.n_frames)
     if saved.results_version != RESULTS_VERSION:
         logger.warning(
             f"The saved result holds results version {saved.results_version}; this software exports "
@@ -244,10 +291,18 @@ def export_saved_result(
         )
 
     frames = None
-    if videos:
+    if videos or video_path is not None:
         started = time.perf_counter()
         frames = load_video_frames(session.video.path, saved.video)
         timings["load_video_s"] = round(time.perf_counter() - started, 3)
+    key_frames = frames
+    if key_frames is None:
+        # The report's cyst key shows the masks on the picture when the video can still be read;
+        # an export without videos must not need it, so the key falls back to the masks alone.
+        try:
+            key_frames = load_video_frames(session.video.path, saved.video)
+        except (ValueError, OSError):
+            key_frames = None
 
     exporter.prepare(overwrite=overwrite, keep_results=in_place)
     result = saved.result
@@ -262,8 +317,10 @@ def export_saved_result(
         exporter.write_session(session, saved.video.sha256)
         record = saved.directory / PROMPT_RECORD_NAME
         if record.is_file():
-            exporter.copy_prompt_record(record, video_path=new_video)
-        copied = exporter.copy_saved_result(saved, video_path=new_video)
+            exporter.copy_prompt_record(record, video_path=new_video, analysis_session=session if reanalysis else None)
+        copied = exporter.copy_saved_result(
+            saved, video_path=new_video, analysis_session=session if reanalysis else None
+        )
 
     analysis = AnalysisService(exporter.generator).analyze(
         result, session.annotations, session.calibration, session.timing, debug_mode=debug
@@ -281,10 +338,16 @@ def export_saved_result(
         video_export = exporter.video_export_parameters(video_quality)
 
     started = time.perf_counter()
-    summary = exporter.write_report(analysis, debug_mode=debug, original_frames=frames)
+    video = saved.video if video_path is None else replace(saved.video, path=Path(session.video.path))
+    summary = exporter.write_report(
+        analysis,
+        debug_mode=debug,
+        original_frames=key_frames,
+        result=result,
+        source=report_source(saved.run_id, video, saved.provenance),
+    )
     timings["report_s"] = round(time.perf_counter() - started, 3)
 
-    video = saved.video if video_path is None else replace(saved.video, path=Path(session.video.path))
     manifest = build_manifest(
         run_id=saved.run_id,
         session=session,
@@ -294,6 +357,7 @@ def export_saved_result(
         analysis=analysis,
         video_export=video_export,
         output_dir=exporter.output_dir,
+        artifacts=exporter.report_artifacts(summary, video_paths, debug=debug),
         timings_s=timings,
         produced_by="export",
         source={

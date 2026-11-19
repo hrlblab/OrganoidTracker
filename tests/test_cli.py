@@ -29,7 +29,12 @@ def session_file(tmp_path, disc, video_path, **overrides):
     cx, cy = disc.centers[N - 1]
     document = {
         "schema": "organoidtracker.session/1",
-        "video": {"path": video_path.name, "sha256": hashlib.sha256(video_path.read_bytes()).hexdigest()},
+        "video": {
+            "path": video_path.name,
+            "sha256": hashlib.sha256(video_path.read_bytes()).hexdigest(),
+            "frame_indices": list(range(N)),
+            "decoded_frames": N,
+        },
         "tracking": {"model_config": "sam2_hiera_t", "device": "cpu"},
         "calibration": {"um_per_pixel": 1.0},
         "timing": {"time_lapse_days": 7.0},
@@ -185,6 +190,10 @@ def test_overrides_reach_the_session(tmp_path, small_disc, small_video, monkeypa
                 "cuda:1",
                 "--model",
                 "sam2_hiera_l",
+                "--backend",
+                "hf-sam2",
+                "--checkpoint",
+                str(tmp_path / "snapshot"),
                 "--log-level",
                 "ERROR",
             ]
@@ -192,6 +201,7 @@ def test_overrides_reach_the_session(tmp_path, small_disc, small_video, monkeypa
         == 0
     )
     assert seen["spec"].device == "cuda:1" and seen["spec"].model_config == "sam2_hiera_l"
+    assert seen["spec"].backend == "hf-sam2" and seen["spec"].checkpoint_path == tmp_path / "snapshot"
 
 
 def test_invalid_settings_stop_the_command_line(tmp_path, small_disc, small_video):
@@ -227,7 +237,11 @@ def test_end_to_end_run_with_the_real_model(tmp_path, disc, disc_video_path, dev
     cx, cy = disc.centers[disc.n_frames - 1]
     document = {
         "schema": "organoidtracker.session/1",
-        "video": {"path": str(disc_video_path)},
+        "video": {
+            "path": str(disc_video_path),
+            "frame_indices": list(range(disc.n_frames)),
+            "decoded_frames": disc.n_frames,
+        },
         "tracking": {"model_config": "sam2_hiera_t", "checkpoint_path": str(tiny_checkpoint), "device": device},
         "calibration": {"um_per_pixel": 1.0},
         "timing": {"time_lapse_days": 7.0},
@@ -462,3 +476,194 @@ def test_export_with_a_relocated_video_can_be_exported_again(tmp_path, small_dis
         )
     finally:
         os.replace(moved, small_video)
+
+
+def test_cli_explicit_selection_override_and_invalid_indices(monkeypatch, small_disc, small_video, tmp_path):
+    use_fake_backend(monkeypatch, small_disc)
+    session = session_file(tmp_path, small_disc, small_video)
+    document = json.loads(session.read_text())
+    document["video"].pop("frame_indices")
+    document["video"].pop("decoded_frames")
+    session.write_text(json.dumps(document))
+    target = tmp_path / "selected"
+    assert (
+        cli.main(
+            [
+                "run",
+                "--session",
+                str(session),
+                "--out",
+                str(target),
+                "--no-videos",
+                "--frames",
+                "1,3,5,8",
+                "--decoded-frames",
+                "8",
+            ]
+        )
+        == 0
+    )
+    from organoidtracker.services.saved_results import load_saved_result
+
+    assert load_saved_result(target).video.frame_map == (0, 2, 4, 7)
+    assert (
+        cli.main(
+            [
+                "run",
+                "--session",
+                str(session),
+                "--out",
+                str(tmp_path / "invalid"),
+                "--frames",
+                "one,two",
+                "--decoded-frames",
+                "8",
+            ]
+        )
+        == 2
+    )
+    assert not (tmp_path / "invalid" / "results.json").exists()
+
+
+def test_frame_options_cannot_move_a_confirmed_session_to_other_frames(
+    monkeypatch, small_disc, small_video, tmp_path, caplog
+):
+    """A confirmed session's boxes and days belong to its frames: another selection is refused, not tracked."""
+    use_fake_backend(monkeypatch, small_disc)
+    indices, days = [0, 2, 4, 7], [1, 2, 4, 7]
+    session = session_file(
+        tmp_path,
+        small_disc,
+        small_video,
+        video={
+            "path": small_video.name,
+            "sha256": hashlib.sha256(small_video.read_bytes()).hexdigest(),
+            "frame_indices": indices,
+            "decoded_frames": N,
+        },
+        timing={"frame_times_days": days},
+    )
+
+    def attempt(name, frames, decoded, command="run"):
+        extra = ["--reference", str(tmp_path / "same")] if command == "bench" else []
+        arguments = [command, "--session", str(session), "--out", str(tmp_path / name), "--no-videos", *extra]
+        return cli.main([*arguments, "--frames", frames, "--decoded-frames", decoded])
+
+    # The same number of frames, so the recorded days would fit: only the last source frame differs.
+    assert attempt("moved", "1,3,5,7", "8") == 2
+    assert "differ from the selection this session confirmed (frames 1, 3, 5, 8 of 8)" in caplog.text
+    assert attempt("recount", "1,3,5,8", "9") == 2
+    for name in ("moved", "recount"):
+        assert not any((tmp_path / name).glob("*.json")), name  # nothing was tracked or saved
+    # Repeating the confirmed selection is not a change.
+    assert attempt("same", "1,3,5,8", "8") == 0
+    from organoidtracker.services.saved_results import load_saved_result
+
+    saved = load_saved_result(tmp_path / "same")
+    assert saved.video.frame_map == tuple(indices) and saved.session.timing.frame_times_days == tuple(days)
+    assert attempt("bench", "1,3,5,7", "8", command="bench") == 2
+
+
+def test_validate_rejects_days_that_do_not_match_the_selected_frames(tmp_path, small_disc, small_video, capsys):
+    video = {
+        "path": small_video.name,
+        "sha256": hashlib.sha256(small_video.read_bytes()).hexdigest(),
+        "frame_indices": [0, 7],
+        "decoded_frames": N,
+    }
+    path = session_file(tmp_path, small_disc, small_video, video=video, timing={"frame_times_days": [1, 4, 8]})
+    assert cli.main(["validate", "--session", str(path)]) == 2
+    captured = capsys.readouterr()
+    assert "3 values but the video has 2 selected frames" in captured.err and "valid\n" not in captured.out
+    # Whatever validate accepts, run accepts: the same session with one day per selected frame.
+    path = session_file(tmp_path, small_disc, small_video, video=video, timing={"frame_times_days": [1, 8]})
+    assert cli.main(["validate", "--session", str(path)]) == 0
+    assert capsys.readouterr().out.endswith("valid\n")
+
+
+def _selected_run(tmp_path, small_disc, small_video, monkeypatch, name="first"):
+    """A run on source frames 1, 5 and 8 of 8, annotated on frame 8; returns its directory."""
+    use_fake_backend(monkeypatch, small_disc)
+    video = {
+        "path": small_video.name,
+        "sha256": hashlib.sha256(small_video.read_bytes()).hexdigest(),
+        "frame_indices": [0, 4, 7],
+        "decoded_frames": N,
+    }
+    session = session_file(tmp_path, small_disc, small_video, video=video)
+    out = tmp_path / name
+    assert cli.main(["run", "--session", str(session), "--out", str(out), "--no-videos"]) == 0
+    return out
+
+
+def _days_by_source_frame(directory):
+    import csv
+
+    with (directory / "raw_cyst_data.csv").open(newline="") as handle:
+        return {int(row["Source_Frame"]): float(row["Time_Days"]) for row in csv.DictReader(handle)}
+
+
+def test_frames_an_older_version_selected_itself_are_not_a_confirmation(
+    tmp_path, small_disc, small_video, monkeypatch, caplog
+):
+    """A prompt record of results version 4 names frames the software chose by image similarity.
+
+    Read as confirmed, it started a new run on them with their inferred days, and no option could
+    correct it. It is now an older document: the acquisition's frames are given before tracking.
+    """
+    from organoidtracker.services.saved_results import load_saved_result
+    from organoidtracker.services.session import load_session
+
+    first = _selected_run(tmp_path, small_disc, small_video, monkeypatch)
+    current = json.loads((first / "prompts.json").read_text())
+    assert current["video"]["frame_map"] == [0, 4, 7] and current["analysis_inputs"]["time_lapse_days"] == 7.0
+    legacy = tmp_path / "legacy-prompts.json"
+    legacy.write_text(json.dumps({**current, "results_version": 4}))
+
+    assert load_session(first / "prompts.json").video.frame_indices == (0, 4, 7)  # this version's record
+    assert load_session(legacy).video.frame_indices is None
+    assert "--frames 1,5,8 --decoded-frames 8 repeats that selection" in caplog.text
+    without_version = tmp_path / "unversioned-prompts.json"
+    without_version.write_text(json.dumps({k: v for k, v in current.items() if k != "results_version"}))
+    assert load_session(without_version).video.frame_indices is None
+
+    def run(name, session, *frames):
+        options = ["--frames", frames[0], "--decoded-frames", "8"] if frames else []
+        return cli.main(["run", "--session", str(session), "--out", str(tmp_path / name), "--no-videos", *options])
+
+    assert run("unconfirmed", legacy) == 2 and not (tmp_path / "unconfirmed" / "results.json").exists()
+    # The acquisition's eight daily frames: frame 5 is day 5, which the inferred selection called day 4.5.
+    assert run("all", legacy, "1,2,3,4,5,6,7,8") == 0
+    assert _days_by_source_frame(tmp_path / "all") == {index: index + 1.0 for index in range(8)}
+    # Giving the recorded frames repeats the old run on purpose.
+    assert run("repeat", legacy, "1,5,8") == 0
+    assert _days_by_source_frame(tmp_path / "repeat") == {0: 1.0, 4: 4.5, 7: 8.0}
+    # What that run wrote is confirmed: it replays without options and refuses other frames.
+    replayed = tmp_path / "all" / "prompts.json"
+    assert run("again", replayed) == 0
+    assert load_saved_result(tmp_path / "again").video.frame_map == tuple(range(8))
+    assert run("other", replayed, "1,5,8") == 2 and not (tmp_path / "other" / "results.json").exists()
+
+
+def test_the_selection_is_checked_against_the_video_before_the_model_is_loaded(
+    tmp_path, small_disc, small_video, monkeypatch, capsys
+):
+    """A session declaring nine frames for an eight-frame video passed validate; run failed after loading."""
+
+    def no_model(cls, spec, registry=None):
+        raise AssertionError("the model must not be loaded for a selection the video cannot hold")
+
+    monkeypatch.setattr(TrackingService, "create", classmethod(no_model))
+    video = {
+        "path": small_video.name,
+        "sha256": hashlib.sha256(small_video.read_bytes()).hexdigest(),
+        "frame_indices": [0, 8],
+        "decoded_frames": 9,
+    }
+    session = session_file(tmp_path, small_disc, small_video, video=video, timing={"frame_times_days": [1, 9]})
+    assert cli.main(["validate", "--session", str(session)]) == 2
+    captured = capsys.readouterr()
+    assert "expects 9 decoded frames, found 8" in captured.err and "valid\n" not in captured.out
+    out = tmp_path / "nine"
+    assert cli.main(["run", "--session", str(session), "--out", str(out), "--no-videos"]) == 2
+    assert not (out / "session.json").exists() and not (out / "results.json").exists()

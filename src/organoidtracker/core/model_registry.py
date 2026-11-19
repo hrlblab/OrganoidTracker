@@ -39,6 +39,13 @@ class ModelRegistry:
         except ImportError as e:
             logger.warning(f"SAM2 not available: {e}")
 
+        from importlib.util import find_spec
+
+        if find_spec("transformers") is not None:
+            from .hf_sam2_tracker import HfSam2Adapter
+
+            self.register_model(HfSam2Adapter)
+
     def register_model(self, model_class: type[BaseVideoTracker]) -> bool:
         """
         Register a new model class

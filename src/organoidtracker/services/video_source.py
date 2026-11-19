@@ -9,10 +9,10 @@ from typing import Any
 
 @dataclass(frozen=True)
 class VideoSource:
-    """The unique chronological frames of a video as the tracker holds them.
+    """The selected chronological frames of a video as the tracker holds them.
 
-    ``frame_map[i]`` is the decoded index of unique frame ``i``; consecutive near-identical
-    frames were collapsed. ``annotation_frame`` is the chronological index the prompts go to
+    ``frame_map[i]`` is the decoded index of selected time point ``i``. Old file formats
+    retain the name ``unique_frames``; the mapping, not pixel similarity, defines selection. ``annotation_frame`` is the chronological index the prompts go to
     (the last frame in reverse mode).
     """
 

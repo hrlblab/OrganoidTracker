@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape
 
 from .. import RESULTS_VERSION, __version__
 from ..paths import source_revision
@@ -18,6 +19,10 @@ from .organoid_analysis_engine import OrganoidAnalysisEngine, OrganoidAnalysisVa
 from .organoid_csv_exporter import OrganoidCSVExporter
 from .organoid_cyst_data import ExperimentData
 from .organoid_visualizations import OrganoidVisualizationSuite
+
+# Time points a report lists in one table cell. A longer series gets a table of its own, in rows of
+# this many: a row cannot break across pages, so a cell holding every frame of a long series fails the PDF.
+MAPPING_ROW_POINTS = 30
 
 # Optional imports for enhanced reporting
 logger = logging.getLogger(__name__)
@@ -27,7 +32,7 @@ try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import inch
-    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     HAS_REPORTLAB = True
 except ImportError:
@@ -44,6 +49,9 @@ class Analysis:
     validation: dict[str, Any]
     untracked_cysts: list[int] = field(default_factory=list)  # annotated cysts without any tracked mask
     unannotated_objects: list[int] = field(default_factory=list)  # tracked objects that are not annotated cysts
+    # What the report describes (video name and hash, run id, model, software), from the caller that knows it
+    source: dict[str, Any] | None = None
+    key_image: str | None = None  # a labelled overlay that says which mask is which cyst
 
     @property
     def complete(self) -> bool:
@@ -177,6 +185,8 @@ class OrganoidAnalysisReportGenerator:
             observed_frames=run["tracked_frames"],
             frame_timestamps=frame_timestamps,
         )
+        if len(run["frame_map"]) == experiment.total_frames:
+            experiment.source_frames = [int(index) for index in run["frame_map"]]
 
         # Step 3: Validate data quality
         logger.info("Step 3: Validating data quality...")
@@ -230,12 +240,23 @@ class OrganoidAnalysisReportGenerator:
         # Step 6: Generate enhanced PDF report
         logger.info("Step 6: Generating PDF report...")
         pdf_path = self._generate_enhanced_pdf_report(
-            experiment, validation_results, csv_paths, viz_paths, output_path, run
+            experiment,
+            validation_results,
+            csv_paths,
+            viz_paths,
+            output_path,
+            run,
+            source=analysis.source,
+            key_image=analysis.key_image,
         )
 
         # Step 7: Create analysis summary
         logger.info("Step 7: Creating analysis summary...")
         summary = self._create_analysis_summary(experiment, validation_results, csv_paths, viz_paths, pdf_path, run)
+        if analysis.source is not None:
+            summary["source"] = analysis.source
+        if analysis.key_image is not None:
+            summary["output_files"]["cyst_key"] = analysis.key_image
 
         # Save summary as JSON
         summary_json_path = output_path / "analysis_summary.json"
@@ -333,6 +354,8 @@ class OrganoidAnalysisReportGenerator:
         viz_paths: dict[str, str],
         output_path: Path,
         run: dict[str, Any] | None = None,
+        source: dict[str, Any] | None = None,
+        key_image: str | None = None,
     ) -> str | None:
         """
         Generate enhanced PDF report with visualizations
@@ -378,21 +401,46 @@ class OrganoidAnalysisReportGenerator:
                 )
                 story.append(Spacer(1, 12))
 
+            story.append(
+                Paragraph(
+                    "Counts and areas describe accepted segmentation masks. A missing mask does not establish "
+                    "biological absence. Gray heatmap columns are untracked; zero cells mean no accepted mask. "
+                    "Trajectory gaps indicate missing observations.",
+                    styles["Normal"],
+                )
+            )
+            for warning in validation_results.get("warnings", []):
+                story.append(Paragraph("<b>Measurement warning:</b> " + escape(str(warning)), styles["Normal"]))
+            story.append(
+                Paragraph(
+                    "Growth definitions: cyst CSV and heatmap use the unweighted mean of adjacent observed interval "
+                    "slopes. Organoid CSV uses the endpoint change in total accepted cyst area divided by elapsed days. "
+                    "The JSON summary averages organoid means of cyst interval slopes. All rates are in square "
+                    "micrometers per day; these estimands can differ.",
+                    styles["Normal"],
+                )
+            )
+            story.append(Spacer(1, 12))
+
             # Analysis summary
             story.append(Paragraph("Analysis Summary", styles["Heading2"]))
 
             summary_data = [
                 ["Metric", "Value"],
                 ["Total Organoids", str(validation_results["total_organoids"])],
-                ["Total Cysts", str(validation_results["total_cysts"])],
+                ["Cysts with accepted masks", str(validation_results["total_cysts"])],
                 ["Frames Analyzed", str(validation_results["frames_analyzed"])],
                 ["Tracking", self._tracking_label(run)],
                 ["Time Period", f"{experiment.time_lapse_days} days"],
                 ["Conversion Factor", f"{experiment.conversion_factor_um_per_pixel} μm/pixel"],
                 ["Analysis Date", datetime.now().strftime("%Y-%m-%d %H:%M")],
             ]
+            # What was analyzed: a report separated from its folder must still name its video and run.
+            cell_style = ParagraphStyle("SummaryCell", parent=styles["Normal"], fontSize=9, leading=11)
+            identity_rows = self._identity_rows(experiment, run, source)
+            summary_data[1:1] = [[label, Paragraph(escape(value), cell_style)] for label, value in identity_rows]
 
-            summary_table = Table(summary_data, colWidths=[3 * inch, 2 * inch])
+            summary_table = Table(summary_data, colWidths=[2 * inch, 4 * inch])
             summary_table.setStyle(
                 TableStyle(
                     [
@@ -411,6 +459,57 @@ class OrganoidAnalysisReportGenerator:
             story.append(summary_table)
             story.append(Spacer(1, 20))
 
+            mapping_blocks = self._mapping_blocks(experiment, run)
+            if mapping_blocks:
+                story.append(Paragraph("Source Frames and Acquisition Days", styles["Heading2"]))
+                mapping_table = Table(
+                    [
+                        ["Time points", "Source frames", "Acquisition days"],
+                        *([block[0], *(Paragraph(text, cell_style) for text in block[1:])] for block in mapping_blocks),
+                    ],
+                    colWidths=[1.1 * inch, 2.45 * inch, 2.45 * inch],
+                    repeatRows=1,  # the rows continue over as many pages as the series needs
+                )
+                mapping_table.setStyle(
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("FONTSIZE", (0, 0), (-1, -1), 9),
+                            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                            ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                        ]
+                    )
+                )
+                story.append(mapping_table)
+                story.append(Spacer(1, 20))
+
+            if key_image and Path(key_image).is_file():
+                try:
+                    from reportlab.lib.utils import ImageReader
+
+                    key_width, key_height = ImageReader(str(key_image)).getSize()
+                    shown_width = min(6 * inch, 5 * inch * key_width / key_height)
+                    story.append(
+                        KeepTogether(  # the heading stays with its picture
+                            [
+                                Paragraph("Cyst Key", styles["Heading2"]),
+                                Paragraph(
+                                    "Each accepted mask is labelled C followed by its Cyst_ID, as in the CSV "
+                                    "tables. The overlay video uses the same labels and colours.",
+                                    styles["Normal"],
+                                ),
+                                Spacer(1, 6),
+                                Image(str(key_image), width=shown_width, height=shown_width * key_height / key_width),
+                                Spacer(1, 12),
+                            ]
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not add the cyst key image: {e}")
+
             # Note: Frame comparison is now handled as a standard visualization (g_frame_comparison.png)
 
             # Add visualizations
@@ -421,8 +520,8 @@ class OrganoidAnalysisReportGenerator:
                     try:
                         # Add visualization title
                         viz_titles = {
-                            "organoids_with_cysts": "Percentage of Organoids with Cysts Over Time",
-                            "cyst_organoid_ratio": "Cyst to Organoid Ratio Over Time",
+                            "organoids_with_cysts": "Organoids with Accepted Cyst Masks Over Time",
+                            "cyst_organoid_ratio": "Accepted Cyst Masks per Annotated Organoid",
                             "cyst_areas_multiline": "Individual Cyst Area Trajectories",
                             "cyst_circularity_multiline": "Individual Cyst Circularity Trajectories",
                             "circularity_scatter": "Circularity vs Time (Sized by Area)",
@@ -434,7 +533,12 @@ class OrganoidAnalysisReportGenerator:
                         story.append(Paragraph(title, styles["Heading3"]))
 
                         # Add image
-                        img = Image(viz_path, width=6 * inch, height=4 * inch)
+                        raster = (
+                            Path(viz_path).with_suffix(".png")
+                            if Path(viz_path).suffix.lower() == ".svg"
+                            else Path(viz_path)
+                        )
+                        img = Image(str(raster), width=6 * inch, height=4 * inch)
                         story.append(img)
                         story.append(Spacer(1, 12))
 
@@ -487,6 +591,72 @@ class OrganoidAnalysisReportGenerator:
         except Exception as e:
             logger.error(f"PDF generation error: {e}")
             return None
+
+    @staticmethod
+    def _identity_rows(
+        experiment: ExperimentData, run: dict[str, Any] | None, source: dict[str, Any] | None
+    ) -> list[tuple[str, str]]:
+        """Rows that say which video, run, model and software a report describes (only what is known)."""
+        rows: list[tuple[str, str]] = []
+        source = source or {}
+        if source.get("video_name"):
+            rows.append(("Source video", str(source["video_name"])))
+        if source.get("video_sha256"):
+            rows.append(("Video SHA-256", str(source["video_sha256"])[:12] + "… (first 12 characters)"))
+        if source.get("run_id"):
+            rows.append(("Run ID", str(source["run_id"])))
+        if source.get("model"):
+            rows.append(("Model", str(source["model"])))
+        if source.get("software"):
+            rows.append(("Tracked with", str(source["software"])))
+        frame_map = OrganoidAnalysisReportGenerator._frame_map(experiment, run)
+        if frame_map:
+            total = source.get("decoded_frames")
+            numbers = [str(int(index) + 1) for index in frame_map]
+            days = [f"{day:g}" for day in experiment.frame_timestamps]
+            if len(frame_map) > MAPPING_ROW_POINTS:
+                # A table row cannot break across pages: the full list goes into its own table.
+                frames_text = f"{len(numbers)} frames, {numbers[0]} to {numbers[-1]}"
+                where = "; each frame and its day are listed under Source Frames and Acquisition Days below"
+                days_text = f"{days[0]} to {days[-1]}"
+            else:
+                frames_text, where, days_text = ", ".join(numbers), "", ", ".join(days)
+            rows.append(
+                (
+                    "Source frames",
+                    frames_text
+                    + (f" of {total}" if total else "")
+                    + " (counted from 1 as in the window; the CSV columns Frame and Source_Frame count from 0"
+                    + where
+                    + ")",
+                )
+            )
+            rows.append(("Acquisition days", days_text))
+        return rows
+
+    @staticmethod
+    def _frame_map(experiment: ExperimentData, run: dict[str, Any] | None) -> list[int]:
+        """The source frame of every analyzed time point; empty when the run does not record one each."""
+        frame_map = list((run or {}).get("frame_map") or [])
+        return frame_map if len(frame_map) == experiment.total_frames else []
+
+    @staticmethod
+    def _mapping_blocks(experiment: ExperimentData, run: dict[str, Any] | None) -> list[list[str]]:
+        """Rows of a long frame-to-day list: time point range, source frames, days (empty when short)."""
+        frame_map = OrganoidAnalysisReportGenerator._frame_map(experiment, run)
+        if len(frame_map) <= MAPPING_ROW_POINTS:
+            return []
+        blocks = []
+        for start in range(0, len(frame_map), MAPPING_ROW_POINTS):
+            stop = min(start + MAPPING_ROW_POINTS, len(frame_map))
+            blocks.append(
+                [
+                    f"{start + 1} to {stop}",
+                    ", ".join(str(int(index) + 1) for index in frame_map[start:stop]),
+                    ", ".join(f"{day:g}" for day in experiment.frame_timestamps[start:stop]),
+                ]
+            )
+        return blocks
 
     def _create_analysis_summary(
         self,
@@ -541,11 +711,14 @@ class OrganoidAnalysisReportGenerator:
                 "organoids_with_cysts": sum(1 for org in experiment.organoids.values() if len(org.cysts) > 0),
             },
             "growth_statistics": {
+                "definition": "mean across organoids of their mean cyst interval slopes (um2/day)",
+                "estimable_cysts": sum(experiment.growth_rate_per_day(c) is not None for c in all_cysts),
+                "estimable_organoids": len(growth_rate_values),
                 "mean_growth_rate_um2_per_day": round(sum(growth_rate_values) / len(growth_rate_values), 4)
                 if growth_rate_values
-                else 0,
-                "max_growth_rate_um2_per_day": round(max(growth_rate_values), 4) if growth_rate_values else 0,
-                "min_growth_rate_um2_per_day": round(min(growth_rate_values), 4) if growth_rate_values else 0,
+                else None,
+                "max_growth_rate_um2_per_day": round(max(growth_rate_values), 4) if growth_rate_values else None,
+                "min_growth_rate_um2_per_day": round(min(growth_rate_values), 4) if growth_rate_values else None,
             },
             "output_files": {"csv_files": csv_paths, "visualizations": viz_paths, "pdf_report": pdf_path},
             "validation_results": validation_results,
