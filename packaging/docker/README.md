@@ -33,8 +33,9 @@ Open a terminal in the bundle directory and run:
 
 Enter your existing video directory, a results directory, a reusable model-cache directory and
 `cuda` or `cpu`. Paths may contain spaces and Unicode. Commas and newlines are not supported.
-The launcher remembers these choices. It loads the included image and downloads the public default
-SAM 2.1 Base-plus checkpoint if absent, verifies its checksum, and opens the application when ready.
+The launcher remembers these choices and loads the included image. It opens the application while
+preparing the public default SAM 2.1 Base-plus checkpoint in the background. Saved results remain
+usable if preparation fails; tracking checks the selected checkpoint before inference.
 The model cache survives application updates. Public model source and license:
 [Meta SAM 2](https://github.com/facebookresearch/sam2).
 
@@ -117,3 +118,11 @@ model weights, private videos, user preferences or research outputs; `.dockerign
 The host launcher uses Bash and Docker plus standard Linux utilities. `ORGANOIDTRACKER_HOME` selects
 an alternate configuration directory; `ORGANOIDTRACKER_NO_BROWSER=1` suppresses browser opening for
 integration checks. These are optional, not part of routine recipient setup.
+
+### Model preparation and saved reports
+
+The launcher opens the desktop while it prepares the default checkpoint in the background.
+Progress and failures are recorded in `model-preparation.log` beside the launcher settings.
+Opening saved results and exporting reports require no checkpoint or network connection.
+Tracking verifies the selected public checkpoint before loading it. If it is missing or
+corrupt, move corrupt files aside and run `./organoidtracker models` to prepare the cache.

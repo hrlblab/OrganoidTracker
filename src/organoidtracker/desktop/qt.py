@@ -15,6 +15,7 @@ from ..gui_qt.window import MainWindow
 from ..logging_config import configure_logging
 from ..services.tracking_service import TrackingService
 from .checks import check_device
+from .models import validate_checkpoint
 
 RUNTIME = Path("/tmp/organoidtracker")
 
@@ -37,12 +38,20 @@ class ContainerWindow(MainWindow):
         model.item(index).setEnabled(False)
         self.device.setCurrentText(mode)
         self.device.setEnabled(False)
+        self.checkpoint_timer = QTimer(self)
+        self.checkpoint_timer.timeout.connect(self.update_checkpoint_status)
+        self.checkpoint_timer.start(2000)
 
     def create_tracker(self, spec):
         if spec.backend != "sam2" or spec.device != self.mode:
             raise ValueError(f"This image supports the reference SAM 2 backend on {self.mode}.")
         check_device(self.mode)
-        return TrackingService.create(spec)
+        service = TrackingService.create(spec)
+        checkpoint = getattr(service.tracker, "checkpoint_path", None)
+        if checkpoint is None:
+            raise ValueError("Select a checkpoint before tracking.")
+        validate_checkpoint(Path(checkpoint))
+        return service
 
     def apply_session_fields(self, session):
         super().apply_session_fields(session)

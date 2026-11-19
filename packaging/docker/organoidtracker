@@ -116,10 +116,20 @@ fi
 # Bootstrap is the only container allowed to write the model cache.
 available=$(df --output=avail --block-size=1M -- "$results"); available=${available##*$'\n'}
 printf 'Available results storage: %s MiB\n' "${available// /}"
-printf 'Checking the reusable model cache…\n'
-docker run --rm --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp \
-    --mount "type=bind,src=$models,dst=/models" --entrypoint python "$image" -m organoidtracker.desktop.models "$model"
-[[ $command_name != models ]] || exit 0
+prepare_model() {
+    docker run --rm --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp \
+        --mount "type=bind,src=$models,dst=/models" --entrypoint python "$image" -m organoidtracker.desktop.models "$model"
+}
+if [[ $command_name == models ]]; then
+    prepare_model
+    exit 0
+fi
+# Preparing the default model is useful for a new installation, but saved reports
+# must remain usable offline or when the cache needs repair. Close the launcher lock
+# in the background child; model preparation has its own cache lock.
+printf 'Preparing the default model in the background; progress: %s/model-preparation.log\n' "$state_dir"
+(prepare_model || printf 'Model preparation failed. Existing results remain usable. Run organoidtracker models to retry.\n') \
+    > "$state_dir/model-preparation.log" 2>&1 9>&- &
 [[ -z $exists ]] || docker rm "$name" >/dev/null
 args=(run -d --name "$name" --init --user "$(id -u):$(id -g)" --read-only
       --tmpfs /tmp:rw,exec,nosuid,size=2g --shm-size 256m --stop-timeout 300

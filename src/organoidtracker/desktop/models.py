@@ -22,6 +22,20 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def validate_checkpoint(path: Path) -> None:
+    """Verify known public weights immediately before inference, without writing the cache."""
+    for model, (expected, size) in MODELS.items():
+        if path.name == f"sam2.1_hiera_{model}.pt":
+            if not path.is_file():
+                raise FileNotFoundError(
+                    "Selected checkpoint is not ready. Check model-preparation.log or run organoidtracker models."
+                )
+            if path.stat().st_size != size or digest(path) != expected:
+                raise ValueError(
+                    f"{path.name} does not match its release checksum. Move it aside and run organoidtracker models."
+                )
+
+
 def prepare(root: Path, model: str, *, offline=False) -> Path:
     expected, size = MODELS[model]
     name = f"sam2.1_hiera_{model}.pt"

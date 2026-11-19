@@ -98,3 +98,66 @@ def test_cached_model_is_verified_offline_and_corruption_preserved(tmp_path, mon
     with pytest.raises(ValueError, match="checksum"):
         models.prepare(tmp_path, "tiny")
     assert checkpoint.read_bytes() == b"corrupted"
+
+
+def test_launcher_opens_reports_when_default_model_preparation_fails(tmp_path, monkeypatch):
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    shutil.copyfile(
+        Path(__file__).resolve().parents[1] / "packaging/docker/organoidtracker", bundle / "organoidtracker"
+    )
+    (bundle / "image-cpu.txt").write_text("sha256:synthetic-image\n")
+    state = tmp_path / "settings"
+    state.mkdir()
+    for name in ("videos", "results", "models", "preferences"):
+        directory = tmp_path / name
+        directory.mkdir()
+        if name == "preferences":
+            (state / name).mkdir()
+        else:
+            (state / name).write_text(str(directory) + "\n")
+    (state / "mode").write_text("cpu\n")
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    docker = fakebin / "docker"
+    docker.write_text("""#!/bin/bash
+case "$*" in
+  info*) echo 29;;
+  'container inspect'*) exit 1;;
+  'image inspect'*) exit 0;;
+  'run --rm'*) echo 'release checksum mismatch' >&2; exit 2;;
+  'run -d'*) echo synthetic-container;;
+  'inspect --format'*) echo 'running healthy';;
+  port*) echo '127.0.0.1:12345';;
+  *) exit 1;;
+esac
+""")
+    docker.chmod(0o755)
+    monkeypatch.setenv("PATH", str(fakebin) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("ORGANOIDTRACKER_HOME", str(state))
+    monkeypatch.setenv("ORGANOIDTRACKER_NO_BROWSER", "1")
+    result = subprocess.run(["bash", str(bundle / "organoidtracker")], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    assert "Application: http://127.0.0.1:12345/" in result.stdout
+
+
+def test_selected_public_checkpoint_is_verified_before_inference(tmp_path, monkeypatch):
+    import hashlib
+
+    from organoidtracker.desktop import models
+
+    content = b"synthetic valid weights"
+    monkeypatch.setitem(models.MODELS, "tiny", (hashlib.sha256(content).hexdigest(), len(content)))
+    path = tmp_path / "sam2.1_hiera_tiny.pt"
+    with pytest.raises(FileNotFoundError, match="not ready"):
+        models.validate_checkpoint(path)
+    path.write_bytes(b"invalid")
+    with pytest.raises(ValueError, match="checksum"):
+        models.validate_checkpoint(path)
+    path.write_bytes(content)
+    models.validate_checkpoint(path)
